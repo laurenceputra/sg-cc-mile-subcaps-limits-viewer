@@ -1090,6 +1090,16 @@
         if (!group) {
           return;
         }
+        const sortedTransactions = group.transactions.slice().sort((a, b) => {
+          const dateA = fromISODate(a.posting_date_iso) || parsePostingDate(a.posting_date);
+          const dateB = fromISODate(b.posting_date_iso) || parsePostingDate(b.posting_date);
+          const timeA = dateA ? dateA.getTime() : 0;
+          const timeB = dateB ? dateB.getTime() : 0;
+          if (timeA !== timeB) {
+            return timeB - timeA;
+          }
+          return (a.merchant_detail || '').localeCompare(b.merchant_detail || '');
+        });
         const categoryHeader = document.createElement('div');
         categoryHeader.style.display = 'flex';
         categoryHeader.style.justifyContent = 'space-between';
@@ -1130,7 +1140,7 @@
         list.appendChild(headerDate);
         list.appendChild(headerAmount);
 
-        group.transactions.forEach((tx) => {
+        sortedTransactions.forEach((tx) => {
           const merchantCell = document.createElement('div');
           merchantCell.textContent = tx.merchant_detail || '-';
           merchantCell.style.wordBreak = 'break-word';
@@ -1385,9 +1395,9 @@
       return;
     }
 
-    const tableBody = await waitForXPath(
-      '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
-    );
+    const tableBodyXPath =
+      '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody';
+    const tableBody = await waitForXPath(tableBodyXPath);
     if (!tableBody) {
       removeUI();
       return;
@@ -1399,10 +1409,14 @@
     updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
     saveSettings(initialSettings);
 
-    const refreshOverlay = () => {
+    const refreshOverlay = async () => {
+      const latestTableBody = await waitForXPath(tableBodyXPath);
+      if (!latestTableBody) {
+        return;
+      }
       const settings = loadSettings();
       const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
-      const data = buildData(tableBody, cardName, cardSettings);
+      const data = buildData(latestTableBody, cardName, cardSettings);
       updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
       saveSettings(settings);
       const storedTransactions = getStoredTransactions(cardSettings);
