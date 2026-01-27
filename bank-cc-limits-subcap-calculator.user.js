@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      0.3.0
+// @version      0.4.0
 // @description  Extract credit card transactions and manage subcap categories
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
 // @run-at       document-idle
@@ -41,9 +41,11 @@
     overlay: 'cc-subcap-overlay',
     jsonContent: 'cc-subcap-json',
     manageContent: 'cc-subcap-manage',
+    spendContent: 'cc-subcap-spend',
     summaryContent: 'cc-subcap-summary',
     tabJson: 'cc-subcap-tab-json',
     tabManage: 'cc-subcap-tab-manage',
+    tabSpend: 'cc-subcap-tab-spend',
     close: 'cc-subcap-close'
   };
 
@@ -227,67 +229,36 @@
   }
 
   function parsePostingDate(value) {
-    const raw = normalizeText(value).replace(/,/g, '').replace(/-/g, ' ');
+    const raw = normalizeText(value).replace(/,/g, '');
     if (!raw) {
       return null;
     }
-
-    const numericMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (numericMatch) {
-      const day = Number(numericMatch[1]);
-      const month = Number(numericMatch[2]);
-      const year = Number(numericMatch[3]);
-      const date = new Date(year, month - 1, day);
-      return Number.isNaN(date.getTime()) ? null : date;
+    const textMatch = raw.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+    if (!textMatch) {
+      return null;
     }
-
-    const textMatch = raw.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s*(\d{4})?$/);
-    if (textMatch) {
-      const day = Number(textMatch[1]);
-      const monthName = textMatch[2].toLowerCase();
-      const monthMap = {
-        jan: 0,
-        january: 0,
-        feb: 1,
-        february: 1,
-        mar: 2,
-        march: 2,
-        apr: 3,
-        april: 3,
-        may: 4,
-        jun: 5,
-        june: 5,
-        jul: 6,
-        july: 6,
-        aug: 7,
-        august: 7,
-        sep: 8,
-        sept: 8,
-        september: 8,
-        oct: 9,
-        october: 9,
-        nov: 10,
-        november: 10,
-        dec: 11,
-        december: 11
-      };
-      if (!Object.prototype.hasOwnProperty.call(monthMap, monthName)) {
-        return null;
-      }
-      let year = textMatch[3] ? Number(textMatch[3]) : new Date().getFullYear();
-      let date = new Date(year, monthMap[monthName], day);
-      if (!textMatch[3]) {
-        const today = new Date();
-        if (date > today) {
-          year -= 1;
-          date = new Date(year, monthMap[monthName], day);
-        }
-      }
-      return Number.isNaN(date.getTime()) ? null : date;
+    const day = Number(textMatch[1]);
+    const monthName = textMatch[2].toLowerCase();
+    const year = Number(textMatch[3]);
+    const monthMap = {
+      jan: 0,
+      feb: 1,
+      mar: 2,
+      apr: 3,
+      may: 4,
+      jun: 5,
+      jul: 6,
+      aug: 7,
+      sep: 8,
+      oct: 9,
+      nov: 10,
+      dec: 11
+    };
+    if (!Object.prototype.hasOwnProperty.call(monthMap, monthName)) {
+      return null;
     }
-
-    const parsed = new Date(raw);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    const date = new Date(year, monthMap[monthName], day);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   function getCutoffDate(months) {
@@ -310,7 +281,7 @@
     if (!raw) {
       return '';
     }
-    return raw.replace(/^ref\\s*no\\s*:\\s*/i, '');
+    return raw.replace(/^ref\s*no\s*:\s*/i, '');
   }
 
   function parseAmount(amountText) {
@@ -504,6 +475,84 @@
     cardSettings.transactions = nextStored;
   }
 
+  function getStoredTransactions(cardSettings) {
+    const stored = cardSettings.transactions || {};
+    return Object.keys(stored)
+      .map((key) => {
+        const entry = stored[key] || {};
+        const merchantDetail = normalizeText(entry.merchant_detail || '');
+        const parsedDate =
+          fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+        const postingDateIso = entry.posting_date_iso || (parsedDate ? toISODate(parsedDate) : '');
+        const amountValue =
+          typeof entry.amount_value === 'number'
+            ? entry.amount_value
+            : parseAmount(entry.amount_text || '');
+        const category = resolveCategory(merchantDetail, cardSettings);
+        return {
+          ...entry,
+          ref_no: normalizeKey(entry.ref_no || key),
+          merchant_detail: merchantDetail,
+          posting_date_iso: postingDateIso,
+          posting_month: postingDateIso ? postingDateIso.slice(0, 7) : '',
+          amount_value: amountValue,
+          category
+        };
+      })
+      .filter((entry) => entry.ref_no);
+  }
+
+  function formatMonthLabel(monthKey) {
+    const match = String(monthKey).match(/^(\d{4})-(\d{2})$/);
+    if (!match) {
+      return monthKey;
+    }
+    const year = match[1];
+    const monthIndex = Number(match[2]) - 1;
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    if (!monthNames[monthIndex]) {
+      return monthKey;
+    }
+    return `${monthNames[monthIndex]} ${year}`;
+  }
+
+  function calculateMonthlyTotals(transactions, cardSettings) {
+    const totalsByMonth = {};
+
+    transactions.forEach((transaction) => {
+      if (!transaction.posting_month) {
+        return;
+      }
+      if (typeof transaction.amount_value !== 'number') {
+        return;
+      }
+      const monthKey = transaction.posting_month;
+      if (!totalsByMonth[monthKey]) {
+        totalsByMonth[monthKey] = { totals: {}, total_amount: 0 };
+      }
+      const category =
+        transaction.category || cardSettings.defaultCategory || 'Others';
+      totalsByMonth[monthKey].totals[category] =
+        (totalsByMonth[monthKey].totals[category] || 0) + transaction.amount_value;
+      totalsByMonth[monthKey].total_amount += transaction.amount_value;
+    });
+
+    return totalsByMonth;
+  }
+
   function createButton(onClick) {
     if (document.getElementById(UI_IDS.button)) {
       return;
@@ -672,9 +721,9 @@
     container.appendChild(select);
   }
 
-  function renderMerchantMapping(container, data, cardSettings, onChange) {
+  function renderMerchantSection(container, titleText, merchants, cardSettings, onChange) {
     const title = document.createElement('div');
-    title.textContent = 'Manage transactions';
+    title.textContent = titleText;
     title.style.fontWeight = '600';
 
     const table = document.createElement('div');
@@ -682,11 +731,16 @@
     table.style.gridTemplateColumns = '2fr 1fr';
     table.style.gap = '8px 12px';
 
-    const uniqueMerchants = Array.from(
-      new Set(data.transactions.map((transaction) => transaction.merchant_detail))
-    ).sort((a, b) => a.localeCompare(b));
+    if (!merchants.length) {
+      const empty = document.createElement('div');
+      empty.textContent = 'None';
+      empty.style.opacity = '0.7';
+      container.appendChild(title);
+      container.appendChild(empty);
+      return;
+    }
 
-    uniqueMerchants.forEach((merchant) => {
+    merchants.forEach((merchant) => {
       const label = document.createElement('div');
       label.textContent = merchant;
       label.style.wordBreak = 'break-word';
@@ -725,7 +779,40 @@
     container.appendChild(table);
   }
 
-  function renderManageView(container, data, cardSettings, cardConfig, onChange) {
+  function renderMerchantMapping(container, transactions, cardSettings, onChange) {
+    const merchantSet = new Set(
+      transactions.map((transaction) => transaction.merchant_detail).filter(Boolean)
+    );
+    const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
+
+    const uncategorized = Array.from(merchantSet)
+      .filter((merchant) => !mappedMerchants.has(merchant))
+      .sort((a, b) => a.localeCompare(b));
+    const categorized = Array.from(mappedMerchants).sort((a, b) => a.localeCompare(b));
+
+    renderMerchantSection(
+      container,
+      'Transactions to categorize',
+      uncategorized,
+      cardSettings,
+      onChange
+    );
+
+    const divider = document.createElement('div');
+    divider.style.borderTop = '1px solid #2b2b2b';
+    divider.style.margin = '12px 0';
+    container.appendChild(divider);
+
+    renderMerchantSection(
+      container,
+      'Categorized',
+      categorized,
+      cardSettings,
+      onChange
+    );
+  }
+
+  function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
     container.innerHTML = '';
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
@@ -753,35 +840,119 @@
     mappingSection.style.flexDirection = 'column';
     mappingSection.style.gap = '12px';
 
-    renderMerchantMapping(mappingSection, data, cardSettings, onChange);
+    renderMerchantMapping(mappingSection, storedTransactions, cardSettings, onChange);
 
     container.appendChild(selectorsSection);
     container.appendChild(summarySection);
     container.appendChild(mappingSection);
   }
 
+  function renderSpendingView(container, storedTransactions, cardSettings) {
+    container.innerHTML = '';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '12px';
+
+    const title = document.createElement('div');
+    title.textContent = 'Spend Totals (Last 3 Months)';
+    title.style.fontWeight = '600';
+
+    const subtitle = document.createElement('div');
+    subtitle.textContent = 'Grouped by posting month using stored transactions.';
+    subtitle.style.opacity = '0.7';
+    subtitle.style.fontSize = '12px';
+
+    container.appendChild(title);
+    container.appendChild(subtitle);
+
+    const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
+    const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));
+
+    if (!months.length) {
+      const empty = document.createElement('div');
+      empty.textContent = 'No stored transactions yet.';
+      empty.style.opacity = '0.8';
+      container.appendChild(empty);
+      return;
+    }
+
+    const categories = getSelectedCategories(cardSettings).filter(Boolean);
+    categories.push('Others');
+    const extras = new Set();
+    months.forEach((monthKey) => {
+      const totals = monthlyTotals[monthKey]?.totals || {};
+      Object.keys(totals).forEach((category) => {
+        if (!categories.includes(category)) {
+          extras.add(category);
+        }
+      });
+    });
+    categories.push(...Array.from(extras));
+
+    const table = document.createElement('div');
+    table.style.display = 'grid';
+    table.style.gridTemplateColumns = `1.2fr repeat(${categories.length + 1}, minmax(80px, 1fr))`;
+    table.style.rowGap = '6px';
+    table.style.columnGap = '12px';
+    table.style.alignItems = 'center';
+
+    function addCell(text, isHeader) {
+      const cell = document.createElement('div');
+      cell.textContent = text;
+      if (isHeader) {
+        cell.style.fontWeight = '600';
+        cell.style.opacity = '0.85';
+      }
+      table.appendChild(cell);
+    }
+
+    addCell('Month', true);
+    categories.forEach((category) => addCell(category, true));
+    addCell('Total', true);
+
+    months.forEach((monthKey) => {
+      const monthData = monthlyTotals[monthKey];
+      const totals = monthData.totals || {};
+      addCell(formatMonthLabel(monthKey), false);
+      categories.forEach((category) => {
+        const value = totals[category] || 0;
+        addCell(value.toFixed(2), false);
+      });
+      addCell(monthData.total_amount.toFixed(2), false);
+    });
+
+    container.appendChild(table);
+  }
+
   function switchTab(tab) {
     const jsonContent = document.getElementById(UI_IDS.jsonContent);
     const manageContent = document.getElementById(UI_IDS.manageContent);
+    const spendContent = document.getElementById(UI_IDS.spendContent);
     const tabJson = document.getElementById(UI_IDS.tabJson);
     const tabManage = document.getElementById(UI_IDS.tabManage);
+    const tabSpend = document.getElementById(UI_IDS.tabSpend);
 
-    if (!jsonContent || !manageContent || !tabJson || !tabManage) {
+    if (!jsonContent || !manageContent || !spendContent || !tabJson || !tabManage || !tabSpend) {
       return;
     }
 
     const isJson = tab === 'json';
+    const isManage = tab === 'manage';
+    const isSpend = tab === 'spend';
     jsonContent.style.display = isJson ? 'block' : 'none';
-    manageContent.style.display = isJson ? 'none' : 'block';
+    manageContent.style.display = isManage ? 'block' : 'none';
+    spendContent.style.display = isSpend ? 'block' : 'none';
 
     tabJson.style.background = isJson ? '#1f1f1f' : 'transparent';
-    tabManage.style.background = !isJson ? '#1f1f1f' : 'transparent';
+    tabManage.style.background = isManage ? '#1f1f1f' : 'transparent';
+    tabSpend.style.background = isSpend ? '#1f1f1f' : 'transparent';
   }
 
-  function createOverlay(data, cardSettings, cardConfig, onChange) {
+  function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
     let overlay = document.getElementById(UI_IDS.overlay);
     let jsonContent;
     let manageContent;
+    let spendContent;
 
     if (!overlay) {
       overlay = document.createElement('div');
@@ -867,8 +1038,21 @@
       tabManage.style.cursor = 'pointer';
       tabManage.addEventListener('click', () => switchTab('manage'));
 
+      const tabSpend = document.createElement('button');
+      tabSpend.id = UI_IDS.tabSpend;
+      tabSpend.type = 'button';
+      tabSpend.textContent = 'Spend Totals';
+      tabSpend.style.border = '1px solid #2b2b2b';
+      tabSpend.style.borderRadius = '999px';
+      tabSpend.style.padding = '6px 12px';
+      tabSpend.style.background = 'transparent';
+      tabSpend.style.color = '#fff';
+      tabSpend.style.cursor = 'pointer';
+      tabSpend.addEventListener('click', () => switchTab('spend'));
+
       tabs.appendChild(tabJson);
       tabs.appendChild(tabManage);
+      tabs.appendChild(tabSpend);
 
       jsonContent = document.createElement('pre');
       jsonContent.id = UI_IDS.jsonContent;
@@ -885,22 +1069,39 @@
       manageContent.style.display = 'none';
       manageContent.style.overflow = 'auto';
 
+      spendContent = document.createElement('div');
+      spendContent.id = UI_IDS.spendContent;
+      spendContent.style.display = 'none';
+      spendContent.style.overflow = 'auto';
+
       panel.appendChild(header);
       panel.appendChild(tabs);
       panel.appendChild(jsonContent);
       panel.appendChild(manageContent);
+      panel.appendChild(spendContent);
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
     } else {
       jsonContent = document.getElementById(UI_IDS.jsonContent);
       manageContent = document.getElementById(UI_IDS.manageContent);
+      spendContent = document.getElementById(UI_IDS.spendContent);
     }
 
     if (jsonContent) {
       jsonContent.textContent = JSON.stringify(data, null, 2);
     }
     if (manageContent) {
-      renderManageView(manageContent, data, cardSettings, cardConfig, onChange);
+      renderManageView(
+        manageContent,
+        data,
+        storedTransactions,
+        cardSettings,
+        cardConfig,
+        onChange
+      );
+    }
+    if (spendContent) {
+      renderSpendingView(spendContent, storedTransactions, cardSettings);
     }
 
     overlay.style.display = 'flex';
@@ -953,7 +1154,8 @@
       const data = buildData(tableBody, cardName, cardSettings);
       updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
       saveSettings(settings);
-      createOverlay(data, cardSettings, cardConfig, (updateFn) => {
+      const storedTransactions = getStoredTransactions(cardSettings);
+      createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
         const nextSettings = loadSettings();
         const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
         updateFn(nextCardSettings);
