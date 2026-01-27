@@ -489,29 +489,49 @@
 
   function getStoredTransactions(cardSettings) {
     const stored = cardSettings.transactions || {};
-    return Object.keys(stored)
-      .map((key) => {
-        const entry = stored[key] || {};
-        const merchantDetail = normalizeText(entry.merchant_detail || '');
-        const parsedDate =
-          fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
-        const postingDateIso = entry.posting_date_iso || (parsedDate ? toISODate(parsedDate) : '');
-        const amountValue =
-          typeof entry.amount_value === 'number'
-            ? entry.amount_value
-            : parseAmount(entry.amount_text || '');
-        const category = resolveCategory(merchantDetail, cardSettings);
-        return {
-          ...entry,
-          ref_no: normalizeKey(entry.ref_no || key),
-          merchant_detail: merchantDetail,
-          posting_date_iso: postingDateIso,
-          posting_month: postingDateIso ? postingDateIso.slice(0, 7) : '',
-          amount_value: amountValue,
-          category
-        };
-      })
-      .filter((entry) => entry.ref_no);
+    const deduped = {};
+
+    Object.keys(stored).forEach((key) => {
+      const entry = stored[key] || {};
+      const normalizedRefNo = normalizeKey(normalizeRefNo(entry.ref_no || key));
+      if (!normalizedRefNo) {
+        return;
+      }
+
+      const merchantDetail = normalizeText(entry.merchant_detail || '');
+      const parsedDate =
+        fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+      const postingDateIso = entry.posting_date_iso || (parsedDate ? toISODate(parsedDate) : '');
+      const amountValue =
+        typeof entry.amount_value === 'number'
+          ? entry.amount_value
+          : parseAmount(entry.amount_text || '');
+      const category = resolveCategory(merchantDetail, cardSettings);
+
+      const normalizedEntry = {
+        ...entry,
+        ref_no: normalizedRefNo,
+        merchant_detail: merchantDetail,
+        posting_date_iso: postingDateIso,
+        posting_month: postingDateIso ? postingDateIso.slice(0, 7) : '',
+        amount_value: amountValue,
+        category
+      };
+
+      if (!deduped[normalizedRefNo]) {
+        deduped[normalizedRefNo] = normalizedEntry;
+        return;
+      }
+
+      const existing = deduped[normalizedRefNo];
+      const existingDate = fromISODate(existing.posting_date_iso);
+      const newDate = fromISODate(normalizedEntry.posting_date_iso);
+      if (newDate && (!existingDate || newDate > existingDate)) {
+        deduped[normalizedRefNo] = normalizedEntry;
+      }
+    });
+
+    return Object.values(deduped);
   }
 
   function formatMonthLabel(monthKey) {
