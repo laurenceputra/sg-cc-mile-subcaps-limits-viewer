@@ -273,11 +273,9 @@
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  function getCutoffDate(months) {
-    const cutoff = new Date();
-    cutoff.setHours(0, 0, 0, 0);
-    cutoff.setMonth(cutoff.getMonth() - months);
-    return cutoff;
+  function getCalendarCutoffDate(months) {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() - months, 1);
   }
 
   function isWithinCutoff(date, cutoff) {
@@ -449,7 +447,7 @@
 
   function updateStoredTransactions(settings, cardName, cardConfig, transactions) {
     const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
-    const cutoff = getCutoffDate(3);
+    const cutoff = getCalendarCutoffDate(3);
     const nextStored = {};
 
     Object.keys(cardSettings.transactions || {}).forEach((refNo) => {
@@ -886,7 +884,7 @@
     container.style.gap = '12px';
 
     const title = document.createElement('div');
-    title.textContent = 'Spend Totals (Last 3 Months)';
+    title.textContent = 'Spend Totals (Last 3 Calendar Months)';
     title.style.fontWeight = '600';
 
     const subtitle = document.createElement('div');
