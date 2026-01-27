@@ -632,7 +632,7 @@
     container.innerHTML = '';
 
     const title = document.createElement('div');
-    title.textContent = 'Totals (by category)';
+    title.textContent = 'Totals in Statement Month (by category)';
     title.style.fontWeight = '600';
     title.style.marginBottom = '8px';
 
@@ -909,6 +909,35 @@
     );
   }
 
+  function mergeTransactionsForMapping(currentTransactions, storedTransactions) {
+    const combined = [];
+    const seen = new Set();
+    const add = (tx) => {
+      const refKey = normalizeKey(normalizeRefNo(tx.ref_no || ''));
+      if (refKey) {
+        if (seen.has(refKey)) {
+          return;
+        }
+        seen.add(refKey);
+      } else {
+        const fallbackKey = [
+          (tx.merchant_detail || '').toLowerCase(),
+          tx.posting_date_iso || tx.posting_date || '',
+          tx.amount_text || String(tx.amount_value || '')
+        ].join('|');
+        if (seen.has(fallbackKey)) {
+          return;
+        }
+        seen.add(fallbackKey);
+      }
+      combined.push(tx);
+    };
+
+    currentTransactions.forEach(add);
+    storedTransactions.forEach(add);
+    return combined;
+  }
+
   function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
     container.innerHTML = '';
     container.style.display = 'flex';
@@ -937,7 +966,11 @@
     mappingSection.style.flexDirection = 'column';
     mappingSection.style.gap = '12px';
 
-    renderMerchantMapping(mappingSection, storedTransactions, cardSettings, onChange);
+    const mappingTransactions = mergeTransactionsForMapping(
+      data.transactions || [],
+      storedTransactions || []
+    );
+    renderMerchantMapping(mappingSection, mappingTransactions, cardSettings, onChange);
 
     container.appendChild(selectorsSection);
     container.appendChild(summarySection);
