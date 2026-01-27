@@ -30,6 +30,10 @@ This repo uses a lightweight multi-agent workflow for building a Tampermonkey us
 7) **Maintenance Plan**
    - Document how to update selectors, add banks, and verify changes.
 
+8) **Commit Discipline**
+   - Commit after each sizeable chunk of work.
+   - Always commit before returning results to the user.
+
 ## Agents
 - **code-reviewer**: Senior-level review for risks, regressions, and missing tests.
 Use the agents below as needed. Assign tasks in the order shown above to reduce rework.
