@@ -1014,9 +1014,34 @@
 
         const list = document.createElement('div');
         list.style.display = 'grid';
-        list.style.gridTemplateColumns = '1.5fr 0.7fr 0.7fr';
+        list.style.gridTemplateColumns = '1.4fr 0.6fr 0.6fr 0.9fr';
         list.style.gap = '6px 12px';
         list.style.marginTop = '6px';
+
+        const headerMerchant = document.createElement('div');
+        headerMerchant.textContent = 'Merchant';
+        headerMerchant.style.fontWeight = '600';
+        headerMerchant.style.color = THEME.muted;
+
+        const headerDate = document.createElement('div');
+        headerDate.textContent = 'Posting Date';
+        headerDate.style.fontWeight = '600';
+        headerDate.style.color = THEME.muted;
+
+        const headerAmount = document.createElement('div');
+        headerAmount.textContent = 'Amount';
+        headerAmount.style.fontWeight = '600';
+        headerAmount.style.color = THEME.muted;
+
+        const headerRef = document.createElement('div');
+        headerRef.textContent = 'Ref No';
+        headerRef.style.fontWeight = '600';
+        headerRef.style.color = THEME.muted;
+
+        list.appendChild(headerMerchant);
+        list.appendChild(headerDate);
+        list.appendChild(headerAmount);
+        list.appendChild(headerRef);
 
         group.transactions.forEach((tx) => {
           const merchantCell = document.createElement('div');
@@ -1031,9 +1056,15 @@
           amountCell.textContent =
             typeof tx.amount_value === 'number' ? tx.amount_value.toFixed(2) : '-';
 
+          const refCell = document.createElement('div');
+          refCell.textContent = tx.ref_no || '-';
+          refCell.style.wordBreak = 'break-word';
+          refCell.style.color = THEME.muted;
+
           list.appendChild(merchantCell);
           list.appendChild(dateCell);
           list.appendChild(amountCell);
+          list.appendChild(refCell);
         });
 
         details.appendChild(categoryHeader);
