@@ -978,8 +978,34 @@
       headerLeft.appendChild(monthLabel);
 
       const headerRight = document.createElement('div');
-      headerRight.textContent = monthData.total_amount.toFixed(2);
-      headerRight.style.fontWeight = '600';
+      headerRight.style.display = 'flex';
+      headerRight.style.flexWrap = 'wrap';
+      headerRight.style.gap = '6px';
+      headerRight.style.justifyContent = 'flex-end';
+
+      const totalPill = document.createElement('div');
+      totalPill.textContent = `Total ${monthData.total_amount.toFixed(2)}`;
+      totalPill.style.padding = '4px 8px';
+      totalPill.style.borderRadius = '999px';
+      totalPill.style.background = THEME.accentSoft;
+      totalPill.style.border = `1px solid ${THEME.border}`;
+      totalPill.style.fontWeight = '600';
+      totalPill.style.fontSize = '12px';
+
+      headerRight.appendChild(totalPill);
+
+      categoryOrder.forEach((category) => {
+        const value = monthData.totals?.[category] || 0;
+        const pill = document.createElement('div');
+        pill.textContent = `${category} ${value.toFixed(2)}`;
+        pill.style.padding = '4px 8px';
+        pill.style.borderRadius = '999px';
+        pill.style.background = THEME.surface;
+        pill.style.border = `1px solid ${THEME.border}`;
+        pill.style.fontSize = '12px';
+        pill.style.color = THEME.muted;
+        headerRight.appendChild(pill);
+      });
 
       header.appendChild(headerLeft);
       header.appendChild(headerRight);
@@ -1014,7 +1040,7 @@
 
         const list = document.createElement('div');
         list.style.display = 'grid';
-        list.style.gridTemplateColumns = '1.4fr 0.6fr 0.6fr 0.9fr';
+        list.style.gridTemplateColumns = '1.6fr 0.6fr 0.6fr';
         list.style.gap = '6px 12px';
         list.style.marginTop = '6px';
 
@@ -1033,15 +1059,9 @@
         headerAmount.style.fontWeight = '600';
         headerAmount.style.color = THEME.muted;
 
-        const headerRef = document.createElement('div');
-        headerRef.textContent = 'Ref No';
-        headerRef.style.fontWeight = '600';
-        headerRef.style.color = THEME.muted;
-
         list.appendChild(headerMerchant);
         list.appendChild(headerDate);
         list.appendChild(headerAmount);
-        list.appendChild(headerRef);
 
         group.transactions.forEach((tx) => {
           const merchantCell = document.createElement('div');
@@ -1056,15 +1076,9 @@
           amountCell.textContent =
             typeof tx.amount_value === 'number' ? tx.amount_value.toFixed(2) : '-';
 
-          const refCell = document.createElement('div');
-          refCell.textContent = tx.ref_no || '-';
-          refCell.style.wordBreak = 'break-word';
-          refCell.style.color = THEME.muted;
-
           list.appendChild(merchantCell);
           list.appendChild(dateCell);
           list.appendChild(amountCell);
-          list.appendChild(refCell);
         });
 
         details.appendChild(categoryHeader);
