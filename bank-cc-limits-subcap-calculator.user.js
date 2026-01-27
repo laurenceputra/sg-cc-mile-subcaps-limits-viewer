@@ -49,6 +49,18 @@
     close: 'cc-subcap-close'
   };
 
+  const THEME = {
+    text: '#0f172a',
+    muted: '#475569',
+    panel: '#f8fafc',
+    surface: '#ffffff',
+    border: '#d0d5dd',
+    accent: '#2563eb',
+    accentSoft: '#e0e7ff',
+    overlay: 'rgba(15, 23, 42, 0.25)',
+    shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
+  };
+
   const storage = {
     get(key, fallback) {
       try {
@@ -568,12 +580,12 @@
     button.style.zIndex = '99999';
     button.style.padding = '12px 16px';
     button.style.borderRadius = '999px';
-    button.style.border = '1px solid #2b2b2b';
-    button.style.background = '#111';
-    button.style.color = '#fff';
+    button.style.border = `1px solid ${THEME.border}`;
+    button.style.background = THEME.surface;
+    button.style.color = THEME.text;
     button.style.fontSize = '14px';
     button.style.cursor = 'pointer';
-    button.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.25)';
+    button.style.boxShadow = THEME.shadow;
     button.addEventListener('click', onClick);
 
     document.body.appendChild(button);
@@ -644,9 +656,9 @@
       const select = document.createElement('select');
       select.style.padding = '6px 8px';
       select.style.borderRadius = '6px';
-      select.style.border = '1px solid #2b2b2b';
-      select.style.background = '#111';
-      select.style.color = '#fff';
+      select.style.border = `1px solid ${THEME.border}`;
+      select.style.background = THEME.surface;
+      select.style.color = THEME.text;
 
       const emptyOption = document.createElement('option');
       emptyOption.value = '';
@@ -697,9 +709,9 @@
     const select = document.createElement('select');
     select.style.padding = '6px 8px';
     select.style.borderRadius = '6px';
-    select.style.border = '1px solid #2b2b2b';
-    select.style.background = '#111';
-    select.style.color = '#fff';
+    select.style.border = `1px solid ${THEME.border}`;
+    select.style.background = THEME.surface;
+    select.style.color = THEME.text;
 
     const options = getDefaultCategoryOptions(cardSettings);
     options.forEach((category) => {
@@ -748,9 +760,9 @@
       const select = document.createElement('select');
       select.style.padding = '6px 8px';
       select.style.borderRadius = '6px';
-      select.style.border = '1px solid #2b2b2b';
-      select.style.background = '#111';
-      select.style.color = '#fff';
+      select.style.border = `1px solid ${THEME.border}`;
+      select.style.background = THEME.surface;
+      select.style.color = THEME.text;
 
       const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
       const options = getMappingOptions(cardSettings, currentValue);
@@ -799,7 +811,7 @@
     );
 
     const divider = document.createElement('div');
-    divider.style.borderTop = '1px solid #2b2b2b';
+    divider.style.borderTop = `1px solid ${THEME.border}`;
     divider.style.margin = '12px 0';
     container.appendChild(divider);
 
@@ -828,8 +840,8 @@
 
     const summarySection = document.createElement('div');
     summarySection.id = UI_IDS.summaryContent;
-    summarySection.style.background = '#111';
-    summarySection.style.border = '1px solid #2b2b2b';
+    summarySection.style.background = THEME.surface;
+    summarySection.style.border = `1px solid ${THEME.border}`;
     summarySection.style.borderRadius = '10px';
     summarySection.style.padding = '12px';
 
@@ -868,6 +880,17 @@
     const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
     const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));
 
+    const transactionsByMonth = {};
+    storedTransactions.forEach((tx) => {
+      if (!tx.posting_month) {
+        return;
+      }
+      if (!transactionsByMonth[tx.posting_month]) {
+        transactionsByMonth[tx.posting_month] = [];
+      }
+      transactionsByMonth[tx.posting_month].push(tx);
+    });
+
     if (!months.length) {
       const empty = document.createElement('div');
       empty.textContent = 'No stored transactions yet.';
@@ -876,52 +899,139 @@
       return;
     }
 
-    const categories = getSelectedCategories(cardSettings).filter(Boolean);
-    categories.push('Others');
-    const extras = new Set();
-    months.forEach((monthKey) => {
-      const totals = monthlyTotals[monthKey]?.totals || {};
-      Object.keys(totals).forEach((category) => {
-        if (!categories.includes(category)) {
-          extras.add(category);
-        }
-      });
-    });
-    categories.push(...Array.from(extras));
-
-    const table = document.createElement('div');
-    table.style.display = 'grid';
-    table.style.gridTemplateColumns = `1.2fr repeat(${categories.length + 1}, minmax(80px, 1fr))`;
-    table.style.rowGap = '6px';
-    table.style.columnGap = '12px';
-    table.style.alignItems = 'center';
-
-    function addCell(text, isHeader) {
-      const cell = document.createElement('div');
-      cell.textContent = text;
-      if (isHeader) {
-        cell.style.fontWeight = '600';
-        cell.style.opacity = '0.85';
-      }
-      table.appendChild(cell);
-    }
-
-    addCell('Month', true);
-    categories.forEach((category) => addCell(category, true));
-    addCell('Total', true);
-
     months.forEach((monthKey) => {
       const monthData = monthlyTotals[monthKey];
-      const totals = monthData.totals || {};
-      addCell(formatMonthLabel(monthKey), false);
-      categories.forEach((category) => {
-        const value = totals[category] || 0;
-        addCell(value.toFixed(2), false);
-      });
-      addCell(monthData.total_amount.toFixed(2), false);
-    });
+      const monthTransactions = transactionsByMonth[monthKey] || [];
+      const grouped = {};
 
-    container.appendChild(table);
+      monthTransactions.forEach((tx) => {
+        const category = tx.category || cardSettings.defaultCategory || 'Others';
+        if (!grouped[category]) {
+          grouped[category] = { total: 0, transactions: [] };
+        }
+        if (typeof tx.amount_value === 'number') {
+          grouped[category].total += tx.amount_value;
+        }
+        grouped[category].transactions.push(tx);
+      });
+
+      const baseCategories = getSelectedCategories(cardSettings).filter(Boolean);
+      baseCategories.push('Others');
+      const extraCategories = Object.keys(grouped).filter(
+        (category) => !baseCategories.includes(category)
+      );
+      const categoryOrder = baseCategories.concat(extraCategories);
+
+      const card = document.createElement('div');
+      card.style.border = `1px solid ${THEME.border}`;
+      card.style.borderRadius = '12px';
+      card.style.background = THEME.surface;
+      card.style.boxShadow = '0 8px 20px rgba(15, 23, 42, 0.06)';
+      card.style.padding = '12px';
+
+      const header = document.createElement('button');
+      header.type = 'button';
+      header.style.display = 'flex';
+      header.style.alignItems = 'center';
+      header.style.justifyContent = 'space-between';
+      header.style.width = '100%';
+      header.style.border = `1px solid ${THEME.border}`;
+      header.style.borderRadius = '10px';
+      header.style.background = THEME.panel;
+      header.style.padding = '10px 12px';
+      header.style.cursor = 'pointer';
+      header.style.color = THEME.text;
+
+      const headerLeft = document.createElement('div');
+      headerLeft.style.display = 'flex';
+      headerLeft.style.alignItems = 'center';
+      headerLeft.style.gap = '8px';
+
+      const chevron = document.createElement('span');
+      chevron.textContent = '▸';
+      chevron.style.fontSize = '12px';
+      chevron.style.color = THEME.muted;
+
+      const monthLabel = document.createElement('div');
+      monthLabel.textContent = formatMonthLabel(monthKey);
+      monthLabel.style.fontWeight = '600';
+
+      headerLeft.appendChild(chevron);
+      headerLeft.appendChild(monthLabel);
+
+      const headerRight = document.createElement('div');
+      headerRight.textContent = monthData.total_amount.toFixed(2);
+      headerRight.style.fontWeight = '600';
+
+      header.appendChild(headerLeft);
+      header.appendChild(headerRight);
+
+      const details = document.createElement('div');
+      details.style.display = 'none';
+      details.style.marginTop = '12px';
+      details.style.padding = '12px';
+      details.style.background = '#f1f5f9';
+      details.style.border = `1px solid ${THEME.border}`;
+      details.style.borderRadius = '10px';
+
+      categoryOrder.forEach((category) => {
+        const group = grouped[category];
+        if (!group) {
+          return;
+        }
+        const categoryHeader = document.createElement('div');
+        categoryHeader.style.display = 'flex';
+        categoryHeader.style.justifyContent = 'space-between';
+        categoryHeader.style.fontWeight = '600';
+        categoryHeader.style.marginTop = '8px';
+
+        const categoryLabel = document.createElement('div');
+        categoryLabel.textContent = category;
+
+        const categoryTotal = document.createElement('div');
+        categoryTotal.textContent = group.total.toFixed(2);
+
+        categoryHeader.appendChild(categoryLabel);
+        categoryHeader.appendChild(categoryTotal);
+
+        const list = document.createElement('div');
+        list.style.display = 'grid';
+        list.style.gridTemplateColumns = '1.5fr 0.7fr 0.7fr';
+        list.style.gap = '6px 12px';
+        list.style.marginTop = '6px';
+
+        group.transactions.forEach((tx) => {
+          const merchantCell = document.createElement('div');
+          merchantCell.textContent = tx.merchant_detail || '-';
+          merchantCell.style.wordBreak = 'break-word';
+
+          const dateCell = document.createElement('div');
+          dateCell.textContent = tx.posting_date || '-';
+          dateCell.style.color = THEME.muted;
+
+          const amountCell = document.createElement('div');
+          amountCell.textContent =
+            typeof tx.amount_value === 'number' ? tx.amount_value.toFixed(2) : '-';
+
+          list.appendChild(merchantCell);
+          list.appendChild(dateCell);
+          list.appendChild(amountCell);
+        });
+
+        details.appendChild(categoryHeader);
+        details.appendChild(list);
+      });
+
+      header.addEventListener('click', () => {
+        const isOpen = details.style.display === 'block';
+        details.style.display = isOpen ? 'none' : 'block';
+        chevron.textContent = isOpen ? '▸' : '▾';
+      });
+
+      card.appendChild(header);
+      card.appendChild(details);
+      container.appendChild(card);
+    });
   }
 
   function switchTab(tab) {
@@ -943,9 +1053,9 @@
     manageContent.style.display = isManage ? 'block' : 'none';
     spendContent.style.display = isSpend ? 'block' : 'none';
 
-    tabJson.style.background = isJson ? '#1f1f1f' : 'transparent';
-    tabManage.style.background = isManage ? '#1f1f1f' : 'transparent';
-    tabSpend.style.background = isSpend ? '#1f1f1f' : 'transparent';
+    tabJson.style.background = isJson ? THEME.accentSoft : 'transparent';
+    tabManage.style.background = isManage ? THEME.accentSoft : 'transparent';
+    tabSpend.style.background = isSpend ? THEME.accentSoft : 'transparent';
   }
 
   function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
@@ -960,7 +1070,7 @@
       overlay.style.position = 'fixed';
       overlay.style.inset = '0';
       overlay.style.zIndex = '99998';
-      overlay.style.background = 'rgba(0, 0, 0, 0.6)';
+      overlay.style.background = THEME.overlay;
       overlay.style.display = 'flex';
       overlay.style.alignItems = 'center';
       overlay.style.justifyContent = 'center';
@@ -973,12 +1083,12 @@
       const panel = document.createElement('div');
       panel.style.width = 'min(960px, 92vw)';
       panel.style.maxHeight = '85vh';
-      panel.style.background = '#0b0b0b';
-      panel.style.color = '#e6e6e6';
-      panel.style.border = '1px solid #2b2b2b';
+      panel.style.background = THEME.panel;
+      panel.style.color = THEME.text;
+      panel.style.border = `1px solid ${THEME.border}`;
       panel.style.borderRadius = '12px';
       panel.style.padding = '16px';
-      panel.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.4)';
+      panel.style.boxShadow = THEME.shadow;
       panel.style.display = 'flex';
       panel.style.flexDirection = 'column';
       panel.style.gap = '12px';
@@ -997,9 +1107,9 @@
       closeButton.id = UI_IDS.close;
       closeButton.type = 'button';
       closeButton.textContent = 'Close';
-      closeButton.style.background = '#1f1f1f';
-      closeButton.style.color = '#fff';
-      closeButton.style.border = '1px solid #2b2b2b';
+      closeButton.style.background = THEME.surface;
+      closeButton.style.color = THEME.text;
+      closeButton.style.border = `1px solid ${THEME.border}`;
       closeButton.style.borderRadius = '8px';
       closeButton.style.padding = '6px 10px';
       closeButton.style.cursor = 'pointer';
@@ -1018,11 +1128,11 @@
       tabJson.id = UI_IDS.tabJson;
       tabJson.type = 'button';
       tabJson.textContent = 'JSON';
-      tabJson.style.border = '1px solid #2b2b2b';
+      tabJson.style.border = `1px solid ${THEME.border}`;
       tabJson.style.borderRadius = '999px';
       tabJson.style.padding = '6px 12px';
-      tabJson.style.background = '#1f1f1f';
-      tabJson.style.color = '#fff';
+      tabJson.style.background = THEME.accentSoft;
+      tabJson.style.color = THEME.text;
       tabJson.style.cursor = 'pointer';
       tabJson.addEventListener('click', () => switchTab('json'));
 
@@ -1030,11 +1140,11 @@
       tabManage.id = UI_IDS.tabManage;
       tabManage.type = 'button';
       tabManage.textContent = 'Manage Transactions';
-      tabManage.style.border = '1px solid #2b2b2b';
+      tabManage.style.border = `1px solid ${THEME.border}`;
       tabManage.style.borderRadius = '999px';
       tabManage.style.padding = '6px 12px';
       tabManage.style.background = 'transparent';
-      tabManage.style.color = '#fff';
+      tabManage.style.color = THEME.text;
       tabManage.style.cursor = 'pointer';
       tabManage.addEventListener('click', () => switchTab('manage'));
 
@@ -1042,11 +1152,11 @@
       tabSpend.id = UI_IDS.tabSpend;
       tabSpend.type = 'button';
       tabSpend.textContent = 'Spend Totals';
-      tabSpend.style.border = '1px solid #2b2b2b';
+      tabSpend.style.border = `1px solid ${THEME.border}`;
       tabSpend.style.borderRadius = '999px';
       tabSpend.style.padding = '6px 12px';
       tabSpend.style.background = 'transparent';
-      tabSpend.style.color = '#fff';
+      tabSpend.style.color = THEME.text;
       tabSpend.style.cursor = 'pointer';
       tabSpend.addEventListener('click', () => switchTab('spend'));
 
@@ -1058,8 +1168,10 @@
       jsonContent.id = UI_IDS.jsonContent;
       jsonContent.style.margin = '0';
       jsonContent.style.padding = '12px';
-      jsonContent.style.background = '#141414';
+      jsonContent.style.background = THEME.surface;
+      jsonContent.style.color = THEME.text;
       jsonContent.style.borderRadius = '8px';
+      jsonContent.style.border = `1px solid ${THEME.border}`;
       jsonContent.style.overflow = 'auto';
       jsonContent.style.fontSize = '12px';
       jsonContent.style.lineHeight = '1.4';
