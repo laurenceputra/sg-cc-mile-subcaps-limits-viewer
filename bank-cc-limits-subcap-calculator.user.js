@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      0.4.0
+// @version      0.5.0
 // @description  Extract credit card transactions and manage subcap categories
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
 // @run-at       document-idle
@@ -368,10 +368,17 @@
 
   function buildTransactions(tbody, cardSettings) {
     const rows = Array.from(tbody.querySelectorAll('tr'));
-    return rows
+    const diagnostics = {
+      skipped_rows: 0,
+      invalid_posting_date: 0,
+      invalid_amount: 0
+    };
+
+    const transactions = rows
       .map((row, index) => {
         const cells = row.querySelectorAll('td');
         if (cells.length < 4) {
+          diagnostics.skipped_rows += 1;
           return null;
         }
 
@@ -384,12 +391,21 @@
           !transactionDate &&
           merchantName.toLowerCase() === 'previous balance'
         ) {
+          diagnostics.skipped_rows += 1;
           return null;
         }
 
         const { dollarsText, centsText, amountText } = extractDollarsAndCents(cells[3]);
         const amountValue = parseAmount(amountText);
+        if (amountText && amountValue === null) {
+          diagnostics.invalid_amount += 1;
+        }
+
         const postingDateParsed = parsePostingDate(postingDate);
+        if (postingDate && !postingDateParsed) {
+          diagnostics.invalid_posting_date += 1;
+        }
+
         const postingDateIso = postingDateParsed ? toISODate(postingDateParsed) : '';
         const category = resolveCategory(merchantName, cardSettings);
 
@@ -408,6 +424,8 @@
         };
       })
       .filter(Boolean);
+
+    return { transactions, diagnostics };
   }
 
   function calculateSummary(transactions, cardSettings) {
@@ -431,7 +449,7 @@
   }
 
   function buildData(tableBody, cardName, cardSettings) {
-    const transactions = buildTransactions(tableBody, cardSettings);
+    const { transactions, diagnostics } = buildTransactions(tableBody, cardSettings);
     const summary = calculateSummary(transactions, cardSettings);
 
     return {
@@ -441,6 +459,7 @@
       selected_categories: getSelectedCategories(cardSettings).filter(Boolean),
       default_category: cardSettings.defaultCategory,
       summary,
+      diagnostics,
       transactions
     };
   }
@@ -656,6 +675,54 @@
 
     container.appendChild(title);
     container.appendChild(list);
+
+    const diagnostics = data.diagnostics || {};
+    const issues = [
+      {
+        key: 'invalid_posting_date',
+        label: 'Rows with unreadable posting dates'
+      },
+      {
+        key: 'invalid_amount',
+        label: 'Rows with unreadable amounts'
+      },
+      {
+        key: 'skipped_rows',
+        label: 'Rows skipped (missing cells or previous balance)'
+      }
+    ];
+
+    const hasIssues = issues.some((issue) => diagnostics[issue.key] > 0);
+    if (hasIssues) {
+      const issueTitle = document.createElement('div');
+      issueTitle.textContent = 'Data issues';
+      issueTitle.style.marginTop = '12px';
+      issueTitle.style.fontWeight = '600';
+
+      const issueList = document.createElement('div');
+      issueList.style.display = 'grid';
+      issueList.style.gridTemplateColumns = '1fr auto';
+      issueList.style.rowGap = '6px';
+      issueList.style.columnGap = '16px';
+
+      issues.forEach((issue) => {
+        const count = diagnostics[issue.key] || 0;
+        if (!count) {
+          return;
+        }
+        const label = document.createElement('div');
+        label.textContent = issue.label;
+
+        const value = document.createElement('div');
+        value.textContent = String(count);
+
+        issueList.appendChild(label);
+        issueList.appendChild(value);
+      });
+
+      container.appendChild(issueTitle);
+      container.appendChild(issueList);
+    }
   }
 
   function renderCategorySelectors(container, cardSettings, cardConfig, onChange) {
@@ -1227,6 +1294,14 @@
       tabs.appendChild(tabManage);
       tabs.appendChild(tabSpend);
 
+      const privacyNotice = document.createElement('div');
+      privacyNotice.textContent =
+        'Privacy: data stays in your browser (Tampermonkey storage/localStorage). ' +
+        'No remote logging. Stored transactions cover the last 3 calendar months.';
+      privacyNotice.style.fontSize = '12px';
+      privacyNotice.style.color = THEME.muted;
+      privacyNotice.style.marginTop = '4px';
+
       jsonContent = document.createElement('pre');
       jsonContent.id = UI_IDS.jsonContent;
       jsonContent.style.margin = '0';
@@ -1251,6 +1326,7 @@
 
       panel.appendChild(header);
       panel.appendChild(tabs);
+      panel.appendChild(privacyNotice);
       panel.appendChild(jsonContent);
       panel.appendChild(manageContent);
       panel.appendChild(spendContent);
