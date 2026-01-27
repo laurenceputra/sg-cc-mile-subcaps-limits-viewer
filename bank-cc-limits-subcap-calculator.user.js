@@ -942,7 +942,7 @@
     container.innerHTML = '';
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
-    container.style.gap = '16px';
+    container.style.gap = '12px';
 
     const selectorsSection = document.createElement('div');
     selectorsSection.style.display = 'flex';
