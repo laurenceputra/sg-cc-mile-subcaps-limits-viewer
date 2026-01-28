@@ -39,11 +39,9 @@
   const UI_IDS = {
     button: 'cc-subcap-btn',
     overlay: 'cc-subcap-overlay',
-    jsonContent: 'cc-subcap-json',
     manageContent: 'cc-subcap-manage',
     spendContent: 'cc-subcap-spend',
     summaryContent: 'cc-subcap-summary',
-    tabJson: 'cc-subcap-tab-json',
     tabManage: 'cc-subcap-tab-manage',
     tabSpend: 'cc-subcap-tab-spend',
     close: 'cc-subcap-close'
@@ -56,7 +54,11 @@
     surface: '#ffffff',
     border: '#d0d5dd',
     accent: '#2563eb',
+    accentText: '#1e3a8a',
     accentSoft: '#e0e7ff',
+    accentShadow: '0 18px 32px rgba(37, 99, 235, 0.28)',
+    warning: '#b45309',
+    warningSoft: '#fef3c7',
     overlay: 'rgba(15, 23, 42, 0.25)',
     shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
   };
@@ -191,6 +193,78 @@
         resolve(null);
       }, timeoutMs);
     });
+  }
+
+  async function waitForTableBodyRows(xpath, timeoutMs = 15000, settleMs = 2000) {
+    const tbody = await waitForXPath(xpath, timeoutMs);
+    if (!tbody) {
+      return null;
+    }
+    const startTime = Date.now();
+    while (Date.now() - startTime < settleMs) {
+      const rowCount = tbody.querySelectorAll('tr').length;
+      if (rowCount > 0) {
+        return tbody;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+    }
+    return tbody;
+  }
+
+  function observeTableBody(tableBodyXPath, onChange) {
+    let currentTbody = null;
+    let tableObserver = null;
+    let refreshTimer = null;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      refreshTimer = window.setTimeout(onChange, 400);
+    };
+
+    const attachObserver = (tbody) => {
+      if (tableObserver) {
+        tableObserver.disconnect();
+      }
+      tableObserver = new MutationObserver((mutations) => {
+        const hasChange = mutations.some((mutation) => mutation.type === 'childList');
+        if (hasChange) {
+          scheduleRefresh();
+        }
+      });
+      tableObserver.observe(tbody, { childList: true, subtree: true });
+    };
+
+    const ensureObserver = async () => {
+      const tbody = await waitForXPath(tableBodyXPath);
+      if (!tbody || tbody === currentTbody) {
+        return;
+      }
+      currentTbody = tbody;
+      attachObserver(tbody);
+      scheduleRefresh();
+    };
+
+    ensureObserver();
+
+    const rootObserver = new MutationObserver(() => {
+      if (!currentTbody || !currentTbody.isConnected) {
+        ensureObserver();
+      }
+    });
+
+    rootObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    return () => {
+      if (tableObserver) {
+        tableObserver.disconnect();
+      }
+      rootObserver.disconnect();
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+    };
   }
 
   function normalizeText(value) {
@@ -370,6 +444,7 @@
     const rows = Array.from(tbody.querySelectorAll('tr'));
     const diagnostics = {
       skipped_rows: 0,
+      missing_ref_no: 0,
       invalid_posting_date: 0,
       invalid_amount: 0
     };
@@ -385,6 +460,7 @@
         const postingDate = normalizeText(cells[0].textContent);
         const transactionDate = normalizeText(cells[1].textContent);
         const { merchantName, refNo } = extractMerchantInfo(cells[2]);
+        const normalizedRefNo = normalizeKey(normalizeRefNo(refNo));
 
         if (
           !postingDate &&
@@ -392,6 +468,10 @@
           merchantName.toLowerCase() === 'previous balance'
         ) {
           diagnostics.skipped_rows += 1;
+          return null;
+        }
+        if (!normalizedRefNo) {
+          diagnostics.missing_ref_no += 1;
           return null;
         }
 
@@ -415,7 +495,7 @@
           posting_date_iso: postingDateIso,
           transaction_date: transactionDate,
           merchant_detail: merchantName,
-          ref_no: normalizeKey(normalizeRefNo(refNo)),
+          ref_no: normalizedRefNo,
           amount_dollars: dollarsText,
           amount_cents: centsText,
           amount_text: amountText,
@@ -617,12 +697,13 @@
     button.style.zIndex = '99999';
     button.style.padding = '12px 16px';
     button.style.borderRadius = '999px';
-    button.style.border = `1px solid ${THEME.border}`;
-    button.style.background = THEME.surface;
-    button.style.color = THEME.text;
+    button.style.border = `1px solid ${THEME.accent}`;
+    button.style.background = THEME.accent;
+    button.style.color = '#ffffff';
     button.style.fontSize = '14px';
+    button.style.fontWeight = '600';
     button.style.cursor = 'pointer';
-    button.style.boxShadow = THEME.shadow;
+    button.style.boxShadow = THEME.accentShadow;
     button.addEventListener('click', onClick);
 
     document.body.appendChild(button);
@@ -632,9 +713,10 @@
     container.innerHTML = '';
 
     const title = document.createElement('div');
-    title.textContent = 'Totals (by category)';
+    title.textContent = 'Totals in Statement Month (by category)';
     title.style.fontWeight = '600';
     title.style.marginBottom = '8px';
+    title.style.color = THEME.accent;
 
     const list = document.createElement('div');
     list.style.display = 'grid';
@@ -668,6 +750,7 @@
     const totalRowValue = document.createElement('div');
     totalRowValue.style.marginTop = '8px';
     totalRowValue.style.fontWeight = '600';
+    totalRowValue.style.color = THEME.accent;
     totalRowValue.textContent = data.summary.total_amount.toFixed(2);
 
     list.appendChild(totalRowLabel);
@@ -681,6 +764,10 @@
       {
         key: 'invalid_posting_date',
         label: 'Rows with unreadable posting dates'
+      },
+      {
+        key: 'missing_ref_no',
+        label: 'Rows skipped (missing ref no)'
       },
       {
         key: 'invalid_amount',
@@ -698,12 +785,17 @@
       issueTitle.textContent = 'Data issues';
       issueTitle.style.marginTop = '12px';
       issueTitle.style.fontWeight = '600';
+      issueTitle.style.color = THEME.warning;
 
       const issueList = document.createElement('div');
       issueList.style.display = 'grid';
       issueList.style.gridTemplateColumns = '1fr auto';
       issueList.style.rowGap = '6px';
       issueList.style.columnGap = '16px';
+      issueList.style.background = THEME.warningSoft;
+      issueList.style.border = `1px solid ${THEME.border}`;
+      issueList.style.borderRadius = '8px';
+      issueList.style.padding = '8px';
 
       issues.forEach((issue) => {
         const count = diagnostics[issue.key] || 0;
@@ -729,6 +821,7 @@
     const title = document.createElement('div');
     title.textContent = 'Select bonus categories (2)';
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const wrapper = document.createElement('div');
     wrapper.style.display = 'grid';
@@ -790,6 +883,7 @@
     const title = document.createElement('div');
     title.textContent = 'Default category';
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const select = document.createElement('select');
     select.style.padding = '6px 8px';
@@ -822,6 +916,7 @@
     const title = document.createElement('div');
     title.textContent = titleText;
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const table = document.createElement('div');
     table.style.display = 'grid';
@@ -877,23 +972,120 @@
   }
 
   function renderMerchantMapping(container, transactions, cardSettings, onChange) {
-    const merchantSet = new Set(
-      transactions.map((transaction) => transaction.merchant_detail).filter(Boolean)
-    );
+    const merchantCounts = new Map();
+    transactions.forEach((transaction) => {
+      const merchant = transaction.merchant_detail;
+      if (!merchant) {
+        return;
+      }
+      merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
+    });
     const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
 
-    const uncategorized = Array.from(merchantSet)
-      .filter((merchant) => !mappedMerchants.has(merchant))
-      .sort((a, b) => a.localeCompare(b));
+    const uncategorized = Array.from(merchantCounts.entries())
+      .filter(([merchant]) => !mappedMerchants.has(merchant))
+      .sort((a, b) => {
+        if (a[1] !== b[1]) {
+          return b[1] - a[1];
+        }
+        return a[0].localeCompare(b[0]);
+      })
+      .map(([merchant]) => merchant);
     const categorized = Array.from(mappedMerchants).sort((a, b) => a.localeCompare(b));
 
-    renderMerchantSection(
-      container,
-      'Transactions to categorize',
-      uncategorized,
-      cardSettings,
-      onChange
-    );
+    // Add title and mass categorization button
+    const uncategorizedHeader = document.createElement('div');
+    uncategorizedHeader.style.display = 'flex';
+    uncategorizedHeader.style.justifyContent = 'space-between';
+    uncategorizedHeader.style.alignItems = 'center';
+    uncategorizedHeader.style.marginBottom = '8px';
+    
+    const uncategorizedTitle = document.createElement('div');
+    uncategorizedTitle.textContent = 'Transactions to categorize';
+    uncategorizedTitle.style.fontWeight = '600';
+    uncategorizedTitle.style.color = THEME.accent;
+    
+    const massActionButton = document.createElement('button');
+    massActionButton.type = 'button';
+    massActionButton.textContent = `Categorize all as default (${uncategorized.length})`;
+    massActionButton.style.padding = '6px 12px';
+    massActionButton.style.borderRadius = '6px';
+    massActionButton.style.border = `1px solid ${THEME.accent}`;
+    massActionButton.style.background = THEME.accent;
+    massActionButton.style.color = '#ffffff';
+    massActionButton.style.fontSize = '12px';
+    massActionButton.style.fontWeight = '600';
+    massActionButton.style.cursor = 'pointer';
+    massActionButton.style.opacity = uncategorized.length > 0 ? '1' : '0.5';
+    massActionButton.disabled = uncategorized.length === 0;
+    
+    massActionButton.addEventListener('click', () => {
+      if (uncategorized.length === 0) {
+        return;
+      }
+      
+      onChange((nextSettings) => {
+        uncategorized.forEach((merchant) => {
+          nextSettings.merchantMap[merchant] = nextSettings.defaultCategory;
+        });
+      });
+    });
+    
+    uncategorizedHeader.appendChild(uncategorizedTitle);
+    uncategorizedHeader.appendChild(massActionButton);
+    container.appendChild(uncategorizedHeader);
+
+    // Render uncategorized merchants (without title since we added it above)
+    const uncategorizedSection = document.createElement('div');
+    if (!uncategorized.length) {
+      const empty = document.createElement('div');
+      empty.textContent = 'None';
+      empty.style.opacity = '0.7';
+      uncategorizedSection.appendChild(empty);
+    } else {
+      const table = document.createElement('div');
+      table.style.display = 'grid';
+      table.style.gridTemplateColumns = '2fr 1fr';
+      table.style.gap = '8px 12px';
+
+      uncategorized.forEach((merchant) => {
+        const label = document.createElement('div');
+        label.textContent = merchant;
+        label.style.wordBreak = 'break-word';
+
+        const select = document.createElement('select');
+        select.style.padding = '6px 8px';
+        select.style.borderRadius = '6px';
+        select.style.border = `1px solid ${THEME.border}`;
+        select.style.background = THEME.surface;
+        select.style.color = THEME.text;
+
+        const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
+        const options = getMappingOptions(cardSettings, currentValue);
+
+        options.forEach((category) => {
+          const option = document.createElement('option');
+          option.value = category;
+          option.textContent = category;
+          select.appendChild(option);
+        });
+
+        select.value = currentValue;
+
+        select.addEventListener('change', () => {
+          const value = select.value;
+          onChange((nextSettings) => {
+            nextSettings.merchantMap[merchant] = value;
+          });
+        });
+
+        table.appendChild(label);
+        table.appendChild(select);
+      });
+      
+      uncategorizedSection.appendChild(table);
+    }
+    container.appendChild(uncategorizedSection);
 
     const divider = document.createElement('div');
     divider.style.borderTop = `1px solid ${THEME.border}`;
@@ -913,7 +1105,7 @@
     container.innerHTML = '';
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
-    container.style.gap = '16px';
+    container.style.gap = '12px';
 
     const selectorsSection = document.createElement('div');
     selectorsSection.style.display = 'flex';
@@ -936,8 +1128,17 @@
     mappingSection.style.display = 'flex';
     mappingSection.style.flexDirection = 'column';
     mappingSection.style.gap = '12px';
+    mappingSection.style.background = THEME.surface;
+    mappingSection.style.border = `1px solid ${THEME.border}`;
+    mappingSection.style.borderRadius = '10px';
+    mappingSection.style.padding = '12px';
 
-    renderMerchantMapping(mappingSection, storedTransactions, cardSettings, onChange);
+    renderMerchantMapping(
+      mappingSection,
+      storedTransactions || [],
+      cardSettings,
+      onChange
+    );
 
     container.appendChild(selectorsSection);
     container.appendChild(summarySection);
@@ -1058,19 +1259,39 @@
       totalPill.style.border = `1px solid ${THEME.border}`;
       totalPill.style.fontWeight = '600';
       totalPill.style.fontSize = '12px';
+      totalPill.style.color = THEME.accentText;
 
       headerRight.appendChild(totalPill);
 
+      const warnings = [];
+      
       categoryOrder.forEach((category) => {
         const value = monthData.totals?.[category] || 0;
         const pill = document.createElement('div');
         pill.textContent = `${category} ${value.toFixed(2)}`;
         pill.style.padding = '4px 8px';
         pill.style.borderRadius = '999px';
-        pill.style.background = THEME.surface;
-        pill.style.border = `1px solid ${THEME.border}`;
         pill.style.fontSize = '12px';
-        pill.style.color = THEME.muted;
+        
+        // Apply warning styling based on thresholds
+        if (value >= 750) {
+          pill.style.background = '#fee2e2';
+          pill.style.border = '1px solid #dc2626';
+          pill.style.color = '#991b1b';
+          pill.style.fontWeight = '700';
+          warnings.push({ category, value, level: 'critical' });
+        } else if (value >= 700) {
+          pill.style.background = THEME.warningSoft;
+          pill.style.border = `1px solid ${THEME.warning}`;
+          pill.style.color = THEME.warning;
+          pill.style.fontWeight = '600';
+          warnings.push({ category, value, level: 'warning' });
+        } else {
+          pill.style.background = THEME.surface;
+          pill.style.border = `1px solid ${THEME.border}`;
+          pill.style.color = THEME.muted;
+        }
+        
         headerRight.appendChild(pill);
       });
 
@@ -1081,7 +1302,7 @@
       details.style.display = 'none';
       details.style.marginTop = '12px';
       details.style.padding = '12px';
-      details.style.background = '#f1f5f9';
+      details.style.background = THEME.accentSoft;
       details.style.border = `1px solid ${THEME.border}`;
       details.style.borderRadius = '10px';
 
@@ -1090,6 +1311,16 @@
         if (!group) {
           return;
         }
+        const sortedTransactions = group.transactions.slice().sort((a, b) => {
+          const dateA = fromISODate(a.posting_date_iso) || parsePostingDate(a.posting_date);
+          const dateB = fromISODate(b.posting_date_iso) || parsePostingDate(b.posting_date);
+          const timeA = dateA ? dateA.getTime() : 0;
+          const timeB = dateB ? dateB.getTime() : 0;
+          if (timeA !== timeB) {
+            return timeB - timeA;
+          }
+          return (a.merchant_detail || '').localeCompare(b.merchant_detail || '');
+        });
         const categoryHeader = document.createElement('div');
         categoryHeader.style.display = 'flex';
         categoryHeader.style.justifyContent = 'space-between';
@@ -1130,7 +1361,7 @@
         list.appendChild(headerDate);
         list.appendChild(headerAmount);
 
-        group.transactions.forEach((tx) => {
+        sortedTransactions.forEach((tx) => {
           const merchantCell = document.createElement('div');
           merchantCell.textContent = tx.merchant_detail || '-';
           merchantCell.style.wordBreak = 'break-word';
@@ -1159,40 +1390,95 @@
       });
 
       card.appendChild(header);
+      
+      // Add warning banner if there are any warnings
+      if (warnings.length > 0) {
+        const warningBanner = document.createElement('div');
+        warningBanner.style.marginTop = '8px';
+        warningBanner.style.padding = '10px 12px';
+        warningBanner.style.borderRadius = '8px';
+        warningBanner.style.fontSize = '13px';
+        
+        const criticalWarnings = warnings.filter((w) => w.level === 'critical');
+        const softWarnings = warnings.filter((w) => w.level === 'warning');
+        
+        if (criticalWarnings.length > 0) {
+          warningBanner.style.background = '#fee2e2';
+          warningBanner.style.border = '2px solid #dc2626';
+          warningBanner.style.color = '#991b1b';
+          warningBanner.style.fontWeight = '700';
+          
+          const title = document.createElement('div');
+          title.textContent = '⚠️ Cap Exceeded Alert';
+          title.style.marginBottom = '4px';
+          title.style.fontSize = '14px';
+          
+          const message = document.createElement('div');
+          const cats = criticalWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
+          message.textContent = `The following categories have exceeded the $750 cap: ${cats}`;
+          message.style.fontWeight = '400';
+          
+          warningBanner.appendChild(title);
+          warningBanner.appendChild(message);
+        } else if (softWarnings.length > 0) {
+          warningBanner.style.background = THEME.warningSoft;
+          warningBanner.style.border = `2px solid ${THEME.warning}`;
+          warningBanner.style.color = THEME.warning;
+          warningBanner.style.fontWeight = '600';
+          
+          const title = document.createElement('div');
+          title.textContent = '⚡ Approaching Cap';
+          title.style.marginBottom = '4px';
+          title.style.fontSize = '14px';
+          
+          const message = document.createElement('div');
+          const cats = softWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
+          message.textContent = `Nearing $750 cap: ${cats}`;
+          message.style.fontWeight = '400';
+          
+          warningBanner.appendChild(title);
+          warningBanner.appendChild(message);
+        }
+        
+        card.appendChild(warningBanner);
+      }
+      
       card.appendChild(details);
       container.appendChild(card);
     });
   }
 
   function switchTab(tab) {
-    const jsonContent = document.getElementById(UI_IDS.jsonContent);
     const manageContent = document.getElementById(UI_IDS.manageContent);
     const spendContent = document.getElementById(UI_IDS.spendContent);
-    const tabJson = document.getElementById(UI_IDS.tabJson);
     const tabManage = document.getElementById(UI_IDS.tabManage);
     const tabSpend = document.getElementById(UI_IDS.tabSpend);
 
-    if (!jsonContent || !manageContent || !spendContent || !tabJson || !tabManage || !tabSpend) {
+    if (!manageContent || !spendContent || !tabManage || !tabSpend) {
       return;
     }
 
-    const isJson = tab === 'json';
     const isManage = tab === 'manage';
     const isSpend = tab === 'spend';
-    jsonContent.style.display = isJson ? 'block' : 'none';
     manageContent.style.display = isManage ? 'block' : 'none';
     spendContent.style.display = isSpend ? 'block' : 'none';
 
-    tabJson.style.background = isJson ? THEME.accentSoft : 'transparent';
-    tabManage.style.background = isManage ? THEME.accentSoft : 'transparent';
-    tabSpend.style.background = isSpend ? THEME.accentSoft : 'transparent';
+    const setTabState = (tabElement, isActive) => {
+      tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
+      tabElement.style.borderColor = isActive ? THEME.accent : THEME.border;
+      tabElement.style.color = isActive ? THEME.accentText : THEME.text;
+      tabElement.style.fontWeight = isActive ? '600' : '500';
+    };
+
+    setTabState(tabManage, isManage);
+    setTabState(tabSpend, isSpend);
   }
 
-  function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
+  function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
     let overlay = document.getElementById(UI_IDS.overlay);
-    let jsonContent;
     let manageContent;
     let spendContent;
+    const wasVisible = overlay && overlay.style.display === 'flex';
 
     if (!overlay) {
       overlay = document.createElement('div');
@@ -1201,7 +1487,7 @@
       overlay.style.inset = '0';
       overlay.style.zIndex = '99998';
       overlay.style.background = THEME.overlay;
-      overlay.style.display = 'flex';
+      overlay.style.display = 'none';
       overlay.style.alignItems = 'center';
       overlay.style.justifyContent = 'center';
       overlay.addEventListener('click', (event) => {
@@ -1232,6 +1518,7 @@
       title.textContent = 'Subcap Tools';
       title.style.fontWeight = '600';
       title.style.fontSize = '16px';
+      title.style.color = THEME.accent;
 
       const closeButton = document.createElement('button');
       closeButton.id = UI_IDS.close;
@@ -1253,18 +1540,6 @@
       const tabs = document.createElement('div');
       tabs.style.display = 'flex';
       tabs.style.gap = '8px';
-
-      const tabJson = document.createElement('button');
-      tabJson.id = UI_IDS.tabJson;
-      tabJson.type = 'button';
-      tabJson.textContent = 'JSON';
-      tabJson.style.border = `1px solid ${THEME.border}`;
-      tabJson.style.borderRadius = '999px';
-      tabJson.style.padding = '6px 12px';
-      tabJson.style.background = THEME.accentSoft;
-      tabJson.style.color = THEME.text;
-      tabJson.style.cursor = 'pointer';
-      tabJson.addEventListener('click', () => switchTab('json'));
 
       const tabManage = document.createElement('button');
       tabManage.id = UI_IDS.tabManage;
@@ -1290,9 +1565,8 @@
       tabSpend.style.cursor = 'pointer';
       tabSpend.addEventListener('click', () => switchTab('spend'));
 
-      tabs.appendChild(tabJson);
-      tabs.appendChild(tabManage);
       tabs.appendChild(tabSpend);
+      tabs.appendChild(tabManage);
 
       const privacyNotice = document.createElement('div');
       privacyNotice.textContent =
@@ -1301,18 +1575,6 @@
       privacyNotice.style.fontSize = '12px';
       privacyNotice.style.color = THEME.muted;
       privacyNotice.style.marginTop = '4px';
-
-      jsonContent = document.createElement('pre');
-      jsonContent.id = UI_IDS.jsonContent;
-      jsonContent.style.margin = '0';
-      jsonContent.style.padding = '12px';
-      jsonContent.style.background = THEME.surface;
-      jsonContent.style.color = THEME.text;
-      jsonContent.style.borderRadius = '8px';
-      jsonContent.style.border = `1px solid ${THEME.border}`;
-      jsonContent.style.overflow = 'auto';
-      jsonContent.style.fontSize = '12px';
-      jsonContent.style.lineHeight = '1.4';
 
       manageContent = document.createElement('div');
       manageContent.id = UI_IDS.manageContent;
@@ -1327,20 +1589,15 @@
       panel.appendChild(header);
       panel.appendChild(tabs);
       panel.appendChild(privacyNotice);
-      panel.appendChild(jsonContent);
       panel.appendChild(manageContent);
       panel.appendChild(spendContent);
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
     } else {
-      jsonContent = document.getElementById(UI_IDS.jsonContent);
       manageContent = document.getElementById(UI_IDS.manageContent);
       spendContent = document.getElementById(UI_IDS.spendContent);
     }
 
-    if (jsonContent) {
-      jsonContent.textContent = JSON.stringify(data, null, 2);
-    }
     if (manageContent) {
       renderManageView(
         manageContent,
@@ -1355,8 +1612,10 @@
       renderSpendingView(spendContent, storedTransactions, cardSettings);
     }
 
-    overlay.style.display = 'flex';
-    switchTab('manage');
+    if (shouldShow || wasVisible) {
+      overlay.style.display = 'flex';
+    }
+    switchTab('spend');
   }
 
   async function main() {
@@ -1385,9 +1644,9 @@
       return;
     }
 
-    const tableBody = await waitForXPath(
-      '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
-    );
+    const tableBodyXPath =
+      '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody';
+    const tableBody = await waitForTableBodyRows(tableBodyXPath);
     if (!tableBody) {
       removeUI();
       return;
@@ -1399,23 +1658,44 @@
     updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
     saveSettings(initialSettings);
 
-    const refreshOverlay = () => {
-      const settings = loadSettings();
-      const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
-      const data = buildData(tableBody, cardName, cardSettings);
-      updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
-      saveSettings(settings);
-      const storedTransactions = getStoredTransactions(cardSettings);
-      createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
-        const nextSettings = loadSettings();
-        const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
-        updateFn(nextCardSettings);
-        saveSettings(nextSettings);
-        refreshOverlay();
-      });
+    let refreshInProgress = false;
+    let refreshPending = false;
+
+    const refreshOverlay = async (shouldShow = false) => {
+      if (refreshInProgress) {
+        refreshPending = true;
+        return;
+      }
+      refreshInProgress = true;
+      const latestTableBody = await waitForTableBodyRows(tableBodyXPath);
+      try {
+        if (!latestTableBody) {
+          return;
+        }
+        const settings = loadSettings();
+        const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
+        const data = buildData(latestTableBody, cardName, cardSettings);
+        updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+        saveSettings(settings);
+        const storedTransactions = getStoredTransactions(cardSettings);
+        createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
+          const nextSettings = loadSettings();
+          const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+          updateFn(nextCardSettings);
+          saveSettings(nextSettings);
+          refreshOverlay();
+        }, shouldShow);
+      } finally {
+        refreshInProgress = false;
+        if (refreshPending) {
+          refreshPending = false;
+          refreshOverlay();
+        }
+      }
     };
 
-    createButton(refreshOverlay);
+    createButton(() => refreshOverlay(true));
+    observeTableBody(tableBodyXPath, refreshOverlay);
   }
 
   main();
