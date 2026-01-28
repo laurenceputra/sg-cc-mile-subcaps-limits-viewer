@@ -993,13 +993,99 @@
       .map(([merchant]) => merchant);
     const categorized = Array.from(mappedMerchants).sort((a, b) => a.localeCompare(b));
 
-    renderMerchantSection(
-      container,
-      'Transactions to categorize',
-      uncategorized,
-      cardSettings,
-      onChange
-    );
+    // Add title and mass categorization button
+    const uncategorizedHeader = document.createElement('div');
+    uncategorizedHeader.style.display = 'flex';
+    uncategorizedHeader.style.justifyContent = 'space-between';
+    uncategorizedHeader.style.alignItems = 'center';
+    uncategorizedHeader.style.marginBottom = '8px';
+    
+    const uncategorizedTitle = document.createElement('div');
+    uncategorizedTitle.textContent = 'Transactions to categorize';
+    uncategorizedTitle.style.fontWeight = '600';
+    uncategorizedTitle.style.color = THEME.accent;
+    
+    const massActionButton = document.createElement('button');
+    massActionButton.type = 'button';
+    massActionButton.textContent = `Categorize all as default (${uncategorized.length})`;
+    massActionButton.style.padding = '6px 12px';
+    massActionButton.style.borderRadius = '6px';
+    massActionButton.style.border = `1px solid ${THEME.accent}`;
+    massActionButton.style.background = THEME.accent;
+    massActionButton.style.color = '#ffffff';
+    massActionButton.style.fontSize = '12px';
+    massActionButton.style.fontWeight = '600';
+    massActionButton.style.cursor = 'pointer';
+    massActionButton.style.opacity = uncategorized.length > 0 ? '1' : '0.5';
+    massActionButton.disabled = uncategorized.length === 0;
+    
+    massActionButton.addEventListener('click', () => {
+      if (uncategorized.length === 0) {
+        return;
+      }
+      
+      onChange((nextSettings) => {
+        uncategorized.forEach((merchant) => {
+          nextSettings.merchantMap[merchant] = nextSettings.defaultCategory;
+        });
+      });
+    });
+    
+    uncategorizedHeader.appendChild(uncategorizedTitle);
+    uncategorizedHeader.appendChild(massActionButton);
+    container.appendChild(uncategorizedHeader);
+
+    // Render uncategorized merchants (without title since we added it above)
+    const uncategorizedSection = document.createElement('div');
+    if (!uncategorized.length) {
+      const empty = document.createElement('div');
+      empty.textContent = 'None';
+      empty.style.opacity = '0.7';
+      uncategorizedSection.appendChild(empty);
+    } else {
+      const table = document.createElement('div');
+      table.style.display = 'grid';
+      table.style.gridTemplateColumns = '2fr 1fr';
+      table.style.gap = '8px 12px';
+
+      uncategorized.forEach((merchant) => {
+        const label = document.createElement('div');
+        label.textContent = merchant;
+        label.style.wordBreak = 'break-word';
+
+        const select = document.createElement('select');
+        select.style.padding = '6px 8px';
+        select.style.borderRadius = '6px';
+        select.style.border = `1px solid ${THEME.border}`;
+        select.style.background = THEME.surface;
+        select.style.color = THEME.text;
+
+        const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
+        const options = getMappingOptions(cardSettings, currentValue);
+
+        options.forEach((category) => {
+          const option = document.createElement('option');
+          option.value = category;
+          option.textContent = category;
+          select.appendChild(option);
+        });
+
+        select.value = currentValue;
+
+        select.addEventListener('change', () => {
+          const value = select.value;
+          onChange((nextSettings) => {
+            nextSettings.merchantMap[merchant] = value;
+          });
+        });
+
+        table.appendChild(label);
+        table.appendChild(select);
+      });
+      
+      uncategorizedSection.appendChild(table);
+    }
+    container.appendChild(uncategorizedSection);
 
     const divider = document.createElement('div');
     divider.style.borderTop = `1px solid ${THEME.border}`;
