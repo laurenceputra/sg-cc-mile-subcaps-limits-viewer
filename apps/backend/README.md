@@ -31,6 +31,28 @@ Hono.js backend supporting both Cloudflare Workers and Docker deployment.
 
 ## API Endpoints
 
+### Rate Limits
+
+All endpoints are protected with rate limiting to prevent abuse:
+
+| Endpoint Type | Limit | Window | Block Duration |
+|--------------|-------|--------|----------------|
+| **Login** | 5 attempts | 15 minutes | 1 hour |
+| **Registration** | 3 attempts | 1 hour | 24 hours |
+| **Sync** | 100 requests | 1 hour | - |
+| **Shared Mappings** | 20 requests | 1 minute | - |
+| **Admin** | 10 requests | 1 minute | - |
+| **Payload Size** | 1 MB max | - | - |
+
+**Rate Limit Headers:**
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in current window
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+- `Retry-After`: Seconds to wait before retrying (on 429 errors)
+
+**Progressive Delays:**
+Login attempts include exponential backoff starting at 200ms, preventing rapid brute force attacks.
+
 ### Auth
 - `POST /auth/register` - Create account
 - `POST /auth/login` - Login and get JWT

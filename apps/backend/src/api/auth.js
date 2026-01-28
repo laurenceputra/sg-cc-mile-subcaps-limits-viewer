@@ -1,9 +1,14 @@
 import { Hono } from 'hono';
 import { generateToken } from '../auth/jwt.js';
+import { 
+  loginRateLimiter, 
+  registerRateLimiter, 
+  progressiveDelayMiddleware 
+} from '../middleware/rate-limiter.js';
 
 const auth = new Hono();
 
-auth.post('/register', async (c) => {
+auth.post('/register', registerRateLimiter, async (c) => {
   const { email, passwordHash, tier = 'free' } = await c.req.json();
   
   if (!email || !passwordHash) {
@@ -15,7 +20,8 @@ auth.post('/register', async (c) => {
   try {
     const existingUser = await db.getUserByEmail(email);
     if (existingUser) {
-      return c.json({ error: 'User already exists' }, 409);
+      // Generic error to prevent user enumeration
+      return c.json({ error: 'Registration failed' }, 400);
     }
 
     const userId = await db.createUser(email, passwordHash, tier);
@@ -28,7 +34,7 @@ auth.post('/register', async (c) => {
   }
 });
 
-auth.post('/login', async (c) => {
+auth.post('/login', loginRateLimiter, progressiveDelayMiddleware(), async (c) => {
   const { email, passwordHash } = await c.req.json();
   
   if (!email || !passwordHash) {
@@ -40,6 +46,7 @@ auth.post('/login', async (c) => {
   try {
     const user = await db.getUserByEmail(email);
     if (!user || user.passphrase_hash !== passwordHash) {
+      // Generic error message - don't reveal if user exists
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
@@ -48,7 +55,8 @@ auth.post('/login', async (c) => {
     return c.json({ token, userId: user.id, tier: user.tier });
   } catch (error) {
     console.error('[Auth] Login error:', error);
-    return c.json({ error: 'Login failed' }, 500);
+    // Generic error - don't leak information
+    return c.json({ error: 'Authentication failed' }, 500);
   }
 });
 
