@@ -1,7 +1,7 @@
 # Agent: dom-mapper
 
 ## Mission
-Map the portal DOM and identify stable selectors and extraction points.
+Map the portal DOM and identify stable selectors, extraction points, and refresh/state behaviors.
 
 ## Inputs
 - URLs and page names in scope
@@ -10,8 +10,8 @@ Map the portal DOM and identify stable selectors and extraction points.
 
 ## Outputs
 - Selector map with fallback strategies
-- Notes on SPA timing, mutation observers, and re-render risks
-- Extraction checklist per page
+- Notes on SPA timing, mutation observers, re-render risks, and "view more" paging behavior
+- Extraction checklist per page, including rescrape/refresh triggers
 
 ## Guardrails
 - Prefer semantic/ARIA selectors over brittle CSS chains
@@ -19,4 +19,4 @@ Map the portal DOM and identify stable selectors and extraction points.
 
 ## Handoff
 - Selector table per page
-- DOM timing guidance for the implementation agent
+- DOM timing and refresh guidance for the implementation agent
