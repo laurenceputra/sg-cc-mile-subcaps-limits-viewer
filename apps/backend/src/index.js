@@ -38,7 +38,9 @@ app.use('/*', (c, next) => {
 app.use('/*', (c, next) => {
   const allowedOrigins = getAllowedOrigins(c.env);
   const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
-  return csrfProtection({ allowedOrigins, isDevelopment, requireOrigin: false })(c, next);
+  // SECURITY: Require Origin header in production to prevent header stripping attacks
+  const requireOrigin = !isDevelopment;
+  return csrfProtection({ allowedOrigins, isDevelopment, requireOrigin })(c, next);
 });
 
 // JSON validation middleware
