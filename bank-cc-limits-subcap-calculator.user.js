@@ -1042,6 +1042,10 @@
     mappingSection.style.display = 'flex';
     mappingSection.style.flexDirection = 'column';
     mappingSection.style.gap = '12px';
+    mappingSection.style.background = THEME.surface;
+    mappingSection.style.border = `1px solid ${THEME.border}`;
+    mappingSection.style.borderRadius = '10px';
+    mappingSection.style.padding = '12px';
 
     renderMerchantMapping(
       mappingSection,
