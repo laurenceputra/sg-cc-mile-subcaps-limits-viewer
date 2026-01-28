@@ -130,11 +130,17 @@ export class Database {
     stmt.run(merchantNormalized, category, cardType);
   }
 
-  // User data deletion
+  // User data deletion - GDPR compliant full deletion
   async deleteUserData(userId) {
+    // SECURITY: Complete user data deletion for GDPR compliance
+    // Must delete from ALL tables containing user data
     this.db.prepare('DELETE FROM sync_blobs WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM devices WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM mapping_contributions WHERE user_id = ?').run(userId);
+    this.db.prepare('DELETE FROM audit_logs WHERE user_id = ?').run(userId);
+    this.db.prepare('DELETE FROM token_blacklist WHERE user_id = ?').run(userId);
+    // Delete user record last to maintain referential integrity during deletion
+    this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
 
   // Token blacklist operations
