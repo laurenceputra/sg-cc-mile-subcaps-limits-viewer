@@ -8,6 +8,22 @@
 
 import { rotateAuditLogs } from '../audit/logger.js';
 
+// Health monitoring state
+let lastCleanupTimestamp = null;
+let lastCleanupResult = null;
+let cleanupInterval = null;
+
+/**
+ * Get cleanup health status
+ */
+export function getCleanupHealth() {
+  return {
+    lastCleanup: lastCleanupTimestamp,
+    lastResult: lastCleanupResult,
+    isHealthy: lastCleanupTimestamp && (Date.now() - lastCleanupTimestamp < 48 * 60 * 60 * 1000) // Within 48 hours
+  };
+}
+
 /**
  * Run all cleanup jobs
  * Should be called daily via cron or scheduled task
@@ -27,17 +43,32 @@ export async function runCleanupJobs(db) {
     console.log(`[Cleanup] Removed ${auditLogsCleaned} old audit log entries`);
     
     console.log('[Cleanup] Cleanup jobs completed successfully');
-    return {
+    
+    // Update health status
+    lastCleanupTimestamp = Date.now();
+    lastCleanupResult = {
       success: true,
       blacklistCleaned,
       auditLogsCleaned
     };
+    
+    return lastCleanupResult;
   } catch (error) {
     console.error('[Cleanup] Error during cleanup jobs:', error);
-    return {
+    
+    // Update health status with error
+    lastCleanupTimestamp = Date.now();
+    lastCleanupResult = {
       success: false,
       error: error.message
     };
+    
+    // SECURITY: Alert on cleanup failure (in production, integrate with alerting service)
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[ALERT] Cleanup job failed - manual intervention may be required');
+    }
+    
+    return lastCleanupResult;
   }
 }
 
@@ -51,8 +82,13 @@ export function initCleanupSchedule(db) {
   // Run cleanup daily at 2 AM
   const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
   
-  setInterval(async () => {
-    await runCleanupJobs(db);
+  // SECURITY: Monitor cleanup interval health
+  cleanupInterval = setInterval(async () => {
+    try {
+      await runCleanupJobs(db);
+    } catch (error) {
+      console.error('[Cleanup] Interval handler error:', error);
+    }
   }, CLEANUP_INTERVAL);
   
   // Run immediately on startup
@@ -61,4 +97,15 @@ export function initCleanupSchedule(db) {
   });
   
   console.log('[Cleanup] Cleanup schedule initialized');
+}
+
+/**
+ * Stop cleanup schedule (for graceful shutdown)
+ */
+export function stopCleanupSchedule() {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+    console.log('[Cleanup] Cleanup schedule stopped');
+  }
 }

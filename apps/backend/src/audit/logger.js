@@ -19,7 +19,8 @@ export const AuditEventType = {
   DATA_DELETE: 'data_delete',
   SETTINGS_CHANGE: 'settings_change',
   ADMIN_MAPPING_APPROVE: 'admin_mapping_approve',
-  ADMIN_VIEW_PENDING: 'admin_view_pending'
+  ADMIN_VIEW_PENDING: 'admin_view_pending',
+  ADMIN_HEALTH_CHECK: 'admin_health_check'
 };
 
 /**

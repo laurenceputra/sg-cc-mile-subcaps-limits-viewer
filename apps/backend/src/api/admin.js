@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { constantTimeEqual } from '../auth/jwt.js';
 import { validateFields } from '../middleware/validation.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
+import { getCleanupHealth } from '../auth/cleanup.js';
 
 const admin = new Hono();
 
@@ -16,6 +17,22 @@ admin.use('/*', async (c, next) => {
   }
   
   await next();
+});
+
+// Health check for cleanup jobs
+admin.get('/health/cleanup', async (c) => {
+  const health = getCleanupHealth();
+  
+  // Audit log admin health check
+  const db = c.get('db');
+  await logAuditEvent(db, {
+    eventType: AuditEventType.ADMIN_HEALTH_CHECK,
+    request: c.req.raw,
+    userId: null,
+    details: { component: 'cleanup', isHealthy: health.isHealthy }
+  });
+  
+  return c.json(health, health.isHealthy ? 200 : 503);
 });
 
 admin.get('/mappings/pending', async (c) => {
