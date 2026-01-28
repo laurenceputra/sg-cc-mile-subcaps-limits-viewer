@@ -56,7 +56,11 @@
     surface: '#ffffff',
     border: '#d0d5dd',
     accent: '#2563eb',
+    accentText: '#1e3a8a',
     accentSoft: '#e0e7ff',
+    accentShadow: '0 18px 32px rgba(37, 99, 235, 0.28)',
+    warning: '#b45309',
+    warningSoft: '#fef3c7',
     overlay: 'rgba(15, 23, 42, 0.25)',
     shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
   };
@@ -191,6 +195,61 @@
         resolve(null);
       }, timeoutMs);
     });
+  }
+
+  function observeTableBody(tableBodyXPath, onChange) {
+    let currentTbody = null;
+    let tableObserver = null;
+    let refreshTimer = null;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      refreshTimer = window.setTimeout(onChange, 400);
+    };
+
+    const attachObserver = (tbody) => {
+      if (tableObserver) {
+        tableObserver.disconnect();
+      }
+      tableObserver = new MutationObserver((mutations) => {
+        const hasChange = mutations.some((mutation) => mutation.type === 'childList');
+        if (hasChange) {
+          scheduleRefresh();
+        }
+      });
+      tableObserver.observe(tbody, { childList: true, subtree: true });
+    };
+
+    const ensureObserver = async () => {
+      const tbody = await waitForXPath(tableBodyXPath);
+      if (!tbody || tbody === currentTbody) {
+        return;
+      }
+      currentTbody = tbody;
+      attachObserver(tbody);
+    };
+
+    ensureObserver();
+
+    const rootObserver = new MutationObserver(() => {
+      if (!currentTbody || !currentTbody.isConnected) {
+        ensureObserver();
+      }
+    });
+
+    rootObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    return () => {
+      if (tableObserver) {
+        tableObserver.disconnect();
+      }
+      rootObserver.disconnect();
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+    };
   }
 
   function normalizeText(value) {
@@ -617,12 +676,13 @@
     button.style.zIndex = '99999';
     button.style.padding = '12px 16px';
     button.style.borderRadius = '999px';
-    button.style.border = `1px solid ${THEME.border}`;
-    button.style.background = THEME.surface;
-    button.style.color = THEME.text;
+    button.style.border = `1px solid ${THEME.accent}`;
+    button.style.background = THEME.accent;
+    button.style.color = '#ffffff';
     button.style.fontSize = '14px';
+    button.style.fontWeight = '600';
     button.style.cursor = 'pointer';
-    button.style.boxShadow = THEME.shadow;
+    button.style.boxShadow = THEME.accentShadow;
     button.addEventListener('click', onClick);
 
     document.body.appendChild(button);
@@ -635,6 +695,7 @@
     title.textContent = 'Totals in Statement Month (by category)';
     title.style.fontWeight = '600';
     title.style.marginBottom = '8px';
+    title.style.color = THEME.accent;
 
     const list = document.createElement('div');
     list.style.display = 'grid';
@@ -668,6 +729,7 @@
     const totalRowValue = document.createElement('div');
     totalRowValue.style.marginTop = '8px';
     totalRowValue.style.fontWeight = '600';
+    totalRowValue.style.color = THEME.accent;
     totalRowValue.textContent = data.summary.total_amount.toFixed(2);
 
     list.appendChild(totalRowLabel);
@@ -698,12 +760,17 @@
       issueTitle.textContent = 'Data issues';
       issueTitle.style.marginTop = '12px';
       issueTitle.style.fontWeight = '600';
+      issueTitle.style.color = THEME.warning;
 
       const issueList = document.createElement('div');
       issueList.style.display = 'grid';
       issueList.style.gridTemplateColumns = '1fr auto';
       issueList.style.rowGap = '6px';
       issueList.style.columnGap = '16px';
+      issueList.style.background = THEME.warningSoft;
+      issueList.style.border = `1px solid ${THEME.border}`;
+      issueList.style.borderRadius = '8px';
+      issueList.style.padding = '8px';
 
       issues.forEach((issue) => {
         const count = diagnostics[issue.key] || 0;
@@ -729,6 +796,7 @@
     const title = document.createElement('div');
     title.textContent = 'Select bonus categories (2)';
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const wrapper = document.createElement('div');
     wrapper.style.display = 'grid';
@@ -790,6 +858,7 @@
     const title = document.createElement('div');
     title.textContent = 'Default category';
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const select = document.createElement('select');
     select.style.padding = '6px 8px';
@@ -822,6 +891,7 @@
     const title = document.createElement('div');
     title.textContent = titleText;
     title.style.fontWeight = '600';
+    title.style.color = THEME.accent;
 
     const table = document.createElement('div');
     table.style.display = 'grid';
@@ -1091,6 +1161,7 @@
       totalPill.style.border = `1px solid ${THEME.border}`;
       totalPill.style.fontWeight = '600';
       totalPill.style.fontSize = '12px';
+      totalPill.style.color = THEME.accentText;
 
       headerRight.appendChild(totalPill);
 
@@ -1114,7 +1185,7 @@
       details.style.display = 'none';
       details.style.marginTop = '12px';
       details.style.padding = '12px';
-      details.style.background = '#f1f5f9';
+      details.style.background = THEME.accentSoft;
       details.style.border = `1px solid ${THEME.border}`;
       details.style.borderRadius = '10px';
 
@@ -1226,9 +1297,16 @@
     manageContent.style.display = isManage ? 'block' : 'none';
     spendContent.style.display = isSpend ? 'block' : 'none';
 
-    tabJson.style.background = isJson ? THEME.accentSoft : 'transparent';
-    tabManage.style.background = isManage ? THEME.accentSoft : 'transparent';
-    tabSpend.style.background = isSpend ? THEME.accentSoft : 'transparent';
+    const setTabState = (tabElement, isActive) => {
+      tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
+      tabElement.style.borderColor = isActive ? THEME.accent : THEME.border;
+      tabElement.style.color = isActive ? THEME.accentText : THEME.text;
+      tabElement.style.fontWeight = isActive ? '600' : '500';
+    };
+
+    setTabState(tabJson, isJson);
+    setTabState(tabManage, isManage);
+    setTabState(tabSpend, isSpend);
   }
 
   function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
@@ -1275,6 +1353,7 @@
       title.textContent = 'Subcap Tools';
       title.style.fontWeight = '600';
       title.style.fontSize = '16px';
+      title.style.color = THEME.accent;
 
       const closeButton = document.createElement('button');
       closeButton.id = UI_IDS.close;
@@ -1442,27 +1521,44 @@
     updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
     saveSettings(initialSettings);
 
+    let refreshInProgress = false;
+    let refreshPending = false;
+
     const refreshOverlay = async () => {
-      const latestTableBody = await waitForXPath(tableBodyXPath);
-      if (!latestTableBody) {
+      if (refreshInProgress) {
+        refreshPending = true;
         return;
       }
-      const settings = loadSettings();
-      const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
-      const data = buildData(latestTableBody, cardName, cardSettings);
-      updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
-      saveSettings(settings);
-      const storedTransactions = getStoredTransactions(cardSettings);
-      createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
-        const nextSettings = loadSettings();
-        const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
-        updateFn(nextCardSettings);
-        saveSettings(nextSettings);
-        refreshOverlay();
-      });
+      refreshInProgress = true;
+      const latestTableBody = await waitForXPath(tableBodyXPath);
+      try {
+        if (!latestTableBody) {
+          return;
+        }
+        const settings = loadSettings();
+        const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
+        const data = buildData(latestTableBody, cardName, cardSettings);
+        updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+        saveSettings(settings);
+        const storedTransactions = getStoredTransactions(cardSettings);
+        createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
+          const nextSettings = loadSettings();
+          const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+          updateFn(nextCardSettings);
+          saveSettings(nextSettings);
+          refreshOverlay();
+        });
+      } finally {
+        refreshInProgress = false;
+        if (refreshPending) {
+          refreshPending = false;
+          refreshOverlay();
+        }
+      }
     };
 
     createButton(refreshOverlay);
+    observeTableBody(tableBodyXPath, refreshOverlay);
   }
 
   main();
