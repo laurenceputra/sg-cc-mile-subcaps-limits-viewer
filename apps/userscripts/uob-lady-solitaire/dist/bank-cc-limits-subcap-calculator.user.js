@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      0.5.0
-// @description  Extract credit card transactions and manage subcap categories
+// @version      0.6.0
+// @description  Extract credit card transactions and manage subcap categories with optional sync
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      bank-cc-sync.your-domain.workers.dev
+// @connect      localhost
 // ==/UserScript==
 
 (function () {

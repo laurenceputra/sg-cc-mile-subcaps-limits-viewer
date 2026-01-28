@@ -1,3 +1,8 @@
+// Phase 3: Sync integration (imports added)
+// import { SyncManager } from './sync-manager.js';
+// import { createSyncTab } from './sync-ui.js';
+// Uncomment above and integrate in UI tabs section
+
 (() => {
   'use strict';
 
@@ -5,6 +10,10 @@
     return;
   }
   window.__ccSubcapInjected = true;
+
+  // Phase 3: Initialize sync manager
+  // const syncManager = new SyncManager(storage);
+  
 
   const URL_PREFIX = 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do';
   const STORAGE_KEY = 'ccSubcapSettings';
@@ -31,8 +40,10 @@
     manageContent: 'cc-subcap-manage',
     spendContent: 'cc-subcap-spend',
     summaryContent: 'cc-subcap-summary',
+    syncContent: 'cc-subcap-sync',
     tabManage: 'cc-subcap-tab-manage',
     tabSpend: 'cc-subcap-tab-spend',
+    tabSync: 'cc-subcap-tab-sync',
     close: 'cc-subcap-close'
   };
 
