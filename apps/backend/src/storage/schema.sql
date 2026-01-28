@@ -64,6 +64,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Token blacklist table for logout/revocation
+CREATE TABLE IF NOT EXISTS token_blacklist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  token_jti TEXT NOT NULL, -- JWT ID (hash of token for privacy)
+  expires_at INTEGER NOT NULL, -- Token expiration timestamp
+  blacklisted_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+  reason TEXT, -- 'logout', 'logout_all', 'security'
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_shared_mappings_card_type ON shared_mappings(card_type);
@@ -72,3 +83,6 @@ CREATE INDEX IF NOT EXISTS idx_mapping_contributions_user_id ON mapping_contribu
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_token_blacklist_token_jti ON token_blacklist(token_jti);
+CREATE INDEX IF NOT EXISTS idx_token_blacklist_user_id ON token_blacklist(user_id);
+CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires_at ON token_blacklist(expires_at);

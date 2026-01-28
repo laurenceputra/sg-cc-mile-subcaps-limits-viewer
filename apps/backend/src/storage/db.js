@@ -36,6 +36,12 @@ export class Database {
     return stmt.all(userId);
   }
 
+  async getDeviceCount(userId) {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM devices WHERE user_id = ?');
+    const result = stmt.get(userId);
+    return result.count;
+  }
+
   async deleteDevice(deviceId, userId) {
     const stmt = this.db.prepare('DELETE FROM devices WHERE device_id = ? AND user_id = ?');
     stmt.run(deviceId, userId);
@@ -66,9 +72,20 @@ export class Database {
   }
 
   async contributeMappings(userId, mappings) {
-    const stmt = this.db.prepare('INSERT INTO mapping_contributions (user_id, merchant_raw, category, card_type) VALUES (?, ?, ?, ?)');
-    for (const mapping of mappings) {
-      stmt.run(userId, mapping.merchant, mapping.category, mapping.cardType);
+    // Use transaction for atomicity
+    const insertStmt = this.db.prepare('INSERT INTO mapping_contributions (user_id, merchant_raw, category, card_type) VALUES (?, ?, ?, ?)');
+    
+    const transaction = this.db.transaction((mappings) => {
+      for (const mapping of mappings) {
+        insertStmt.run(userId, mapping.merchant, mapping.category, mapping.cardType);
+      }
+    });
+    
+    try {
+      transaction(mappings);
+    } catch (error) {
+      console.error('[DB] Transaction failed:', error);
+      throw error;
     }
   }
 
@@ -101,5 +118,36 @@ export class Database {
     this.db.prepare('DELETE FROM sync_blobs WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM devices WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM mapping_contributions WHERE user_id = ?').run(userId);
+  }
+
+  // Token blacklist operations
+  async blacklistToken(userId, tokenJti, expiresAt, reason = 'logout') {
+    const stmt = this.db.prepare('INSERT INTO token_blacklist (user_id, token_jti, expires_at, reason) VALUES (?, ?, ?, ?)');
+    stmt.run(userId, tokenJti, expiresAt, reason);
+  }
+
+  async isTokenBlacklisted(tokenJti) {
+    const stmt = this.db.prepare('SELECT 1 FROM token_blacklist WHERE token_jti = ?');
+    return !!stmt.get(tokenJti);
+  }
+
+  async blacklistAllUserTokens(userId, reason = 'logout_all') {
+    // Blacklist all potential tokens for this user by recording user logout
+    const stmt = this.db.prepare('INSERT INTO token_blacklist (user_id, token_jti, expires_at, reason) VALUES (?, ?, ?, ?)');
+    const expiresAt = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
+    stmt.run(userId, `user_${userId}_${Date.now()}`, expiresAt, reason);
+  }
+
+  async cleanupExpiredBlacklist() {
+    const now = Math.floor(Date.now() / 1000);
+    const stmt = this.db.prepare('DELETE FROM token_blacklist WHERE expires_at < ?');
+    const result = stmt.run(now);
+    return result.changes;
+  }
+
+  async getUserBlacklistTimestamp(userId) {
+    const stmt = this.db.prepare('SELECT MAX(blacklisted_at) as timestamp FROM token_blacklist WHERE user_id = ?');
+    const result = stmt.get(userId);
+    return result?.timestamp || 0;
   }
 }

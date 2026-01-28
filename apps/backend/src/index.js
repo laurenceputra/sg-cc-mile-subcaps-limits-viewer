@@ -49,7 +49,12 @@ app.use('/*', payloadSizeLimitMiddleware());
 // Health check
 app.get('/', (c) => c.json({ status: 'ok', service: 'bank-cc-sync' }));
 
-// Public routes (rate limiting applied per endpoint in auth.js)
+// Apply auth middleware for protected auth routes
+app.use('/auth/logout*', authMiddleware);
+app.use('/auth/device/*', authMiddleware);
+app.use('/auth/devices', authMiddleware);
+
+// Auth routes (some public, some protected)
 app.route('/auth', auth);
 
 // Protected routes with rate limiting

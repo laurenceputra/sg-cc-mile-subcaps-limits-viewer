@@ -10,6 +10,29 @@
 // RFC 5321 compliant email regex (simplified but practical)
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
+// Common disposable email domains
+const DISPOSABLE_EMAIL_DOMAINS = [
+  'tempmail.com', 'throwaway.email', '10minutemail.com', 'guerrillamail.com',
+  'mailinator.com', 'trashmail.com', 'temp-mail.org', 'fakeinbox.com'
+];
+
+/**
+ * Normalize email address (lowercase, trim)
+ */
+export function normalizeEmail(email) {
+  if (typeof email !== 'string') return email;
+  return email.trim().toLowerCase();
+}
+
+/**
+ * Check if email is from disposable domain
+ */
+export function isDisposableEmail(email) {
+  if (typeof email !== 'string') return false;
+  const domain = email.split('@')[1]?.toLowerCase();
+  return DISPOSABLE_EMAIL_DOMAINS.includes(domain);
+}
+
 // Control characters (U+0000 to U+001F, U+007F)
 const CONTROL_CHARS_REGEX = /[\u0000-\u001F\u007F]/;
 
@@ -44,12 +67,23 @@ export const schemas = {
     maxLength: 254,
     validate: (value) => {
       if (typeof value !== 'string') return 'Email must be a string';
-      if (value.length === 0) return 'Email cannot be empty';
-      if (value.length > 254) return 'Email exceeds maximum length (254 characters)';
-      if (!EMAIL_REGEX.test(value)) return 'Invalid email format';
-      if (CONTROL_CHARS_REGEX.test(value)) return 'Email contains invalid control characters';
+      
+      // Normalize email
+      const normalized = normalizeEmail(value);
+      
+      if (normalized.length === 0) return 'Email cannot be empty';
+      if (normalized.length > 254) return 'Email exceeds maximum length (254 characters)';
+      if (!EMAIL_REGEX.test(normalized)) return 'Invalid email format';
+      if (CONTROL_CHARS_REGEX.test(normalized)) return 'Email contains invalid control characters';
+      
+      // Optional: Check for disposable email (can be disabled if needed)
+      if (isDisposableEmail(normalized)) {
+        return 'Disposable email addresses are not allowed';
+      }
+      
       return null;
-    }
+    },
+    normalize: (value) => normalizeEmail(value)
   },
   
   passwordHash: {

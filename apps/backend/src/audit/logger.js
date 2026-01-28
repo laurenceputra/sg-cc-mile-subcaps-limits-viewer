@@ -11,6 +11,8 @@ export const AuditEventType = {
   LOGIN_SUCCESS: 'login_success',
   LOGIN_FAILED: 'login_failed',
   REGISTER_SUCCESS: 'register_success',
+  LOGOUT: 'logout',
+  LOGOUT_ALL: 'logout_all',
   DEVICE_REGISTER: 'device_register',
   DEVICE_REMOVE: 'device_remove',
   DATA_EXPORT: 'data_export',

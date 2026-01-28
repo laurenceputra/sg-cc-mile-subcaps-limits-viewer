@@ -20,12 +20,14 @@ function constantTimeEqual(a, b) {
   return result === 0;
 }
 
-export function generateToken(userId, secret) {
+export async function generateToken(userId, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
   const payload = {
     userId,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 days
+    jti: `${userId}_${now}_${Math.random().toString(36).substring(2, 15)}`, // Unique token ID
+    iat: now,
+    exp: now + (7 * 24 * 60 * 60) // 7 days
   };
 
   const encodedHeader = base64UrlEncode(JSON.stringify(header));

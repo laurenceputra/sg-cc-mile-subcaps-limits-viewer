@@ -1,4 +1,4 @@
-import { verifyToken } from './auth/jwt.js';
+import { verifyToken } from '../auth/jwt.js';
 
 export async function authMiddleware(c, next) {
   const authHeader = c.req.header('Authorization');
@@ -11,6 +11,22 @@ export async function authMiddleware(c, next) {
   
   try {
     const payload = await verifyToken(token, c.env.JWT_SECRET);
+    
+    // Check if token is blacklisted
+    const db = c.get('db');
+    if (db && payload.jti) {
+      const isBlacklisted = await db.isTokenBlacklisted(payload.jti);
+      if (isBlacklisted) {
+        return c.json({ error: 'Token has been revoked' }, 401);
+      }
+      
+      // Check if token was issued before user's last "logout all" action
+      const userBlacklistTimestamp = await db.getUserBlacklistTimestamp(payload.userId);
+      if (userBlacklistTimestamp > payload.iat) {
+        return c.json({ error: 'Token has been revoked' }, 401);
+      }
+    }
+    
     c.set('user', payload);
     await next();
   } catch (error) {

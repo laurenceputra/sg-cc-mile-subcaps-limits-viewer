@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import app from './index.js';
 import { Database } from './storage/db.js';
 import { validateEnvironment } from './startup-validation.js';
+import { initCleanupSchedule } from './auth/cleanup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || join(__dirname, '../data/bank-cc-sync.db');
@@ -33,6 +34,9 @@ const schema = readFileSync(join(__dirname, 'storage/schema.sql'), 'utf-8');
 sqliteDb.exec(schema);
 
 const db = new Database(sqliteDb);
+
+// Initialize cleanup jobs for token blacklist and audit logs
+initCleanupSchedule(db);
 
 // Wrap Hono app with db context
 const server = serve({
