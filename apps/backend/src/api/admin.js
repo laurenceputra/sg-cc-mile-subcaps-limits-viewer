@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { validateFields } from '../middleware/validation.js';
 
 const admin = new Hono();
 
@@ -25,12 +26,14 @@ admin.get('/mappings/pending', async (c) => {
   }
 });
 
-admin.post('/mappings/approve', async (c) => {
-  const { merchantNormalized, category, cardType } = await c.req.json();
-  
-  if (!merchantNormalized || !category || !cardType) {
-    return c.json({ error: 'merchantNormalized, category, and cardType required' }, 400);
-  }
+admin.post('/mappings/approve',
+  validateFields({ 
+    merchantNormalized: 'merchantName', 
+    category: 'category', 
+    cardType: 'cardType' 
+  }),
+  async (c) => {
+  const { merchantNormalized, category, cardType } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   

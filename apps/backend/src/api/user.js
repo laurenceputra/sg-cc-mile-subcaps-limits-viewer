@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { validateFields } from '../middleware/validation.js';
 
 const user = new Hono();
 
@@ -34,13 +35,11 @@ user.get('/export', async (c) => {
   }
 });
 
-user.patch('/settings', async (c) => {
+user.patch('/settings',
+  validateFields({ shareMappings: 'boolean' }),
+  async (c) => {
   const userAuth = c.get('user');
-  const { shareMappings } = await c.req.json();
-  
-  if (typeof shareMappings !== 'boolean') {
-    return c.json({ error: 'shareMappings must be a boolean' }, 400);
-  }
+  const { shareMappings } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   

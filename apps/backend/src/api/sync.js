@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { validateFields } from '../middleware/validation.js';
 
 const sync = new Hono();
 
@@ -24,13 +25,11 @@ sync.get('/data', async (c) => {
   }
 });
 
-sync.put('/data', async (c) => {
+sync.put('/data', 
+  validateFields({ encryptedData: 'encryptedData', version: 'version' }),
+  async (c) => {
   const user = c.get('user');
-  const { encryptedData, version } = await c.req.json();
-  
-  if (!encryptedData || typeof version !== 'number') {
-    return c.json({ error: 'encryptedData and version required' }, 400);
-  }
+  const { encryptedData, version } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   

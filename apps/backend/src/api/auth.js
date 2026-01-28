@@ -5,15 +5,16 @@ import {
   registerRateLimiter, 
   progressiveDelayMiddleware 
 } from '../middleware/rate-limiter.js';
+import { validateFields, validateOptionalFields } from '../middleware/validation.js';
 
 const auth = new Hono();
 
-auth.post('/register', registerRateLimiter, async (c) => {
-  const { email, passwordHash, tier = 'free' } = await c.req.json();
-  
-  if (!email || !passwordHash) {
-    return c.json({ error: 'Email and passwordHash required' }, 400);
-  }
+auth.post('/register', 
+  registerRateLimiter,
+  validateFields({ email: 'email', passwordHash: 'passwordHash' }),
+  validateOptionalFields({ tier: 'tier' }),
+  async (c) => {
+  const { email, passwordHash, tier = 'free' } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   
@@ -34,12 +35,12 @@ auth.post('/register', registerRateLimiter, async (c) => {
   }
 });
 
-auth.post('/login', loginRateLimiter, progressiveDelayMiddleware(), async (c) => {
-  const { email, passwordHash } = await c.req.json();
-  
-  if (!email || !passwordHash) {
-    return c.json({ error: 'Email and passwordHash required' }, 400);
-  }
+auth.post('/login', 
+  loginRateLimiter, 
+  progressiveDelayMiddleware(),
+  validateFields({ email: 'email', passwordHash: 'passwordHash' }),
+  async (c) => {
+  const { email, passwordHash } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   
@@ -60,13 +61,11 @@ auth.post('/login', loginRateLimiter, progressiveDelayMiddleware(), async (c) =>
   }
 });
 
-auth.post('/device/register', async (c) => {
+auth.post('/device/register',
+  validateFields({ deviceId: 'deviceId', name: 'deviceName' }),
+  async (c) => {
   const user = c.get('user');
-  const { deviceId, name } = await c.req.json();
-  
-  if (!deviceId || !name) {
-    return c.json({ error: 'deviceId and name required' }, 400);
-  }
+  const { deviceId, name } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   

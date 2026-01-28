@@ -1,10 +1,18 @@
 import { Hono } from 'hono';
 import { normalizeMerchant } from '@bank-cc/shared';
+import { validateFields, validateInput } from '../middleware/validation.js';
 
 const sharedMappings = new Hono();
 
 sharedMappings.get('/mappings/:cardType', async (c) => {
   const cardType = c.req.param('cardType');
+  
+  // Validate cardType parameter
+  const cardTypeError = validateInput(cardType, 'cardType');
+  if (cardTypeError) {
+    return c.json({ error: cardTypeError }, 400);
+  }
+  
   const db = c.get('db');
   
   try {
@@ -16,13 +24,11 @@ sharedMappings.get('/mappings/:cardType', async (c) => {
   }
 });
 
-sharedMappings.post('/mappings/contribute', async (c) => {
+sharedMappings.post('/mappings/contribute',
+  validateFields({ mappings: 'mappingsArray' }),
+  async (c) => {
   const user = c.get('user');
-  const { mappings } = await c.req.json();
-  
-  if (!Array.isArray(mappings)) {
-    return c.json({ error: 'mappings must be an array' }, 400);
-  }
+  const { mappings } = c.get('validatedBody') || await c.req.json();
 
   const db = c.get('db');
   

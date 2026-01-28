@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { authMiddleware } from './middleware/auth.js';
 import { 
   payloadSizeLimitMiddleware,
@@ -7,6 +6,8 @@ import {
   sharedMappingsRateLimiter,
   adminRateLimiter
 } from './middleware/rate-limiter.js';
+import { configureCors, csrfProtection } from './middleware/csrf.js';
+import { validateJsonMiddleware } from './middleware/validation.js';
 import auth from './api/auth.js';
 import sync from './api/sync.js';
 import sharedMappings from './api/shared-mappings.js';
@@ -15,12 +16,28 @@ import user from './api/user.js';
 
 const app = new Hono();
 
-// CORS middleware
-app.use('/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key']
-}));
+// Parse allowed origins from environment
+const getAllowedOrigins = (env) => {
+  const origins = env?.ALLOWED_ORIGINS || 'https://pib.uob.com.sg';
+  return origins.split(',').map(o => o.trim()).filter(Boolean);
+};
+
+// CORS middleware with CSRF protection
+app.use('/*', (c, next) => {
+  const allowedOrigins = getAllowedOrigins(c.env);
+  const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
+  return configureCors({ allowedOrigins, isDevelopment })(c, next);
+});
+
+// CSRF protection for state-changing requests
+app.use('/*', (c, next) => {
+  const allowedOrigins = getAllowedOrigins(c.env);
+  const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
+  return csrfProtection({ allowedOrigins, isDevelopment, requireOrigin: false })(c, next);
+});
+
+// JSON validation middleware
+app.use('/*', validateJsonMiddleware());
 
 // Global payload size limit
 app.use('/*', payloadSizeLimitMiddleware());

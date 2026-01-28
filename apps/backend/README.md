@@ -31,6 +31,42 @@ Hono.js backend supporting both Cloudflare Workers and Docker deployment.
 
 ## API Endpoints
 
+### Security Features
+
+The backend implements comprehensive security protections:
+
+**Input Validation:**
+- RFC 5321 compliant email validation (max 254 chars)
+- Merchant names: max 200 chars, no control characters
+- Categories: max 100 chars, whitelist validation
+- Device names/IDs: max 100/128 chars, alphanumeric only
+- All strings: reject U+0000 to U+001F control characters
+- JSON structure validation with depth limiting (max 10 levels)
+- Encrypted data size limit: 1MB
+
+**CSRF Protection:**
+- Origin header validation for all state-changing requests
+- Default allowed origins: `https://pib.uob.com.sg`
+- Automatic localhost allowance in development mode
+- 403 Forbidden response for invalid origins
+
+**Content-Type Validation:**
+- POST/PUT/PATCH require `application/json`
+- Returns 415 Unsupported Media Type for invalid content types
+
+**Configuration (Environment Variables):**
+```bash
+# CSRF Protection
+ALLOWED_ORIGINS=https://pib.uob.com.sg,https://your-domain.com
+
+# Environment
+ENVIRONMENT=production  # or development
+NODE_ENV=production     # or development
+```
+
+**Security Headers:**
+The API automatically sets appropriate CORS headers based on allowed origins and validates all requests against CSRF attacks.
+
 ### Rate Limits
 
 All endpoints are protected with rate limiting to prevent abuse:
