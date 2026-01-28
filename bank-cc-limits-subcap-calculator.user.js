@@ -1457,7 +1457,7 @@
     if (shouldShow || wasVisible) {
       overlay.style.display = 'flex';
     }
-    switchTab('manage');
+    switchTab('spend');
   }
 
   async function main() {
