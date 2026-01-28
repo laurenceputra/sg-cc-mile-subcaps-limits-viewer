@@ -5,9 +5,8 @@ import { validateFields, validateInput } from '../middleware/validation.js';
 const sharedMappings = new Hono();
 
 sharedMappings.get('/mappings/:cardType', async (c) => {
+  // SECURITY: Validate immediately after extraction, before any processing
   const cardType = c.req.param('cardType');
-  
-  // Validate cardType parameter
   const cardTypeError = validateInput(cardType, 'cardType');
   if (cardTypeError) {
     return c.json({ error: cardTypeError }, 400);
