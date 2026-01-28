@@ -2,22 +2,31 @@
  * Constant-time string comparison to prevent timing attacks
  * SECURITY: Always compares full length regardless of where mismatch occurs,
  * preventing attackers from using timing information to forge signatures.
+ * Performs dummy computation on length mismatch to prevent length-based timing leaks.
  * 
  * @param {string} a - First string
  * @param {string} b - Second string
  * @returns {boolean} - True if strings match
  */
-function constantTimeEqual(a, b) {
-  if (a.length !== b.length) {
-    return false;
-  }
+export function constantTimeEqual(a, b) {
+  // Track length mismatch but don't early return to prevent timing leak
+  const lengthMismatch = a.length !== b.length;
+  
+  // Always compare at least one string's length to prevent timing leak
+  // Use the longer length to ensure we always do work
+  const maxLength = Math.max(a.length, b.length);
   
   let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < maxLength; i++) {
+    // Use modulo to wrap around for shorter string (prevents index out of bounds)
+    // This ensures we always do the same amount of work regardless of length match
+    const aChar = a.charCodeAt(i % (a.length || 1));
+    const bChar = b.charCodeAt(i % (b.length || 1));
+    result |= aChar ^ bChar;
   }
   
-  return result === 0;
+  // Factor in length mismatch to final result
+  return result === 0 && !lengthMismatch;
 }
 
 export async function generateToken(userId, secret) {

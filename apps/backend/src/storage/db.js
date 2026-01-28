@@ -65,6 +65,23 @@ export class Database {
     stmt.run(userId, version, JSON.stringify(encryptedData));
   }
 
+  // SECURITY: Atomic version check to prevent TOCTOU race conditions
+  // This performs the version check and update in a single database operation
+  async upsertSyncBlobAtomic(userId, version, encryptedData) {
+    const stmt = this.db.prepare(`
+      INSERT INTO sync_blobs (user_id, version, encrypted_data, updated_at) 
+      VALUES (?, ?, ?, strftime('%s', 'now'))
+      ON CONFLICT(user_id) DO UPDATE SET 
+        version = excluded.version,
+        encrypted_data = excluded.encrypted_data,
+        updated_at = excluded.updated_at
+      WHERE sync_blobs.version < excluded.version
+    `);
+    const result = stmt.run(userId, version, JSON.stringify(encryptedData));
+    // Returns number of rows changed - 0 means version conflict (WHERE clause failed)
+    return result.changes;
+  }
+
   // Shared mappings operations
   async getSharedMappings(cardType) {
     const stmt = this.db.prepare('SELECT * FROM shared_mappings WHERE card_type = ? AND status = ?');

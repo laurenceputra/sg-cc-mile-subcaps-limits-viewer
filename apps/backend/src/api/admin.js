@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { constantTimeEqual } from '../auth/jwt.js';
 import { validateFields } from '../middleware/validation.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
@@ -8,7 +9,9 @@ const admin = new Hono();
 admin.use('/*', async (c, next) => {
   const adminKey = c.req.header('X-Admin-Key');
   
-  if (adminKey !== c.env.ADMIN_KEY) {
+  // SECURITY: Use constant-time comparison for admin key to prevent timing attacks
+  // that could allow attackers to guess the admin key character by character
+  if (!adminKey || !constantTimeEqual(adminKey, c.env.ADMIN_KEY)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   

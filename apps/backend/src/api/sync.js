@@ -34,13 +34,16 @@ sync.put('/data',
   const db = c.get('db');
   
   try {
-    const currentBlob = await db.getSyncBlob(user.userId);
+    // SECURITY: Use atomic database-level version check to prevent TOCTOU race conditions
+    // where two concurrent requests could both pass the version check and cause data loss.
+    // The WHERE clause ensures the update only happens if current version < new version.
+    const rowsChanged = await db.upsertSyncBlobAtomic(user.userId, version, encryptedData);
     
-    if (currentBlob && currentBlob.version >= version) {
+    if (rowsChanged === 0) {
+      // No rows changed means the WHERE clause failed - version conflict
+      const currentBlob = await db.getSyncBlob(user.userId);
       return c.json({ error: 'Version conflict', currentVersion: currentBlob.version }, 409);
     }
-
-    await db.upsertSyncBlob(user.userId, version, encryptedData);
 
     return c.json({ success: true, version });
   } catch (error) {

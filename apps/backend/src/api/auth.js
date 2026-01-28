@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { generateToken } from '../auth/jwt.js';
+import { generateToken, constantTimeEqual } from '../auth/jwt.js';
 import { 
   loginRateLimiter, 
   registerRateLimiter, 
@@ -74,7 +74,9 @@ auth.post('/login',
   
   try {
     const user = await db.getUserByEmail(email);
-    if (!user || user.passphrase_hash !== passwordHash) {
+    // SECURITY: Use constant-time comparison for password hash to prevent timing attacks
+    // that could allow attackers to determine if user exists or guess password hashes
+    if (!user || !constantTimeEqual(user.passphrase_hash, passwordHash)) {
       // Audit log failed login attempt
       await logAuditEvent(db, {
         eventType: AuditEventType.LOGIN_FAILED,
