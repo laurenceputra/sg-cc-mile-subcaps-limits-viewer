@@ -1,0 +1,24 @@
+{
+  "name": "@bank-cc/backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sync backend for bank CC calculator (Cloudflare Workers + Docker)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "dev:node": "node src/node-server.js",
+    "build:docker": "docker build -f infra/docker/Dockerfile -t bank-cc-backend ."
+  },
+  "keywords": ["hono", "cloudflare-workers", "sync"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^4.0.0",
+    "@bank-cc/shared": "*"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0",
+    "better-sqlite3": "^9.4.0"
+  }
+}
