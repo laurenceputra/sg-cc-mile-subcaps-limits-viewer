@@ -1,0 +1,32 @@
+# Set default text file handling to LF
+* text=auto eol=lf
+
+# Force LF for source code and config files
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+
+# Treat images and binaries as binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.svg  text
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+
+# Prevent CRLF in shell scripts
+*.sh   text eol=lf
+
+# Prevent CRLF in Tampermonkey user scripts
+*.user.js text eol=lf
