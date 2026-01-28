@@ -1177,16 +1177,35 @@
 
       headerRight.appendChild(totalPill);
 
+      const warnings = [];
+      
       categoryOrder.forEach((category) => {
         const value = monthData.totals?.[category] || 0;
         const pill = document.createElement('div');
         pill.textContent = `${category} ${value.toFixed(2)}`;
         pill.style.padding = '4px 8px';
         pill.style.borderRadius = '999px';
-        pill.style.background = THEME.surface;
-        pill.style.border = `1px solid ${THEME.border}`;
         pill.style.fontSize = '12px';
-        pill.style.color = THEME.muted;
+        
+        // Apply warning styling based on thresholds
+        if (value >= 750) {
+          pill.style.background = '#fee2e2';
+          pill.style.border = '1px solid #dc2626';
+          pill.style.color = '#991b1b';
+          pill.style.fontWeight = '700';
+          warnings.push({ category, value, level: 'critical' });
+        } else if (value >= 700) {
+          pill.style.background = THEME.warningSoft;
+          pill.style.border = `1px solid ${THEME.warning}`;
+          pill.style.color = THEME.warning;
+          pill.style.fontWeight = '600';
+          warnings.push({ category, value, level: 'warning' });
+        } else {
+          pill.style.background = THEME.surface;
+          pill.style.border = `1px solid ${THEME.border}`;
+          pill.style.color = THEME.muted;
+        }
+        
         headerRight.appendChild(pill);
       });
 
@@ -1285,6 +1304,59 @@
       });
 
       card.appendChild(header);
+      
+      // Add warning banner if there are any warnings
+      if (warnings.length > 0) {
+        const warningBanner = document.createElement('div');
+        warningBanner.style.marginTop = '8px';
+        warningBanner.style.padding = '10px 12px';
+        warningBanner.style.borderRadius = '8px';
+        warningBanner.style.fontSize = '13px';
+        
+        const criticalWarnings = warnings.filter((w) => w.level === 'critical');
+        const softWarnings = warnings.filter((w) => w.level === 'warning');
+        
+        if (criticalWarnings.length > 0) {
+          warningBanner.style.background = '#fee2e2';
+          warningBanner.style.border = '2px solid #dc2626';
+          warningBanner.style.color = '#991b1b';
+          warningBanner.style.fontWeight = '700';
+          
+          const title = document.createElement('div');
+          title.textContent = '⚠️ Cap Exceeded Alert';
+          title.style.marginBottom = '4px';
+          title.style.fontSize = '14px';
+          
+          const message = document.createElement('div');
+          const cats = criticalWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
+          message.textContent = `The following categories have exceeded the $750 cap: ${cats}`;
+          message.style.fontWeight = '400';
+          
+          warningBanner.appendChild(title);
+          warningBanner.appendChild(message);
+        } else if (softWarnings.length > 0) {
+          warningBanner.style.background = THEME.warningSoft;
+          warningBanner.style.border = `2px solid ${THEME.warning}`;
+          warningBanner.style.color = THEME.warning;
+          warningBanner.style.fontWeight = '600';
+          
+          const title = document.createElement('div');
+          title.textContent = '⚡ Approaching Cap';
+          title.style.marginBottom = '4px';
+          title.style.fontSize = '14px';
+          
+          const message = document.createElement('div');
+          const cats = softWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
+          message.textContent = `Nearing $750 cap: ${cats}`;
+          message.style.fontWeight = '400';
+          
+          warningBanner.appendChild(title);
+          warningBanner.appendChild(message);
+        }
+        
+        card.appendChild(warningBanner);
+      }
+      
       card.appendChild(details);
       container.appendChild(card);
     });
