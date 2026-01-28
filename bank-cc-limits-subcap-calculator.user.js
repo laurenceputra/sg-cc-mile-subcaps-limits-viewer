@@ -39,11 +39,9 @@
   const UI_IDS = {
     button: 'cc-subcap-btn',
     overlay: 'cc-subcap-overlay',
-    jsonContent: 'cc-subcap-json',
     manageContent: 'cc-subcap-manage',
     spendContent: 'cc-subcap-spend',
     summaryContent: 'cc-subcap-summary',
-    tabJson: 'cc-subcap-tab-json',
     tabManage: 'cc-subcap-tab-manage',
     tabSpend: 'cc-subcap-tab-spend',
     close: 'cc-subcap-close'
@@ -197,6 +195,22 @@
     });
   }
 
+  async function waitForTableBodyRows(xpath, timeoutMs = 15000, settleMs = 2000) {
+    const tbody = await waitForXPath(xpath, timeoutMs);
+    if (!tbody) {
+      return null;
+    }
+    const startTime = Date.now();
+    while (Date.now() - startTime < settleMs) {
+      const rowCount = tbody.querySelectorAll('tr').length;
+      if (rowCount > 0) {
+        return tbody;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+    }
+    return tbody;
+  }
+
   function observeTableBody(tableBodyXPath, onChange) {
     let currentTbody = null;
     let tableObserver = null;
@@ -229,6 +243,7 @@
       }
       currentTbody = tbody;
       attachObserver(tbody);
+      scheduleRefresh();
     };
 
     ensureObserver();
@@ -957,14 +972,25 @@
   }
 
   function renderMerchantMapping(container, transactions, cardSettings, onChange) {
-    const merchantSet = new Set(
-      transactions.map((transaction) => transaction.merchant_detail).filter(Boolean)
-    );
+    const merchantCounts = new Map();
+    transactions.forEach((transaction) => {
+      const merchant = transaction.merchant_detail;
+      if (!merchant) {
+        return;
+      }
+      merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
+    });
     const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
 
-    const uncategorized = Array.from(merchantSet)
-      .filter((merchant) => !mappedMerchants.has(merchant))
-      .sort((a, b) => a.localeCompare(b));
+    const uncategorized = Array.from(merchantCounts.entries())
+      .filter(([merchant]) => !mappedMerchants.has(merchant))
+      .sort((a, b) => {
+        if (a[1] !== b[1]) {
+          return b[1] - a[1];
+        }
+        return a[0].localeCompare(b[0]);
+      })
+      .map(([merchant]) => merchant);
     const categorized = Array.from(mappedMerchants).sort((a, b) => a.localeCompare(b));
 
     renderMerchantSection(
@@ -987,35 +1013,6 @@
       cardSettings,
       onChange
     );
-  }
-
-  function mergeTransactionsForMapping(currentTransactions, storedTransactions) {
-    const combined = [];
-    const seen = new Set();
-    const add = (tx) => {
-      const refKey = normalizeKey(normalizeRefNo(tx.ref_no || ''));
-      if (refKey) {
-        if (seen.has(refKey)) {
-          return;
-        }
-        seen.add(refKey);
-      } else {
-        const fallbackKey = [
-          (tx.merchant_detail || '').toLowerCase(),
-          tx.posting_date_iso || tx.posting_date || '',
-          tx.amount_text || String(tx.amount_value || '')
-        ].join('|');
-        if (seen.has(fallbackKey)) {
-          return;
-        }
-        seen.add(fallbackKey);
-      }
-      combined.push(tx);
-    };
-
-    currentTransactions.forEach(add);
-    storedTransactions.forEach(add);
-    return combined;
   }
 
   function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
@@ -1046,11 +1043,12 @@
     mappingSection.style.flexDirection = 'column';
     mappingSection.style.gap = '12px';
 
-    const mappingTransactions = mergeTransactionsForMapping(
-      data.transactions || [],
-      storedTransactions || []
+    renderMerchantMapping(
+      mappingSection,
+      storedTransactions || [],
+      cardSettings,
+      onChange
     );
-    renderMerchantMapping(mappingSection, mappingTransactions, cardSettings, onChange);
 
     container.appendChild(selectorsSection);
     container.appendChild(summarySection);
@@ -1289,21 +1287,17 @@
   }
 
   function switchTab(tab) {
-    const jsonContent = document.getElementById(UI_IDS.jsonContent);
     const manageContent = document.getElementById(UI_IDS.manageContent);
     const spendContent = document.getElementById(UI_IDS.spendContent);
-    const tabJson = document.getElementById(UI_IDS.tabJson);
     const tabManage = document.getElementById(UI_IDS.tabManage);
     const tabSpend = document.getElementById(UI_IDS.tabSpend);
 
-    if (!jsonContent || !manageContent || !spendContent || !tabJson || !tabManage || !tabSpend) {
+    if (!manageContent || !spendContent || !tabManage || !tabSpend) {
       return;
     }
 
-    const isJson = tab === 'json';
     const isManage = tab === 'manage';
     const isSpend = tab === 'spend';
-    jsonContent.style.display = isJson ? 'block' : 'none';
     manageContent.style.display = isManage ? 'block' : 'none';
     spendContent.style.display = isSpend ? 'block' : 'none';
 
@@ -1314,14 +1308,12 @@
       tabElement.style.fontWeight = isActive ? '600' : '500';
     };
 
-    setTabState(tabJson, isJson);
     setTabState(tabManage, isManage);
     setTabState(tabSpend, isSpend);
   }
 
   function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
     let overlay = document.getElementById(UI_IDS.overlay);
-    let jsonContent;
     let manageContent;
     let spendContent;
 
@@ -1386,18 +1378,6 @@
       tabs.style.display = 'flex';
       tabs.style.gap = '8px';
 
-      const tabJson = document.createElement('button');
-      tabJson.id = UI_IDS.tabJson;
-      tabJson.type = 'button';
-      tabJson.textContent = 'JSON';
-      tabJson.style.border = `1px solid ${THEME.border}`;
-      tabJson.style.borderRadius = '999px';
-      tabJson.style.padding = '6px 12px';
-      tabJson.style.background = THEME.accentSoft;
-      tabJson.style.color = THEME.text;
-      tabJson.style.cursor = 'pointer';
-      tabJson.addEventListener('click', () => switchTab('json'));
-
       const tabManage = document.createElement('button');
       tabManage.id = UI_IDS.tabManage;
       tabManage.type = 'button';
@@ -1422,7 +1402,6 @@
       tabSpend.style.cursor = 'pointer';
       tabSpend.addEventListener('click', () => switchTab('spend'));
 
-      tabs.appendChild(tabJson);
       tabs.appendChild(tabManage);
       tabs.appendChild(tabSpend);
 
@@ -1433,18 +1412,6 @@
       privacyNotice.style.fontSize = '12px';
       privacyNotice.style.color = THEME.muted;
       privacyNotice.style.marginTop = '4px';
-
-      jsonContent = document.createElement('pre');
-      jsonContent.id = UI_IDS.jsonContent;
-      jsonContent.style.margin = '0';
-      jsonContent.style.padding = '12px';
-      jsonContent.style.background = THEME.surface;
-      jsonContent.style.color = THEME.text;
-      jsonContent.style.borderRadius = '8px';
-      jsonContent.style.border = `1px solid ${THEME.border}`;
-      jsonContent.style.overflow = 'auto';
-      jsonContent.style.fontSize = '12px';
-      jsonContent.style.lineHeight = '1.4';
 
       manageContent = document.createElement('div');
       manageContent.id = UI_IDS.manageContent;
@@ -1459,20 +1426,15 @@
       panel.appendChild(header);
       panel.appendChild(tabs);
       panel.appendChild(privacyNotice);
-      panel.appendChild(jsonContent);
       panel.appendChild(manageContent);
       panel.appendChild(spendContent);
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
     } else {
-      jsonContent = document.getElementById(UI_IDS.jsonContent);
       manageContent = document.getElementById(UI_IDS.manageContent);
       spendContent = document.getElementById(UI_IDS.spendContent);
     }
 
-    if (jsonContent) {
-      jsonContent.textContent = JSON.stringify(data, null, 2);
-    }
     if (manageContent) {
       renderManageView(
         manageContent,
@@ -1519,7 +1481,7 @@
 
     const tableBodyXPath =
       '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody';
-    const tableBody = await waitForXPath(tableBodyXPath);
+    const tableBody = await waitForTableBodyRows(tableBodyXPath);
     if (!tableBody) {
       removeUI();
       return;
@@ -1540,7 +1502,7 @@
         return;
       }
       refreshInProgress = true;
-      const latestTableBody = await waitForXPath(tableBodyXPath);
+      const latestTableBody = await waitForTableBodyRows(tableBodyXPath);
       try {
         if (!latestTableBody) {
           return;
