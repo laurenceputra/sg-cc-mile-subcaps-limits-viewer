@@ -24,6 +24,14 @@ const getAllowedOrigins = (env) => {
   return origins.split(',').map(o => o.trim()).filter(Boolean);
 };
 
+// Set database in context from environment
+app.use('/*', async (c, next) => {
+  if (c.env.db) {
+    c.set('db', c.env.db);
+  }
+  await next();
+});
+
 // Security headers (apply early)
 app.use('/*', securityHeadersMiddleware());
 

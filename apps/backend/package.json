@@ -8,17 +8,31 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "dev:node": "node src/node-server.js",
-    "build:docker": "docker build -f infra/docker/Dockerfile -t bank-cc-backend ."
+    "build:docker": "docker build -f infra/docker/Dockerfile -t bank-cc-backend .",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=integration",
+    "test:security": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=security",
+    "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=e2e",
+    "test:load": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=load",
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch"
   },
-  "keywords": ["hono", "cloudflare-workers", "sync"],
+  "keywords": [
+    "hono",
+    "cloudflare-workers",
+    "sync"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "hono": "^4.0.0",
-    "@bank-cc/shared": "*"
+    "@bank-cc/shared": "*",
+    "hono": "^4.0.0"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0",
-    "better-sqlite3": "^9.4.0"
+    "@jest/globals": "^29.7.0",
+    "better-sqlite3": "^9.4.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2",
+    "wrangler": "^3.0.0"
   }
 }
