@@ -429,6 +429,7 @@
     const rows = Array.from(tbody.querySelectorAll('tr'));
     const diagnostics = {
       skipped_rows: 0,
+      missing_ref_no: 0,
       invalid_posting_date: 0,
       invalid_amount: 0
     };
@@ -444,6 +445,7 @@
         const postingDate = normalizeText(cells[0].textContent);
         const transactionDate = normalizeText(cells[1].textContent);
         const { merchantName, refNo } = extractMerchantInfo(cells[2]);
+        const normalizedRefNo = normalizeKey(normalizeRefNo(refNo));
 
         if (
           !postingDate &&
@@ -451,6 +453,10 @@
           merchantName.toLowerCase() === 'previous balance'
         ) {
           diagnostics.skipped_rows += 1;
+          return null;
+        }
+        if (!normalizedRefNo) {
+          diagnostics.missing_ref_no += 1;
           return null;
         }
 
@@ -474,7 +480,7 @@
           posting_date_iso: postingDateIso,
           transaction_date: transactionDate,
           merchant_detail: merchantName,
-          ref_no: normalizeKey(normalizeRefNo(refNo)),
+          ref_no: normalizedRefNo,
           amount_dollars: dollarsText,
           amount_cents: centsText,
           amount_text: amountText,
@@ -743,6 +749,10 @@
       {
         key: 'invalid_posting_date',
         label: 'Rows with unreadable posting dates'
+      },
+      {
+        key: 'missing_ref_no',
+        label: 'Rows skipped (missing ref no)'
       },
       {
         key: 'invalid_amount',
