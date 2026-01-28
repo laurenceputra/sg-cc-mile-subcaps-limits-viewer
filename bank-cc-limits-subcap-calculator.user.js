@@ -1565,8 +1565,8 @@
       tabSpend.style.cursor = 'pointer';
       tabSpend.addEventListener('click', () => switchTab('spend'));
 
-      tabs.appendChild(tabManage);
       tabs.appendChild(tabSpend);
+      tabs.appendChild(tabManage);
 
       const privacyNotice = document.createElement('div');
       privacyNotice.textContent =
