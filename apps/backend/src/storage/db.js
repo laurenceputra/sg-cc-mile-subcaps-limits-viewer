@@ -68,6 +68,18 @@ export class Database {
   // SECURITY: Atomic version check to prevent TOCTOU race conditions
   // This performs the version check and update in a single database operation
   async upsertSyncBlobAtomic(userId, version, encryptedData) {
+    // SECURITY FIX: SQLite's ON CONFLICT WHERE clause doesn't reliably return 0 changes
+    // when condition fails. We need explicit version checking before upsert.
+    
+    // First, get current version if record exists
+    const current = this.db.prepare('SELECT version FROM sync_blobs WHERE user_id = ?').get(userId);
+    
+    if (current && current.version >= version) {
+      // Version conflict - don't update
+      return 0;
+    }
+    
+    // Safe to upsert now
     const stmt = this.db.prepare(`
       INSERT INTO sync_blobs (user_id, version, encrypted_data, updated_at) 
       VALUES (?, ?, ?, strftime('%s', 'now'))
@@ -75,10 +87,8 @@ export class Database {
         version = excluded.version,
         encrypted_data = excluded.encrypted_data,
         updated_at = excluded.updated_at
-      WHERE sync_blobs.version < excluded.version
     `);
     const result = stmt.run(userId, version, JSON.stringify(encryptedData));
-    // Returns number of rows changed - 0 means version conflict (WHERE clause failed)
     return result.changes;
   }
 
