@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { validateFields } from '../middleware/validation.js';
+import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const admin = new Hono();
 
@@ -7,7 +8,7 @@ const admin = new Hono();
 admin.use('/*', async (c, next) => {
   const adminKey = c.req.header('X-Admin-Key');
   
-  if (adminKey !== (c.env.ADMIN_KEY || 'admin-dev-key')) {
+  if (adminKey !== c.env.ADMIN_KEY) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   
@@ -19,6 +20,15 @@ admin.get('/mappings/pending', async (c) => {
   
   try {
     const pending = await db.getPendingContributions();
+    
+    // Audit log admin viewing pending mappings
+    await logAuditEvent(db, {
+      eventType: AuditEventType.ADMIN_VIEW_PENDING,
+      request: c.req.raw,
+      userId: null, // Admin action, no user ID
+      details: { pendingCount: pending.length }
+    });
+    
     return c.json({ pending });
   } catch (error) {
     console.error('[Admin] Get pending error:', error);
@@ -39,6 +49,15 @@ admin.post('/mappings/approve',
   
   try {
     await db.approveMappings(merchantNormalized, category, cardType);
+    
+    // Audit log admin approval
+    await logAuditEvent(db, {
+      eventType: AuditEventType.ADMIN_MAPPING_APPROVE,
+      request: c.req.raw,
+      userId: null, // Admin action, no user ID
+      details: { merchantNormalized, category, cardType }
+    });
+    
     return c.json({ success: true });
   } catch (error) {
     console.error('[Admin] Approve error:', error);

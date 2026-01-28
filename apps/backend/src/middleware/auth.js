@@ -10,7 +10,7 @@ export async function authMiddleware(c, next) {
   const token = authHeader.substring(7);
   
   try {
-    const payload = await verifyToken(token, c.env.JWT_SECRET || 'dev-secret');
+    const payload = await verifyToken(token, c.env.JWT_SECRET);
     c.set('user', payload);
     await next();
   } catch (error) {

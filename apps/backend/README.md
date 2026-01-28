@@ -4,6 +4,31 @@ Hono.js backend supporting both Cloudflare Workers and Docker deployment.
 
 ## Cloudflare Workers Deployment
 
+### Prerequisites
+
+**Generate Secure Secrets:**
+
+Before deployment, generate strong secrets for JWT signing and admin authentication:
+
+```bash
+# Method 1: Using OpenSSL (recommended)
+openssl rand -base64 32
+
+# Method 2: Using Node.js
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+# Method 3: Using Python
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**CRITICAL SECURITY REQUIREMENTS:**
+- Secrets MUST be at least 32 characters
+- NEVER use default values like 'dev-secret' or 'admin-dev-key' in production
+- Use different secrets for JWT_SECRET and ADMIN_KEY
+- Store secrets securely (never commit to version control)
+
+### Deployment Steps
+
 1. Install Wrangler: `npm install -g wrangler`
 2. Create D1 database: `wrangler d1 create bank_cc_sync`
 3. Update `wrangler.toml` with database ID
@@ -17,10 +42,17 @@ Hono.js backend supporting both Cloudflare Workers and Docker deployment.
 
 ## Docker Self-Hosting
 
-1. Create `.env` file:
-   ```
-   JWT_SECRET=your-random-secret-here
-   ADMIN_KEY=your-admin-key-here
+### Prerequisites
+
+**Generate Secure Secrets (see instructions above in Cloudflare section)**
+
+### Deployment Steps
+
+1. Create `.env` file with generated secrets:
+   ```bash
+   JWT_SECRET=<your-generated-jwt-secret>
+   ADMIN_KEY=<your-generated-admin-key>
+   ENVIRONMENT=production
    ```
 
 2. Start: `docker-compose up -d`
@@ -28,6 +60,8 @@ Hono.js backend supporting both Cloudflare Workers and Docker deployment.
 3. Database is persisted in Docker volume `db-data`
 
 4. Access: `http://localhost:3000`
+
+**IMPORTANT:** The server will refuse to start if JWT_SECRET or ADMIN_KEY are not set or are using insecure default values.
 
 ## API Endpoints
 
@@ -65,7 +99,16 @@ NODE_ENV=production     # or development
 ```
 
 **Security Headers:**
-The API automatically sets appropriate CORS headers based on allowed origins and validates all requests against CSRF attacks.
+The API automatically sets comprehensive security headers:
+- `X-Content-Type-Options: nosniff` - Prevents MIME sniffing
+- `X-Frame-Options: DENY` - Prevents clickjacking
+- `X-XSS-Protection: 1; mode=block` - Legacy XSS protection
+- `Strict-Transport-Security: max-age=31536000` - Enforces HTTPS
+- `Content-Security-Policy` - Restricts resource loading
+- `Referrer-Policy: strict-origin-when-cross-origin` - Limits referrer leakage
+- `Permissions-Policy` - Disables unnecessary browser APIs
+
+The API also validates requests against CSRF attacks and sets appropriate CORS headers.
 
 ### Rate Limits
 
@@ -110,3 +153,44 @@ Login attempts include exponential backoff starting at 200ms, preventing rapid b
 ### Admin (requires X-Admin-Key header)
 - `GET /admin/mappings/pending` - Get pending contributions
 - `POST /admin/mappings/approve` - Approve mapping
+
+## Audit Logging
+
+The backend automatically logs all security-relevant events:
+
+**Logged Events:**
+- Login attempts (success and failure)
+- User registration
+- Device registration/removal
+- Data exports
+- Settings changes
+- Admin actions
+
+**Log Details:**
+- Timestamp
+- Event type
+- User ID (when applicable)
+- IP address
+- User agent
+- Device ID (for device events)
+- Sanitized event details (no passwords, tokens, or sensitive data)
+
+**Log Retention:**
+- Logs are automatically rotated after 90 days
+- Old logs are permanently deleted
+- Administrators can query logs for security review
+
+**Privacy:**
+- No passwords, tokens, or encryption keys are ever logged
+- Only sanitized details are stored
+- IP addresses are logged for forensics but can be anonymized if needed
+
+## Security Best Practices
+
+1. **Always use generated secrets** - Never use default values
+2. **Keep secrets secure** - Use secrets management (Docker Secrets, Vault, etc.)
+3. **Enable HTTPS** - Use TLS certificates in production
+4. **Monitor audit logs** - Regularly review security events
+5. **Rotate secrets periodically** - Change JWT_SECRET and ADMIN_KEY on a schedule
+6. **Keep dependencies updated** - Run `npm audit` and update packages
+7. **Use firewall rules** - Restrict admin endpoints to trusted IPs

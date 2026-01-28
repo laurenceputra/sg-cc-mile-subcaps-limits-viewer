@@ -5,9 +5,25 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import app from './index.js';
 import { Database } from './storage/db.js';
+import { validateEnvironment } from './startup-validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || join(__dirname, '../data/bank-cc-sync.db');
+
+// Validate environment configuration before starting
+const env = {
+  JWT_SECRET: process.env.JWT_SECRET,
+  ADMIN_KEY: process.env.ADMIN_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  ENVIRONMENT: process.env.ENVIRONMENT
+};
+
+try {
+  validateEnvironment(env);
+} catch (error) {
+  console.error('Failed to start server:', error.message);
+  process.exit(1);
+}
 
 // Initialize SQLite database
 const sqliteDb = new SQLite(dbPath);
@@ -23,8 +39,8 @@ const server = serve({
   fetch: (request) => {
     return app.fetch(request, {
       db,
-      JWT_SECRET: process.env.JWT_SECRET || 'dev-secret',
-      ADMIN_KEY: process.env.ADMIN_KEY || 'admin-dev-key'
+      JWT_SECRET: process.env.JWT_SECRET,
+      ADMIN_KEY: process.env.ADMIN_KEY
     });
   },
   port: 3000

@@ -51,8 +51,24 @@ CREATE TABLE IF NOT EXISTS mapping_contributions (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Audit logs table for security events
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL, -- 'login_success', 'login_failed', 'device_register', 'device_remove', 'data_export', 'settings_change', 'admin_action'
+  user_id INTEGER, -- NULL for failed logins where user doesn't exist
+  ip_address TEXT NOT NULL,
+  user_agent TEXT,
+  device_id TEXT,
+  details TEXT, -- JSON with sanitized event-specific details (no passwords/tokens)
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_shared_mappings_card_type ON shared_mappings(card_type);
 CREATE INDEX IF NOT EXISTS idx_shared_mappings_status ON shared_mappings(status);
 CREATE INDEX IF NOT EXISTS idx_mapping_contributions_user_id ON mapping_contributions(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);

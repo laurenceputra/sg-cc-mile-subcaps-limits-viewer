@@ -6,6 +6,7 @@ import {
   progressiveDelayMiddleware 
 } from '../middleware/rate-limiter.js';
 import { validateFields, validateOptionalFields } from '../middleware/validation.js';
+import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const auth = new Hono();
 
@@ -26,7 +27,15 @@ auth.post('/register',
     }
 
     const userId = await db.createUser(email, passwordHash, tier);
-    const token = await generateToken(userId, c.env.JWT_SECRET || 'dev-secret');
+    const token = await generateToken(userId, c.env.JWT_SECRET);
+
+    // Audit log successful registration
+    await logAuditEvent(db, {
+      eventType: AuditEventType.REGISTER_SUCCESS,
+      request: c.req.raw,
+      userId,
+      details: { email, tier }
+    });
 
     return c.json({ token, userId, tier });
   } catch (error) {
@@ -47,11 +56,27 @@ auth.post('/login',
   try {
     const user = await db.getUserByEmail(email);
     if (!user || user.passphrase_hash !== passwordHash) {
+      // Audit log failed login attempt
+      await logAuditEvent(db, {
+        eventType: AuditEventType.LOGIN_FAILED,
+        request: c.req.raw,
+        userId: user?.id || null,
+        details: { email }
+      });
+      
       // Generic error message - don't reveal if user exists
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
-    const token = await generateToken(user.id, c.env.JWT_SECRET || 'dev-secret');
+    const token = await generateToken(user.id, c.env.JWT_SECRET);
+
+    // Audit log successful login
+    await logAuditEvent(db, {
+      eventType: AuditEventType.LOGIN_SUCCESS,
+      request: c.req.raw,
+      userId: user.id,
+      details: { email }
+    });
 
     return c.json({ token, userId: user.id, tier: user.tier });
   } catch (error) {
@@ -71,6 +96,16 @@ auth.post('/device/register',
   
   try {
     await db.registerDevice(user.userId, deviceId, name);
+    
+    // Audit log device registration
+    await logAuditEvent(db, {
+      eventType: AuditEventType.DEVICE_REGISTER,
+      request: c.req.raw,
+      userId: user.userId,
+      deviceId,
+      details: { deviceName: name }
+    });
+    
     return c.json({ success: true });
   } catch (error) {
     console.error('[Auth] Device registration error:', error);

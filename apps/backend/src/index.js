@@ -8,6 +8,7 @@ import {
 } from './middleware/rate-limiter.js';
 import { configureCors, csrfProtection } from './middleware/csrf.js';
 import { validateJsonMiddleware } from './middleware/validation.js';
+import { securityHeadersMiddleware } from './middleware/security-headers.js';
 import auth from './api/auth.js';
 import sync from './api/sync.js';
 import sharedMappings from './api/shared-mappings.js';
@@ -21,6 +22,9 @@ const getAllowedOrigins = (env) => {
   const origins = env?.ALLOWED_ORIGINS || 'https://pib.uob.com.sg';
   return origins.split(',').map(o => o.trim()).filter(Boolean);
 };
+
+// Security headers (apply early)
+app.use('/*', securityHeadersMiddleware());
 
 // CORS middleware with CSRF protection
 app.use('/*', (c, next) => {
