@@ -39,6 +39,12 @@ export const rateLimitConfig = {
     windowMs: 60 * 1000, // per minute per user
   },
 
+  // Logout and device management - prevent abuse
+  logout: {
+    maxRequests: 10,
+    windowMs: 60 * 1000, // per minute per user
+  },
+
   // Admin endpoints - very strict
   admin: {
     maxRequests: 10,
@@ -72,6 +78,7 @@ export function getRateLimitErrorMessage(limitType, retryAfterSeconds) {
     login: 'Too many login attempts. Please try again later.',
     register: 'Too many registration attempts. Please try again later.',
     sync: 'Rate limit exceeded. Please wait before syncing again.',
+    logout: 'Rate limit exceeded. Please wait before logging out again.',
     sharedMappings: 'Rate limit exceeded. Please wait before accessing mappings.',
     admin: 'Admin rate limit exceeded. Please wait before retrying.',
     default: 'Rate limit exceeded. Please try again later.'

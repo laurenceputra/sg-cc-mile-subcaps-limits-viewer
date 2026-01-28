@@ -4,6 +4,7 @@ import {
   payloadSizeLimitMiddleware,
   syncRateLimiter,
   sharedMappingsRateLimiter,
+  logoutRateLimiter,
   adminRateLimiter
 } from './middleware/rate-limiter.js';
 import { configureCors, csrfProtection } from './middleware/csrf.js';
@@ -49,10 +50,10 @@ app.use('/*', payloadSizeLimitMiddleware());
 // Health check
 app.get('/', (c) => c.json({ status: 'ok', service: 'bank-cc-sync' }));
 
-// Apply auth middleware for protected auth routes
-app.use('/auth/logout*', authMiddleware);
-app.use('/auth/device/*', authMiddleware);
-app.use('/auth/devices', authMiddleware);
+// Apply auth middleware and rate limiting for protected auth routes
+app.use('/auth/logout*', authMiddleware, logoutRateLimiter);
+app.use('/auth/device/*', authMiddleware, logoutRateLimiter);
+app.use('/auth/devices', authMiddleware, logoutRateLimiter);
 
 // Auth routes (some public, some protected)
 app.route('/auth', auth);

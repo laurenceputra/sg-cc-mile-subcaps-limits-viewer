@@ -141,6 +141,7 @@ export const loginRateLimiter = createRateLimiter('login', rateLimitConfig.login
 export const registerRateLimiter = createRateLimiter('register', rateLimitConfig.register);
 export const syncRateLimiter = createRateLimiter('sync', rateLimitConfig.sync);
 export const sharedMappingsRateLimiter = createRateLimiter('sharedMappings', rateLimitConfig.sharedMappings);
+export const logoutRateLimiter = createRateLimiter('logout', rateLimitConfig.logout);
 export const adminRateLimiter = createRateLimiter('admin', rateLimitConfig.admin);
 
 /**
