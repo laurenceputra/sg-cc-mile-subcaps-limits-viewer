@@ -1312,10 +1312,11 @@
     setTabState(tabSpend, isSpend);
   }
 
-  function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange) {
+  function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
     let overlay = document.getElementById(UI_IDS.overlay);
     let manageContent;
     let spendContent;
+    const wasVisible = overlay && overlay.style.display === 'flex';
 
     if (!overlay) {
       overlay = document.createElement('div');
@@ -1324,7 +1325,7 @@
       overlay.style.inset = '0';
       overlay.style.zIndex = '99998';
       overlay.style.background = THEME.overlay;
-      overlay.style.display = 'flex';
+      overlay.style.display = 'none';
       overlay.style.alignItems = 'center';
       overlay.style.justifyContent = 'center';
       overlay.addEventListener('click', (event) => {
@@ -1449,7 +1450,9 @@
       renderSpendingView(spendContent, storedTransactions, cardSettings);
     }
 
-    overlay.style.display = 'flex';
+    if (shouldShow || wasVisible) {
+      overlay.style.display = 'flex';
+    }
     switchTab('manage');
   }
 
@@ -1496,7 +1499,7 @@
     let refreshInProgress = false;
     let refreshPending = false;
 
-    const refreshOverlay = async () => {
+    const refreshOverlay = async (shouldShow = false) => {
       if (refreshInProgress) {
         refreshPending = true;
         return;
@@ -1519,7 +1522,7 @@
           updateFn(nextCardSettings);
           saveSettings(nextSettings);
           refreshOverlay();
-        });
+        }, shouldShow);
       } finally {
         refreshInProgress = false;
         if (refreshPending) {
@@ -1529,7 +1532,7 @@
       }
     };
 
-    createButton(refreshOverlay);
+    createButton(() => refreshOverlay(true));
     observeTableBody(tableBodyXPath, refreshOverlay);
   }
 
