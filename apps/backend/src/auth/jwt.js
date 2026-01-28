@@ -1,3 +1,25 @@
+/**
+ * Constant-time string comparison to prevent timing attacks
+ * SECURITY: Always compares full length regardless of where mismatch occurs,
+ * preventing attackers from using timing information to forge signatures.
+ * 
+ * @param {string} a - First string
+ * @param {string} b - Second string
+ * @returns {boolean} - True if strings match
+ */
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  
+  return result === 0;
+}
+
 export function generateToken(userId, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
@@ -20,7 +42,11 @@ export async function verifyToken(token, secret) {
   const [header, payload, signature] = parts;
   const expectedSignature = await hmacSha256(`${header}.${payload}`, secret);
   
-  if (signature !== expectedSignature) throw new Error('Invalid signature');
+  // SECURITY: Use constant-time comparison to prevent timing attacks
+  // that could allow signature forgery through timing side-channels
+  if (!constantTimeEqual(signature, expectedSignature)) {
+    throw new Error('Invalid signature');
+  }
 
   const decodedPayload = JSON.parse(base64UrlDecode(payload));
   

@@ -38,12 +38,18 @@ export class SyncManager {
 
       await this.syncClient.init(passphrase);
 
+      // Store email temporarily for salt derivation in hashPassphrase
+      this.config.email = email;
+      
+      // Hash passphrase before sending to server
+      const hashedPassphrase = await this.hashPassphrase(passphrase);
+      
       // Try login first, fallback to register
       let authResult;
       try {
-        authResult = await this.syncClient.login(email, this.hashPassphrase(passphrase));
+        authResult = await this.syncClient.login(email, hashedPassphrase);
       } catch (error) {
-        authResult = await this.syncClient.register(email, this.hashPassphrase(passphrase));
+        authResult = await this.syncClient.register(email, hashedPassphrase);
       }
 
       this.saveSyncConfig({
@@ -126,15 +132,46 @@ export class SyncManager {
     }
   }
 
-  hashPassphrase(passphrase) {
-    // Simple hash for demo - in production use better hashing
-    let hash = 0;
-    for (let i = 0; i < passphrase.length; i++) {
-      const char = passphrase.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return hash.toString(16);
+  /**
+   * Hash passphrase using PBKDF2 with Web Crypto API
+   * SECURITY: Uses 310,000 iterations (OWASP 2023 recommendation for PBKDF2-SHA256)
+   * to protect against brute-force attacks. Salt is derived from email to ensure
+   * deterministic hashing for authentication while maintaining uniqueness per user.
+   */
+  async hashPassphrase(passphrase) {
+    const enc = new TextEncoder();
+    
+    // Derive salt from email for deterministic authentication
+    // SECURITY: Each user has unique salt, preventing rainbow table attacks
+    const saltData = enc.encode(this.config.email || 'default-salt');
+    const saltHash = await crypto.subtle.digest('SHA-256', saltData);
+    const salt = new Uint8Array(saltHash).slice(0, 16);
+    
+    // Import passphrase as key material
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(passphrase),
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+    
+    // Derive 256-bit hash using PBKDF2 with 310,000 iterations
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 310000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      256
+    );
+    
+    // Return as hex string for server comparison
+    return Array.from(new Uint8Array(derivedBits))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
   }
 
   disableSync() {
