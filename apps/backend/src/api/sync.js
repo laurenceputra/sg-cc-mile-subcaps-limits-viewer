@@ -42,7 +42,8 @@ sync.put('/data',
     if (rowsChanged === 0) {
       // No rows changed means the WHERE clause failed - version conflict
       const currentBlob = await db.getSyncBlob(user.userId);
-      return c.json({ error: 'Version conflict', currentVersion: currentBlob.version }, 409);
+      // SECURITY: Safe null handling to prevent null pointer crashes
+      return c.json({ error: 'Version conflict', currentVersion: currentBlob?.version ?? 0 }, 409);
     }
 
     return c.json({ success: true, version });
