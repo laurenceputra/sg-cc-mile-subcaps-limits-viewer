@@ -128,7 +128,7 @@ A second security review by a staff engineer identified:
 Documentation was consolidated; see:
 - `apps/backend/SECURITY.md` - Backend security controls and validation rules
 - `apps/backend/README.md` - Deployment and API overview
-- `validate-fixes.sh` - Automated validation script
+- `scripts/maintenance/validate-fixes.sh` - Automated validation script
 
 ---
 

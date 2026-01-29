@@ -112,6 +112,6 @@ Responses include:
 
 ```bash
 cd apps/backend
-./test-security.sh
-./test-rate-limiting-integration.sh
+./scripts/test-security.sh
+./scripts/test-rate-limiting-integration.sh
 ```
