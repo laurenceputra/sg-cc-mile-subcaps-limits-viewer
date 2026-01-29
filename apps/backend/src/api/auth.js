@@ -5,7 +5,7 @@ import {
   registerRateLimiter, 
   progressiveDelayMiddleware 
 } from '../middleware/rate-limiter.js';
-import { validateFields, validateOptionalFields, normalizeEmail } from '../middleware/validation.js';
+import { validateFields, validateOptionalFields, normalizeEmail, validateInput } from '../middleware/validation.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const auth = new Hono();
@@ -24,9 +24,9 @@ async function sendDeviceRegistrationEmail(email, deviceName) {
 }
 
 auth.post('/register', 
-  registerRateLimiter,
   validateFields({ email: 'email', passwordHash: 'passwordHash' }),
   validateOptionalFields({ tier: 'tier' }),
+  registerRateLimiter,
   async (c) => {
   let { email, passwordHash, tier = 'free' } = c.get('validatedBody') || await c.req.json();
   
@@ -61,9 +61,9 @@ auth.post('/register',
 });
 
 auth.post('/login', 
+  validateFields({ email: 'email', passwordHash: 'passwordHash' }),
   loginRateLimiter, 
   progressiveDelayMiddleware(),
-  validateFields({ email: 'email', passwordHash: 'passwordHash' }),
   async (c) => {
   let { email, passwordHash } = c.get('validatedBody') || await c.req.json();
   
@@ -109,6 +109,9 @@ auth.post('/login',
 
 auth.post('/logout', async (c) => {
   const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   const db = c.get('db');
   
   try {
@@ -133,6 +136,9 @@ auth.post('/logout', async (c) => {
 
 auth.post('/logout-all', async (c) => {
   const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   const db = c.get('db');
   
   try {
@@ -153,15 +159,27 @@ auth.post('/logout-all', async (c) => {
   }
 });
 
-auth.post('/device/register',
-  validateFields({ deviceId: 'deviceId', name: 'deviceName' }),
-  async (c) => {
+auth.post('/device/register', async (c) => {
   const user = c.get('user');
-  const { deviceId, name } = c.get('validatedBody') || await c.req.json();
+  const body = c.get('validatedBody') || await c.req.json();
+  const deviceId = body.deviceId || body.deviceFingerprint;
+  const name = body.name || body.deviceName;
 
   const db = c.get('db');
   
   try {
+    if (!deviceId || !name) {
+      return c.json({ error: 'Device ID and name are required' }, 400);
+    }
+
+    const deviceIdError = validateInput(deviceId, 'deviceId');
+    if (deviceIdError) {
+      return c.json({ error: deviceIdError }, 400);
+    }
+    const deviceNameError = validateInput(name, 'deviceName');
+    if (deviceNameError) {
+      return c.json({ error: deviceNameError }, 400);
+    }
     // Check device count limit
     const deviceCount = await db.getDeviceCount(user.userId);
     const userData = await db.getUserById(user.userId);
@@ -177,7 +195,7 @@ auth.post('/device/register',
         message: `Maximum ${limit} devices allowed for ${userData.tier} tier`,
         limit,
         current: deviceCount
-      }, 403);
+      }, 400);
     }
     
     await db.registerDevice(user.userId, deviceId, name);
@@ -194,7 +212,7 @@ auth.post('/device/register',
       details: { deviceName: name }
     });
     
-    return c.json({ success: true });
+    return c.json({ success: true, deviceId });
   } catch (error) {
     console.error('[Auth] Device registration error:', error);
     return c.json({ error: 'Device registration failed' }, 500);

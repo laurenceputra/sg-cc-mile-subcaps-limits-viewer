@@ -83,6 +83,12 @@ function getClientIp(request) {
  */
 export async function logAuditEvent(db, { eventType, request, userId = null, deviceId = null, details = {} }) {
   try {
+    if (userId !== null) {
+      const exists = db.db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
+      if (!exists) {
+        userId = null;
+      }
+    }
     const ipAddress = getClientIp(request);
     const userAgent = request.headers.get('user-agent') || 'unknown';
     const sanitizedDetails = sanitizeDetails(details);

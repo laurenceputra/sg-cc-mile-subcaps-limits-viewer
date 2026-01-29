@@ -11,6 +11,9 @@ sharedMappings.get('/mappings/:cardType', async (c) => {
   if (cardTypeError) {
     return c.json({ error: cardTypeError }, 400);
   }
+  if (!['ONE', 'LADY', 'PPV', 'SOLITAIRE'].includes(cardType.toUpperCase())) {
+    return c.json({ error: 'Invalid card type' }, 400);
+  }
   
   const db = c.get('db');
   
@@ -38,7 +41,14 @@ sharedMappings.post('/mappings/contribute',
       return c.json({ success: true, message: 'Sharing disabled for paid user' });
     }
 
-    await db.contributeMappings(user.userId, mappings);
+    const normalizedMappings = mappings.map((mapping) => ({
+      ...mapping,
+      merchantRaw: mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant,
+      merchant: mapping.merchant || mapping.merchantNormalized || mapping.merchantRaw,
+      merchantNormalized: normalizeMerchant(mapping.merchantNormalized || mapping.merchantRaw || mapping.merchant || '')
+    }));
+
+    await db.contributeMappings(user.userId, normalizedMappings);
 
     return c.json({ success: true, contributed: mappings.length });
   } catch (error) {

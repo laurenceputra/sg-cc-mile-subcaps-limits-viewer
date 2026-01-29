@@ -7,6 +7,8 @@
  * - Data integrity issues
  */
 
+import { rateLimitConfig } from './rate-limit-config.js';
+
 // RFC 5321 compliant email regex (simplified but practical)
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
@@ -220,10 +222,14 @@ export const schemas = {
           return `Mapping item ${i} must be an object`;
         }
         
-        // Validate merchant field
-        if (item.merchant !== undefined) {
-          const merchantError = schemas.merchantName.validate(item.merchant);
+        // Validate merchant field (support merchant, merchantRaw, merchantNormalized)
+        const merchantValue = item.merchant ?? item.merchantRaw ?? item.merchantNormalized;
+        if (merchantValue !== undefined) {
+          const merchantError = schemas.merchantName.validate(merchantValue);
           if (merchantError) return `Mapping item ${i}: ${merchantError}`;
+        }
+        if (merchantValue === undefined) {
+          return `Mapping item ${i}: Merchant name must be a string`;
         }
         
         // Validate category field
@@ -290,12 +296,17 @@ export function validateJsonMiddleware() {
     const method = c.req.method;
     
     // Only validate JSON for methods that should send JSON
-    if (!['POST', 'PUT', 'PATCH'].includes(method)) {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       return next();
     }
-    
+
     const contentType = c.req.header('Content-Type');
     
+    // Allow empty POST/DELETE bodies without content-type
+    if ((method === 'DELETE' || method === 'POST') && !contentType) {
+      return next();
+    }
+
     // Require application/json content type
     if (!contentType || !contentType.toLowerCase().includes('application/json')) {
       return c.json({ 
@@ -306,6 +317,21 @@ export function validateJsonMiddleware() {
     
     // Try to parse JSON
     try {
+      const contentLength = c.req.header('Content-Length');
+      if (contentType && contentLength && parseInt(contentLength, 10) > rateLimitConfig.payloadSizeLimit.maxBytes) {
+        return c.json({ 
+          error: rateLimitConfig.payloadSizeLimit.errorMessage,
+          maxSize: `${rateLimitConfig.payloadSizeLimit.maxBytes / 1024 / 1024}MB`
+        }, 413);
+      }
+      if (method === 'DELETE' && (!contentType || c.req.header('Content-Length') === '0')) {
+        return next();
+      }
+
+      if (method === 'POST' && !contentType) {
+        return next();
+      }
+
       const body = await c.req.json();
       
       // Check for excessive nesting (DoS prevention)
@@ -364,17 +390,20 @@ export function validateFields(fieldSchemas) {
       }
       
       // Validate against schema
-      const error = validateInput(value, schemaName);
-      if (error) {
-        errors[fieldName] = error;
-      }
+       const error = validateInput(value, schemaName);
+       if (error) {
+         errors[fieldName] = error;
+       }
     }
     
     if (Object.keys(errors).length > 0) {
+      const firstError = Object.values(errors)[0];
+      const message = typeof firstError === 'string' ? firstError : 'Validation failed';
+      const status = message.includes('maximum size') ? 413 : 400;
       return c.json({ 
-        error: 'Validation failed',
+        error: message,
         details: errors 
-      }, 400);
+      }, status);
     }
     
     return next();

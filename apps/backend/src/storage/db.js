@@ -7,7 +7,7 @@ export class Database {
   async createUser(email, passphraseHash, tier = 'free') {
     const stmt = this.db.prepare('INSERT INTO users (email, passphrase_hash, tier) VALUES (?, ?, ?)');
     const result = stmt.run(email, passphraseHash, tier);
-    return result.lastInsertRowid;
+    return Number(result.lastInsertRowid);
   }
 
   async getUserByEmail(email) {
@@ -50,7 +50,8 @@ export class Database {
   // Sync operations
   async getSyncBlob(userId) {
     const stmt = this.db.prepare('SELECT * FROM sync_blobs WHERE user_id = ?');
-    return stmt.get(userId);
+    const result = stmt.get(userId);
+    return result || null;
   }
 
   async upsertSyncBlob(userId, version, encryptedData) {
@@ -106,7 +107,8 @@ export class Database {
     
     const transaction = this.db.transaction((mappings) => {
       for (const mapping of mappings) {
-        insertStmt.run(userId, mapping.merchant, mapping.category, mapping.cardType);
+        const merchantRaw = mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant;
+        insertStmt.run(userId, merchantRaw, mapping.category, mapping.cardType);
       }
     });
     

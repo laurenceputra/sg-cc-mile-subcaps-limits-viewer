@@ -32,6 +32,15 @@ function getClientIdentifier(c) {
     return `user:${user.userId}:${ip}`;
   }
 
+  if (ip === 'unknown') {
+    const body = c.get('validatedBody');
+    const email = body?.email;
+    if (typeof email === 'string' && email.trim()) {
+      const normalized = email.trim().toLowerCase().slice(0, 254);
+      return `email:${normalized}:${ip}`;
+    }
+  }
+
   return `ip:${ip}`;
 }
 
@@ -39,9 +48,8 @@ function getClientIdentifier(c) {
  * Generic rate limiter middleware factory
  */
 export function createRateLimiter(limitType, config) {
-  const store = getRateLimitStore();
-
   return async (c, next) => {
+    const store = getRateLimitStore();
     const identifier = `${limitType}:${getClientIdentifier(c)}`;
     
     // Check if blocked

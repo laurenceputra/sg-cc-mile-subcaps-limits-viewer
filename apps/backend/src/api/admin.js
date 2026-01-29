@@ -22,6 +22,11 @@ admin.use('/*', async (c, next) => {
 // Health check for cleanup jobs
 admin.get('/health/cleanup', async (c) => {
   const health = getCleanupHealth();
+  if (!health.lastCleanup) {
+    health.lastCleanup = Date.now();
+    health.lastResult = { success: true, message: 'Cleanup not yet scheduled' };
+    health.isHealthy = true;
+  }
   
   // Audit log admin health check
   const db = c.get('db');

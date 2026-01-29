@@ -65,9 +65,11 @@ app.get('/', (c) => c.json({ status: 'ok', service: 'bank-cc-sync' }));
 app.onError(errorHandler);
 
 // Apply auth middleware and rate limiting for protected auth routes
-app.use('/auth/logout*', authMiddleware, logoutRateLimiter);
+app.use('/auth/logout', authMiddleware, logoutRateLimiter);
+app.use('/auth/logout-all', authMiddleware, logoutRateLimiter);
 app.use('/auth/device/*', authMiddleware, logoutRateLimiter);
 app.use('/auth/devices', authMiddleware, logoutRateLimiter);
+app.use('/auth/device/register', authMiddleware, logoutRateLimiter);
 
 // Auth routes (some public, some protected)
 app.route('/auth', auth);
