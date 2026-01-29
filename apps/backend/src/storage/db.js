@@ -42,6 +42,24 @@ export class Database {
     return result.count;
   }
 
+  async registerDeviceWithLimit(userId, deviceId, name, limit) {
+    const transaction = this.db.transaction((userId, deviceId, name, limit) => {
+      const deviceStmt = this.db.prepare('SELECT device_id FROM devices WHERE user_id = ?');
+      const existingDevices = deviceStmt.all(userId);
+      const deviceExists = existingDevices.some(d => d.device_id === deviceId);
+
+      if (!deviceExists && existingDevices.length >= limit) {
+        return { ok: false, deviceExists, count: existingDevices.length };
+      }
+
+      const insertStmt = this.db.prepare('INSERT INTO devices (user_id, device_id, name) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET last_seen = strftime(\'%s\', \'now\')');
+      insertStmt.run(userId, deviceId, name);
+      return { ok: true, deviceExists, count: existingDevices.length };
+    });
+
+    return transaction(userId, deviceId, name, limit);
+  }
+
   async deleteDevice(deviceId, userId) {
     const stmt = this.db.prepare('DELETE FROM devices WHERE device_id = ? AND user_id = ?');
     stmt.run(deviceId, userId);

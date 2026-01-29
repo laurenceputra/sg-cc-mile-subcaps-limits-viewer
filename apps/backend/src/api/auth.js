@@ -184,25 +184,18 @@ auth.post('/device/register', async (c) => {
     if (deviceNameError) {
       return c.json({ error: deviceNameError }, 400);
     }
-    // Check device count limit
-    const deviceCount = await db.getDeviceCount(user.userId);
     const userData = await db.getUserById(user.userId);
     const limit = DEVICE_LIMITS[userData.tier] || DEVICE_LIMITS.free;
-    
-    // Check if device already exists
-    const existingDevices = await db.getDevicesByUser(user.userId);
-    const deviceExists = existingDevices.some(d => d.device_id === deviceId);
-    
-    if (!deviceExists && deviceCount >= limit) {
+    const registration = await db.registerDeviceWithLimit(user.userId, deviceId, name, limit);
+
+    if (!registration.ok) {
       return c.json({ 
         error: 'Device limit reached',
         message: `Maximum ${limit} devices allowed for ${userData.tier} tier`,
         limit,
-        current: deviceCount
+        current: registration.count
       }, 400);
     }
-    
-    await db.registerDevice(user.userId, deviceId, name);
     
     // Send email notification (mock)
     await sendDeviceRegistrationEmail(userData.email, name);
