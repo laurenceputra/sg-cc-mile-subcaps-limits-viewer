@@ -10,6 +10,7 @@ import {
 import { configureCors, csrfProtection } from './middleware/csrf.js';
 import { validateJsonMiddleware } from './middleware/validation.js';
 import { securityHeadersMiddleware } from './middleware/security-headers.js';
+import { errorHandler } from './middleware/error-handler.js';
 import auth from './api/auth.js';
 import sync from './api/sync.js';
 import sharedMappings from './api/shared-mappings.js';
@@ -59,6 +60,9 @@ app.use('/*', payloadSizeLimitMiddleware());
 
 // Health check
 app.get('/', (c) => c.json({ status: 'ok', service: 'bank-cc-sync' }));
+
+// Central error handler
+app.onError(errorHandler);
 
 // Apply auth middleware and rate limiting for protected auth routes
 app.use('/auth/logout*', authMiddleware, logoutRateLimiter);

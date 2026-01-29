@@ -66,30 +66,32 @@ export class Database {
   }
 
   // SECURITY: Atomic version check to prevent TOCTOU race conditions
-  // This performs the version check and update in a single database operation
+  // This performs the version check and update in a single database transaction
   async upsertSyncBlobAtomic(userId, version, encryptedData) {
-    // SECURITY FIX: SQLite's ON CONFLICT WHERE clause doesn't reliably return 0 changes
-    // when condition fails. We need explicit version checking before upsert.
-    
-    // First, get current version if record exists
-    const current = this.db.prepare('SELECT version FROM sync_blobs WHERE user_id = ?').get(userId);
-    
-    if (current && current.version >= version) {
-      // Version conflict - don't update
-      return 0;
-    }
-    
-    // Safe to upsert now
-    const stmt = this.db.prepare(`
+    const payload = JSON.stringify(encryptedData);
+    const checkStmt = this.db.prepare('SELECT version FROM sync_blobs WHERE user_id = ?');
+    const insertStmt = this.db.prepare(`
       INSERT INTO sync_blobs (user_id, version, encrypted_data, updated_at) 
       VALUES (?, ?, ?, strftime('%s', 'now'))
-      ON CONFLICT(user_id) DO UPDATE SET 
-        version = excluded.version,
-        encrypted_data = excluded.encrypted_data,
-        updated_at = excluded.updated_at
     `);
-    const result = stmt.run(userId, version, JSON.stringify(encryptedData));
-    return result.changes;
+    const updateStmt = this.db.prepare(`
+      UPDATE sync_blobs
+      SET version = ?, encrypted_data = ?, updated_at = strftime('%s', 'now')
+      WHERE user_id = ? AND version = ?
+    `);
+
+    const transaction = this.db.transaction((userId, version, payload) => {
+      const current = checkStmt.get(userId);
+      if (!current) {
+        return insertStmt.run(userId, version, payload).changes;
+      }
+      if (version <= current.version) {
+        return 0;
+      }
+      return updateStmt.run(version, payload, userId, current.version).changes;
+    });
+
+    return transaction(userId, version, payload);
   }
 
   // Shared mappings operations

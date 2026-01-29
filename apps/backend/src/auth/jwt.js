@@ -51,6 +51,10 @@ export async function verifyToken(token, secret) {
   if (parts.length !== 3) throw new Error('Invalid token');
 
   const [header, payload, signature] = parts;
+  const decodedHeader = JSON.parse(base64UrlDecode(header));
+  if (decodedHeader.alg !== 'HS256') {
+    throw new Error('Invalid algorithm');
+  }
   const expectedSignature = await hmacSha256(`${header}.${payload}`, secret);
   
   // SECURITY: Use constant-time comparison to prevent timing attacks
@@ -88,5 +92,9 @@ function base64UrlEncode(data) {
 
 function base64UrlDecode(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = str.length % 4;
+  if (padding) {
+    str += '='.repeat(4 - padding);
+  }
   return atob(str);
 }
