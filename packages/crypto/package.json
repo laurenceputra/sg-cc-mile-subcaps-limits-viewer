@@ -6,5 +6,8 @@
   "main": "src/index.js",
   "keywords": ["crypto", "encryption", "aes-gcm"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@bank-cc/shared": "*"
+  }
 }
