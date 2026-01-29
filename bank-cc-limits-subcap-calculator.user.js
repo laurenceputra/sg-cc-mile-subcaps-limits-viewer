@@ -11,6 +11,8 @@
 // @connect      bank-cc-sync.your-domain.workers.dev
 // @connect      localhost
 // ==/UserScript==
+// GENERATED FILE - DO NOT EDIT.
+// Source: apps/userscripts/uob-lady-solitaire/src/index.user.js
 
 (function () {
   'use strict';

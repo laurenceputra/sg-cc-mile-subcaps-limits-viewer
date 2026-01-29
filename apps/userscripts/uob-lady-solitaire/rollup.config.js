@@ -2,10 +2,16 @@ import resolve from '@rollup/plugin-node-resolve';
 import copy from 'rollup-plugin-copy';
 import commonjs from '@rollup/plugin-commonjs';
 
+const OUTPUT_FILE = 'dist/bank-cc-limits-subcap-calculator.user.js';
+const ROOT_ARTIFACT_DIR = '../../..';
+const BUILD_NOTICE = `// GENERATED FILE - DO NOT EDIT.
+// Source: apps/userscripts/uob-lady-solitaire/src/index.user.js
+`;
+
 export default {
   input: 'src/index.user.js',
   output: {
-    file: 'dist/bank-cc-limits-subcap-calculator.user.js',
+    file: OUTPUT_FILE,
     format: 'iife',
     banner: `// ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
@@ -20,7 +26,7 @@ export default {
 // @connect      bank-cc-sync.your-domain.workers.dev
 // @connect      localhost
 // ==/UserScript==
-`
+${BUILD_NOTICE}`
   },
   plugins: [
     resolve({
@@ -30,7 +36,7 @@ export default {
     commonjs(),
     copy({
       targets: [
-        { src: 'dist/bank-cc-limits-subcap-calculator.user.js', dest: '../../..' }
+        { src: OUTPUT_FILE, dest: ROOT_ARTIFACT_DIR }
       ],
       hook: 'writeBundle'
     })

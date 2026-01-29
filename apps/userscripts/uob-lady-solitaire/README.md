@@ -11,9 +11,10 @@ Tampermonkey userscript that summarizes UOB Lady's Solitaire credit card spend, 
 
 ## Development
 
-- Entry point: `src/index.user.js`
-- Build: `npm run build` (outputs to `dist/`)
+- Entry point (source of truth): `src/index.user.js`
+- Build: `npm run build` (outputs to `dist/` and copies `bank-cc-limits-subcap-calculator.user.js` to the repo root)
 - Watch mode: `npm run dev`
+- Generated artifacts: `dist/bank-cc-limits-subcap-calculator.user.js` and `/bank-cc-limits-subcap-calculator.user.js` — do not edit by hand.
 
 ## Documentation
 

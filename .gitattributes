@@ -30,3 +30,4 @@
 
 # Prevent CRLF in Tampermonkey user scripts
 *.user.js text eol=lf
+/bank-cc-limits-subcap-calculator.user.js linguist-generated
