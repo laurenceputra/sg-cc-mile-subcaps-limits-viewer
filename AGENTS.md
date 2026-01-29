@@ -43,7 +43,7 @@ Security review is **mandatory** at every phase—not optional. Every agent is r
 - Build the Tampermonkey scaffold, data extraction, calculation, and UI output.
 - Implement backend API with security hardening (rate limiting, input validation, etc.)
 - Ensure robust error handling and clear in-page status messages.
-- **Follow security checklists:** See SECURITY_CHECKLISTS.md for phase-specific requirements
+- **Follow security checklists:** See `apps/backend/SECURITY.md` for backend security controls and `TECHNICAL.md` for userscript technical guidance.
 - **Iteration:** if data gaps or UX mismatches appear, return to requirements/DOM mapping.
 
 **5. Security Code Review** (🔒 security-engineer + code-reviewer)
@@ -80,6 +80,9 @@ Security review is **mandatory** at every phase—not optional. Every agent is r
 **9. Commit Discipline**
 - Commit after each sizeable chunk of work.
 - Always commit before returning results to the user.
+
+**Start-of-task checklist**
+- Confirm AGENTS.md reviewed before beginning any new work.
 
 ## Agents
 
@@ -215,7 +218,7 @@ Security review is **mandatory** at every phase—not optional. Every agent is r
 - Implement the user script, UI, and integration glue.
 
 **Security Integration (NEW):**
-- Follow frontend security checklist (SECURITY_CHECKLISTS.md)
+- Follow frontend security guidance in `TECHNICAL.md`
 - No sensitive data in console.log()
 - Secure storage usage (GM_storage, not localStorage for tokens)
 - HTTPS-only communication
@@ -340,10 +343,10 @@ Each agent should provide:
 
 ## Reference Documents
 
-- **SECURITY_CHECKLISTS.md** - Detailed security checklists for each phase
-- **SECURITY_REVIEW.md** - Comprehensive security review findings
-- **AGENT_WORKFLOW_ENHANCEMENT_PROPOSAL.md** - Full proposal for this workflow
+- **apps/backend/SECURITY.md** - Backend security controls and operational guidance
+- **TECHNICAL.md** - Userscript technical reference
+- **PHASES_4B_5_COMPLETE.md** - Current project status
 
 ---
 
-**Questions?** Consult the security-engineer agent or refer to SECURITY_CHECKLISTS.md.
+**Questions?** Consult the security-engineer agent or refer to the security docs above.

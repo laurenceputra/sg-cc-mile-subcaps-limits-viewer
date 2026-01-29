@@ -65,72 +65,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ## API Endpoints
 
-### Security Features
+### Security Summary
 
-The backend implements comprehensive security protections:
-
-**Input Validation:**
-- RFC 5321 compliant email validation (max 254 chars)
-- Merchant names: max 200 chars, no control characters
-- Categories: max 100 chars, whitelist validation
-- Device names/IDs: max 100/128 chars, alphanumeric only
-- All strings: reject U+0000 to U+001F control characters
-- JSON structure validation with depth limiting (max 10 levels)
-- Encrypted data size limit: 1MB
-
-**CSRF Protection:**
-- Origin header validation for all state-changing requests
-- Default allowed origins: `https://pib.uob.com.sg`
-- Automatic localhost allowance in development mode
-- 403 Forbidden response for invalid origins
-
-**Content-Type Validation:**
-- POST/PUT/PATCH require `application/json`
-- Returns 415 Unsupported Media Type for invalid content types
-
-**Configuration (Environment Variables):**
-```bash
-# CSRF Protection
-ALLOWED_ORIGINS=https://pib.uob.com.sg,https://your-domain.com
-
-# Environment
-ENVIRONMENT=production  # or development
-NODE_ENV=production     # or development
-```
-
-**Security Headers:**
-The API automatically sets comprehensive security headers:
-- `X-Content-Type-Options: nosniff` - Prevents MIME sniffing
-- `X-Frame-Options: DENY` - Prevents clickjacking
-- `X-XSS-Protection: 1; mode=block` - Legacy XSS protection
-- `Strict-Transport-Security: max-age=31536000` - Enforces HTTPS
-- `Content-Security-Policy` - Restricts resource loading
-- `Referrer-Policy: strict-origin-when-cross-origin` - Limits referrer leakage
-- `Permissions-Policy` - Disables unnecessary browser APIs
-
-The API also validates requests against CSRF attacks and sets appropriate CORS headers.
-
-### Rate Limits
-
-All endpoints are protected with rate limiting to prevent abuse:
-
-| Endpoint Type | Limit | Window | Block Duration |
-|--------------|-------|--------|----------------|
-| **Login** | 5 attempts | 15 minutes | 1 hour |
-| **Registration** | 3 attempts | 1 hour | 24 hours |
-| **Sync** | 100 requests | 1 hour | - |
-| **Shared Mappings** | 20 requests | 1 minute | - |
-| **Admin** | 10 requests | 1 minute | - |
-| **Payload Size** | 1 MB max | - | - |
-
-**Rate Limit Headers:**
-- `X-RateLimit-Limit`: Maximum requests allowed
-- `X-RateLimit-Remaining`: Requests remaining in current window
-- `X-RateLimit-Reset`: Unix timestamp when limit resets
-- `Retry-After`: Seconds to wait before retrying (on 429 errors)
-
-**Progressive Delays:**
-Login attempts include exponential backoff starting at 200ms, preventing rapid brute force attacks.
+Security controls (validation, CSRF, rate limits, audit logging, headers) are documented in:
+**[SECURITY.md](SECURITY.md)**.
 
 ### Auth
 - `POST /auth/register` - Create account

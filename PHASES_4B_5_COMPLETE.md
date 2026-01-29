@@ -125,11 +125,9 @@ A second security review by a staff engineer identified:
 
 ### Phase 4B Documentation
 
-Created comprehensive documentation:
-- `SECURITY_FIXES_PHASE4B_COMPLETE.md` - Full fix documentation
-- `apps/backend/.env.example` - Environment variables template
-- `apps/backend/MONITORING.md` - Health monitoring setup
-- `apps/backend/BACKUP_STRATEGY.md` - Database backup guide
+Documentation was consolidated; see:
+- `apps/backend/SECURITY.md` - Backend security controls and validation rules
+- `apps/backend/README.md` - Deployment and API overview
 - `validate-fixes.sh` - Automated validation script
 
 ---
@@ -270,12 +268,8 @@ Created **77 comprehensive tests** across 4 categories:
 
 ### Phase 5 Documentation
 
-Created comprehensive testing documentation:
-- `apps/backend/tests/README.md` - Test suite overview
-- `TEST_EXECUTION_REPORT.md` - Detailed test results
-- `TESTING_CHECKLIST.md` - Pre-deployment checklist
-- `PHASE5_COMPLETE_SUMMARY.md` - Executive summary
-- `PHASE5_DELIVERABLES.md` - Complete deliverables list
+Testing documentation lives here:
+- `apps/backend/TESTING_CHECKLIST.md` - Pre-deployment checklist
 
 ---
 
