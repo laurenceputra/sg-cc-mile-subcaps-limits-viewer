@@ -71,12 +71,16 @@ auth.post('/login',
   email = normalizeEmail(email);
 
   const db = c.get('db');
+  const fallbackHash = c.env?.DUMMY_PASSWORD_HASH || '0'.repeat(64);
   
   try {
+    if (!db) {
+      return c.json({ error: 'Authentication failed' }, 500);
+    }
     const user = await db.getUserByEmail(email);
     // SECURITY: Use constant-time comparison for password hash to prevent timing attacks
     // that could allow attackers to determine if user exists or guess password hashes
-    if (!user || !constantTimeEqual(user.passphrase_hash, passwordHash)) {
+    if (!constantTimeEqual(user?.passphrase_hash || fallbackHash, passwordHash)) {
       // Audit log failed login attempt
       await logAuditEvent(db, {
         eventType: AuditEventType.LOGIN_FAILED,

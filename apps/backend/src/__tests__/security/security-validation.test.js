@@ -301,7 +301,8 @@ describe('Security - Timing Attacks', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Origin': 'https://pib.uob.com.sg'
+          'Origin': 'https://pib.uob.com.sg',
+          'CF-Connecting-IP': `203.0.113.${i}`
         },
         body: JSON.stringify({ 
           email: testUser.email, 

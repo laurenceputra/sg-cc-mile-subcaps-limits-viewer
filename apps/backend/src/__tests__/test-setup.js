@@ -71,6 +71,7 @@ export function createTestEnv(overrides = {}) {
   return {
     JWT_SECRET: 'test-secret-key-for-testing-only',
     ADMIN_KEY: 'test-admin-key-123',
+    DUMMY_PASSWORD_HASH: hashPassword('dummy-password'),
     ALLOWED_ORIGINS: 'https://pib.uob.com.sg,https://test.example.com',
     ENVIRONMENT: 'test',
     NODE_ENV: 'test',

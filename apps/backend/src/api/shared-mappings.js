@@ -41,18 +41,30 @@ sharedMappings.post('/mappings/contribute',
       return c.json({ success: true, message: 'Sharing disabled for paid user' });
     }
 
-    const normalizedMappings = mappings.map((mapping) => ({
-      ...mapping,
-      merchantRaw: mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant,
-      merchant: mapping.merchant || mapping.merchantNormalized || mapping.merchantRaw,
-      merchantNormalized: normalizeMerchant(mapping.merchantNormalized || mapping.merchantRaw || mapping.merchant || '')
-    }));
+    const normalizedMappings = mappings.map((mapping) => {
+      const merchantRaw = mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant;
+      const merchant = mapping.merchant || mapping.merchantNormalized || mapping.merchantRaw;
+      const merchantNormalized = normalizeMerchant(mapping.merchantNormalized || mapping.merchantRaw || mapping.merchant || '');
+      const merchantError = validateInput(merchantNormalized, 'merchantName');
+      if (merchantError) {
+        throw new Error(merchantError);
+      }
+      return {
+        ...mapping,
+        merchantRaw,
+        merchant,
+        merchantNormalized
+      };
+    });
 
     await db.contributeMappings(user.userId, normalizedMappings);
 
     return c.json({ success: true, contributed: mappings.length });
   } catch (error) {
     console.error('[SharedMappings] Contribute error:', error);
+    if (error?.message?.includes('Merchant name')) {
+      return c.json({ error: error.message }, 400);
+    }
     return c.json({ error: 'Failed to contribute mappings' }, 500);
   }
 });

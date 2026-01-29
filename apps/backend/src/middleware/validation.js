@@ -37,6 +37,8 @@ export function isDisposableEmail(email) {
 
 // Control characters (U+0000 to U+001F, U+007F)
 const CONTROL_CHARS_REGEX = /[\u0000-\u001F\u007F]/;
+// Reject angle brackets to prevent HTML/script injection in text fields
+const HTML_TAG_REGEX = /[<>]/;
 
 // Allowed categories (extend this list as needed)
 const ALLOWED_CATEGORIES = [
@@ -108,6 +110,7 @@ export const schemas = {
       if (value.length === 0) return 'Merchant name cannot be empty';
       if (value.length > 200) return 'Merchant name exceeds maximum length (200 characters)';
       if (CONTROL_CHARS_REGEX.test(value)) return 'Merchant name contains invalid control characters';
+      if (HTML_TAG_REGEX.test(value)) return 'Merchant name contains invalid characters';
       return null;
     }
   },
