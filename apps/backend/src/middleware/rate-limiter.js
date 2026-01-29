@@ -39,6 +39,9 @@ function getClientIdentifier(c) {
       const normalized = email.trim().toLowerCase().slice(0, 254);
       return `email:${normalized}:${ip}`;
     }
+    if (c.req.method === 'GET') {
+      return `ip:unknown:${c.req.path}`;
+    }
   }
 
   return `ip:${ip}`;

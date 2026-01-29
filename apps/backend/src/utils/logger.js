@@ -1,13 +1,17 @@
 const redactKeys = new Set(['password', 'passwordHash', 'passphrase', 'token', 'jwt', 'secret', 'key', 'apiKey']);
 
-function sanitizeMeta(meta = {}) {
+function sanitizeMeta(meta = {}, seen = new WeakSet()) {
   if (!meta || typeof meta !== 'object') return meta;
+  if (seen.has(meta)) {
+    return '[Circular]';
+  }
+  seen.add(meta);
   const sanitized = Array.isArray(meta) ? [] : {};
   for (const [key, value] of Object.entries(meta)) {
-    if (redactKeys.has(key)) {
+    if (redactKeys.has(key.toLowerCase())) {
       sanitized[key] = '[REDACTED]';
     } else if (value && typeof value === 'object') {
-      sanitized[key] = sanitizeMeta(value);
+      sanitized[key] = sanitizeMeta(value, seen);
     } else {
       sanitized[key] = value;
     }
