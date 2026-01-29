@@ -1,6 +1,6 @@
 # Bank CC Sync Backend
 
-Hono.js backend supporting both Cloudflare Workers and Docker deployment.
+Optional sync backend for encrypted settings and shared mappings. Supports both Cloudflare Workers and Docker deployment.
 
 ## Cloudflare Workers Deployment
 
