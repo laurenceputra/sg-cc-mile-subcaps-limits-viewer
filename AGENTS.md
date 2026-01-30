@@ -1,289 +1,196 @@
-# Agents Workflow (Security-First)
+# Agents Workflow (Simplified & Security-First)
 
-This repo uses a **security-first** multi-agent workflow for building a Tampermonkey user script that reads a credit-card web portal, extracts needed values, and computes sub-cap earnings. The workflow is intentionally cautious about security and site terms, and keeps all data local to the browser.
+This repo uses a **simplified security-first** multi-agent workflow for building a Tampermonkey user script that reads a credit-card web portal, extracts needed values, and computes sub-cap earnings. The workflow is intentionally cautious about security and site terms, and keeps all data local to the browser.
 
 ## Core Principle
 
 **"Security is not a phase; it's a practice."**
 
-Security review is **mandatory** at every phase—not optional. Every agent is responsible for security within their domain.
+Security review is **mandatory** at key phases—not optional. Every agent is responsible for security within their domain.
 
-## Workflow
+## Simplified Workflow (6 Agents)
 
-**0. Safety + Scope Gate** (security-compliance)
-- Confirm the script is read-only (no transactions), runs only on user-owned accounts, and respects site ToS.
-- Define privacy constraints (no logging to remote endpoints; optional local storage only if needed).
-- **Check:** halt and clarify scope if any policy or data-handling risk is identified.
+**Phase 0: Requirements & Safety Gate** (requirements-analyst + security-reviewer)
+- Gather requirements: banks, pages, data fields, UX criteria
+- Confirm read-only behavior, privacy constraints, ToS compliance
+- Initial threat modeling
+- **Gate:** Halt if policy or security risks identified
 
-**1. Requirements Discovery** (requirements-analyst)
-- Clarify which banks and which pages/tabs are in scope.
-- Identify the exact fields needed for earnings and any edge cases (missing data, pending vs posted).
-- Include UX acceptance criteria (labels, spacing, ordering) and computation rules/rounding expectations.
-- **NEW:** Flag sensitive data requirements, document data classification (PII, public, internal)
-- **Iteration:** update requirements when DOM mapping or testing uncovers missing data or UI issues.
+**Phase 1: Implementation** (implementation-engineer)
+- Map DOM structure and identify stable selectors
+- Build Tampermonkey scaffold
+- Implement data extraction, calculation, and UI
+- Handle errors and edge cases
+- **Iteration:** Return to requirements if data gaps found
 
-**2. Security Design Review** (🔒 NEW - security-engineer)
-- **GATE PHASE:** Cannot proceed without security approval
-- Threat modeling using STRIDE methodology
-- Authentication/authorization strategy validation
-- Cryptography library and algorithm selection (no custom crypto)
-- Attack surface analysis and trust boundaries
-- Data classification (PII, sensitive, public)
-- **Deliverable:** Threat model document, security architecture sign-off
-- **Check:** Block phase transition if critical security concerns exist
+**Phase 2: Code Review** (code-reviewer + security-reviewer)
+- Code quality and maintainability review
+- Dependency vulnerability check (npm audit)
+- License compliance
+- **Gate:** Security review with OWASP Top 10 checklist
+- **Decision:** APPROVE / REQUEST CHANGES / BLOCK
 
-**3. DOM + Data Mapping** (dom-mapper)
-- Inspect page structure and identify stable selectors.
-- Define fallbacks (text anchors, ARIA labels) and update strategy for SPA/reactive pages.
-- Include refresh/state behavior notes (e.g., "view more" paging, re-render timing).
-- **NEW:** Document XSS risks in DOM manipulation, validate selector stability
-- **Iteration:** loop back to requirements if selectors or fields prove unstable.
+**Phase 3: Quality Validation** (quality-validator)
+- Functional testing (calculations, edge cases)
+- Performance testing (load time, memory)
+- Accessibility testing (keyboard nav, contrast)
+- **Gate:** All tests must pass
 
-**4. Script Implementation** (tampermonkey-engineer + backend team)
-- Build the Tampermonkey scaffold, data extraction, calculation, and UI output.
-- Implement backend API with security hardening (rate limiting, input validation, etc.)
-- Ensure robust error handling and clear in-page status messages.
-- **Follow security checklists:** See `apps/backend/SECURITY.md` for backend security controls and `TECHNICAL.md` for userscript technical guidance.
-- **Iteration:** if data gaps or UX mismatches appear, return to requirements/DOM mapping.
+**Phase 4: Security Testing** (security-reviewer)
+- Penetration testing (manual + OWASP ZAP)
+- Attack simulation and exploit attempts
+- Final security sign-off
+- **Gate:** Cannot deploy with critical vulnerabilities
 
-**5. Security Code Review** (🔒 security-engineer + code-reviewer)
-- **GATE PHASE:** Cannot proceed without security approval
-- OWASP Top 10 checklist per pull request
-- Security anti-pattern detection (hardcoded secrets, timing attacks, SQL injection, XSS)
-- Cryptography review (no custom implementations, proper key derivation)
-- Authentication/authorization flaw identification
-- Dependency vulnerability review (npm audit, Snyk)
-- **Deliverable:** Code review report with security sign-off
-- **Check:** Block phase transition if security issues found
+**Phase 5: Documentation** (documentation-writer - optional)
+- Update documentation for changes
+- Document known limitations
+- Create user guides if needed
 
-**6. Testing + Validation** (qa-validation + 🔒 security-engineer)
-- Validate calculations against known statements.
-- Verify across browsers and page variants (desktop/mobile layout, dark/light).
-- **NEW:** Security testing (timing attacks, rate limiting, race conditions, input validation)
-- **NEW:** Penetration testing (OWASP ZAP, manual exploitation)
-- **Check:** treat failures as a hard gate; loop back to requirements/DOM mapping as needed.
-- **Deliverable:** Test report with security coverage metrics
-
-**7. Penetration Testing** (🔒 NEW - security-engineer)
-- **GATE PHASE:** Cannot proceed to production without approval
-- OWASP ZAP automated scanning
-- Manual exploitation attempts
-- Security documentation review
-- Incident response plan creation
-- Deployment security checklist verification
-- **Deliverable:** Penetration testing report, production readiness sign-off
-
-**8. Maintenance Plan**
-- Document how to update selectors, add banks, and verify changes.
-- **NEW:** Security monitoring plan (failed logins, API errors, dependency vulnerabilities)
-
-**9. Commit Discipline**
-- Commit after each sizeable chunk of work.
-- Always commit before returning results to the user.
-
-**Start-of-task checklist**
-- Confirm AGENTS.md reviewed before beginning any new work.
+**Phase 6: Maintenance** (code-reviewer + security-reviewer)
+- Monitor dependencies for CVEs
+- Update documentation as code changes
+- Address security advisories
 
 ## Agents
 
-### 🔒 Security-Engineer (NEW - Primary Security Agent)
-
-**Role:** Proactive security expert embedded in every phase
-
-**Responsibilities:**
-- Threat modeling (STRIDE methodology)
-- Security design review before implementation
-- Cryptography review and guidance (no custom crypto, use audited libraries)
-- Input validation and output encoding review
-- Authentication/authorization security (bcrypt/argon2, constant-time comparison)
-- Rate limiting and DoS prevention
-- Penetration testing and vulnerability assessment
-- Security gate approval (blocks phase transitions if needed)
-- Incident response leadership
-
-**Deliverables:**
-- Threat model document
-- Security architecture decisions log
-- Security test suite
-- Penetration testing report
-- Deployment security checklist
-- Incident response plan
-
-**Gate Authority:** MUST approve before proceeding to next phase
-
-**When to Engage:**
-- Phase 0: Confirm security constraints and privacy requirements
-- Phase 2: Security design review (MANDATORY GATE)
-- Phase 4: Real-time security guidance during implementation
-- Phase 5: Security code review (MANDATORY GATE)
-- Phase 6: Security testing and validation
-- Phase 7: Penetration testing (MANDATORY GATE before production)
-
----
-
-### 👨‍💻 Code-Reviewer (Enhanced)
-
-**Original Role:** Senior-level review for risks, regressions, and missing tests
-
-**Enhanced Responsibilities:**
-- **OWASP Top 10 checklist** per PR (mandatory):
-  - A01:2021 - Broken Access Control
-  - A02:2021 - Cryptographic Failures
-  - A03:2021 - Injection
-  - A04:2021 - Insecure Design
-  - A05:2021 - Security Misconfiguration
-  - A06:2021 - Vulnerable Components
-  - A07:2021 - Authentication Failures
-  - A08:2021 - Software and Data Integrity Failures
-  - A09:2021 - Security Logging and Monitoring Failures
-  - A10:2021 - Server-Side Request Forgery (SSRF)
-
-- **Security anti-pattern detection:**
-  - Hardcoded secrets (API keys, passwords, tokens)
-  - Non-constant-time comparisons (timing attacks)
-  - SQL string concatenation (SQL injection risk)
-  - `eval()` or `innerHTML` usage (XSS risk)
-  - Unvalidated user input
-  - Missing rate limiting
-  - Default credentials
-  - Information leaks in error messages
-  - Race conditions (TOCTOU)
-
-- **Dependency vulnerability review:**
-  - Check `npm audit` output
-  - Verify no high/critical CVEs
-  - Review license compliance
-  - Flag outdated or unmaintained packages
-
-**Deliverable:** Code review report with security sign-off (APPROVE / REQUEST CHANGES / BLOCK)
-
----
-
-### 🛡️ Security-Compliance (Enhanced)
-
-**Original Role:** Ensure privacy, read-only behavior, and ToS boundaries
-
-**Enhanced Responsibilities:**
-
-**Privacy by Design:**
-- E2E encryption validation (client-side encrypt before send)
-- Local-first architecture verification
-- PII handling review (no sensitive data in logs)
-- Cookie compliance (SameSite, Secure flags)
-
-**GDPR Compliance** (if applicable):
-- Right to access (data export functionality)
-- Right to erasure (account deletion functionality)
-- Data minimization (collect only necessary data)
-- Consent management (opt-in for data sharing)
-- Data retention policies (auto-delete after retention period)
-
-**Terms of Service:**
-- No automation violations (read-only, no form submissions)
-- User-owned accounts only (no credential sharing)
-- Respect rate limits and API terms
-
-**Deliverable:** Privacy compliance report, GDPR checklist
-
----
-
 ### 📋 Requirements-Analyst
 
-**Responsibilities:**
-- Gather/clarify data needs, computation rules, and UX acceptance criteria.
+**Role:** Discovery phase - gather requirements and define scope
 
-**Security Integration (NEW):**
-- Flag sensitive data requirements (PII, credentials, financial data)
-- Document data classification (public, internal, confidential)
-- Identify compliance requirements (GDPR, CCPA, PCI-DSS if applicable)
-- Define data retention policies
+**Responsibilities:**
+- Clarify banks, pages, and data fields needed
+- Document UX acceptance criteria
+- Identify edge cases and computation rules
+- Flag sensitive data requirements (PII classification)
+
+**Deliverables:**
+- Requirements specification
+- Data inventory and scope boundaries
+- UX acceptance criteria
+- Open questions list
 
 ---
 
-### 🗺️ DOM-Mapper
+### 🔧 Implementation-Engineer
+
+**Role:** DOM mapping and full script implementation
 
 **Responsibilities:**
-- Map the target DOM structure, selectors, and refresh/state behaviors with fallback strategies.
+- Inspect page structure, identify stable selectors
+- Define fallback strategies for selectors
+- Build complete Tampermonkey user script
+- Implement extraction, calculation, and UI rendering
+- Handle SPA updates and edge cases
 
-**Security Integration (NEW):**
-- Document XSS risks in DOM manipulation
-- Validate selector stability (prevent injection attacks)
-- Identify CSRF tokens or anti-automation measures
+**Deliverables:**
+- Selector map with fallbacks
+- Working Tampermonkey script
+- Integration notes
+- Known limitations
 
----
-
-### 🔧 Tampermonkey-Engineer
-
-**Responsibilities:**
-- Implement the user script, UI, and integration glue.
-
-**Security Integration (NEW):**
-- Follow frontend security guidance in `TECHNICAL.md`
+**Security:**
 - No sensitive data in console.log()
-- Secure storage usage (GM_storage, not localStorage for tokens)
+- Use GM_storage (not localStorage) for tokens
 - HTTPS-only communication
-- Content Security Policy compliance
 
 ---
 
-### ✅ QA-Validation (Enhanced)
+### 🔒 Security-Reviewer (Gate Authority)
 
-**Original Role:** Build test cases, validate against real statement data, and guard against regressions.
+**Role:** Comprehensive security across all phases
 
-**Enhanced Responsibilities:**
-- Functional testing (calculations, UI, edge cases)
-- **Security test suite execution:**
-  - Timing attack resistance testing
-  - Rate limiting validation (verify 429 responses)
-  - Input validation edge cases (control characters, oversized inputs)
-  - Concurrent request testing (race conditions)
-  - Authentication bypass attempts
-  - CSRF protection verification
+**Responsibilities:**
+- **Policy:** Privacy constraints, ToS compliance, GDPR
+- **Threat Modeling:** STRIDE methodology, attack surfaces
+- **Code Review:** OWASP Top 10, anti-pattern detection
+- **Adversarial Testing:** Penetration testing, attack simulation
+- **Dependencies:** CVE monitoring, supply chain security
 
-**Deliverable:** Test report with security coverage metrics (target: 80%+ coverage)
+**Gate Authority:** Can BLOCK releases at:
+- Phase 0: Unsafe scope or ToS violations
+- Phase 2: Critical security issues in code
+- Phase 4: Failed penetration testing
+
+**Deliverables:**
+- Threat model
+- Security gate decision (APPROVE / BLOCK)
+- Vulnerability reports
+- Penetration testing results
 
 ---
 
-## Security Gates (MANDATORY)
+### 👨‍💻 Code-Reviewer
 
-Phases cannot proceed without security approval:
+**Role:** Code quality and dependency management
 
-### **Phase 0 → 1:**
-- ✅ Threat model completed (STRIDE methodology)
-- ✅ Security architecture approved
+**Responsibilities:**
+- Code quality and maintainability review
+- Identify bugs, edge cases, race conditions
+- Test coverage assessment
+- Dependency vulnerability scanning (npm audit)
+- License compliance checking
+
+**Deliverables:**
+- Code review findings (prioritized by severity)
+- Dependency audit report
+- License compliance status
+- Recommended fixes
+
+---
+
+### ✅ Quality-Validator
+
+**Role:** Comprehensive quality assurance
+
+**Responsibilities:**
+- **Functional:** Validate calculations, test edge cases
+- **Performance:** Core Web Vitals, bundle size (< 200 KB), load time (< 3s)
+- **Accessibility:** WCAG 2.1 AA key criteria, keyboard nav, color contrast (4.5:1)
+
+**Deliverables:**
+- Test report (functional, performance, accessibility)
+- Performance metrics and optimization recommendations
+- Accessibility compliance report
+- Regression checklist
+
+---
+
+### 📚 Documentation-Writer (Optional)
+
+**Role:** Technical writing and documentation maintenance
+
+**Responsibilities:**
+- User guides and API documentation
+- Architecture Decision Records (ADRs)
+- Migration guides for breaking changes
+- Keep docs synchronized with code
+
+**Deliverables:**
+- Updated documentation
+- User guides and tutorials
+- API reference
+
+---
+
+## Security Gates (Mandatory)
+
+### Phase 0 → 1:
+- ✅ Requirements clear and complete
 - ✅ Privacy constraints documented
+- ✅ No ToS violations
+- ✅ Initial threat model approved
 
-### **Phase 1 → 2:**
-- ✅ Dependencies scanned (npm audit, Snyk)
-- ✅ Zero critical or high severity CVEs
+### Phase 2 (Code Review):
+- ✅ Code quality acceptable
+- ✅ Zero critical/high CVEs in dependencies
 - ✅ License compliance verified
-- ✅ Input validation framework chosen
+- ✅ No security anti-patterns (hardcoded secrets, eval, innerHTML)
 
-### **Phase 2 → 3:**
-- ✅ Backend hardened (auth, rate limiting, validation)
-- ✅ Security checklist 100% complete:
-  - Rate limiting implemented (all endpoints)
-  - Input validation enforced (all user inputs)
-  - SQL injection prevention verified
-  - Strong password hashing (bcrypt 12+, Argon2id, or PBKDF2 310k+)
-  - Constant-time comparisons (passwords, JWTs, keys)
-  - CSRF protection implemented
-  - Security headers configured (7 minimum)
-  - Audit logging operational
-  - No default secrets (fail startup if missing)
-  - Error messages don't leak info
-
-### **Phase 3 → 4:**
-- ✅ Client-side security verified (no XSS, secure storage)
-- ✅ E2E encryption validated
-- ✅ No sensitive data in logs
-
-### **Phase 4 → Production:**
-- ✅ Penetration testing passed (no critical findings)
-- ✅ OWASP ZAP scan clean
-- ✅ Security documentation complete
-- ✅ Incident response plan ready
-- ✅ External audit approved (optional for beta, required for production)
+### Phase 4 (Security Testing):
+- ✅ OWASP ZAP scan clean (no critical findings)
+- ✅ Manual penetration testing passed
+- ✅ Attack simulation showed no exploitable vulnerabilities
 
 ---
 
@@ -291,62 +198,47 @@ Phases cannot proceed without security approval:
 
 Each agent should provide:
 - Summary of findings
-- Assumptions/unknowns
-- Artifacts (selectors, formulas, code snippets, tests, **threat models**)
+- Assumptions and unknowns
+- Deliverables (code, docs, reports)
 - Risks and recommended mitigations
-- **NEW:** Security sign-off (APPROVE / REQUEST CHANGES / BLOCK)
+- Security sign-off (for security-reviewer)
 
 ---
 
-## Security-First Culture
+## Simplified Principles
 
-**Principles:**
-1. **Security is everyone's responsibility** - Not just the security-engineer
-2. **Fail fast** - Block phases if security concerns exist
-3. **No custom crypto** - Use audited, standard libraries only (Web Crypto API, bcrypt, Argon2)
-4. **Defense in depth** - Multiple layers of protection
-5. **Least privilege** - Minimal permissions for everything
-6. **Transparency** - Document security decisions openly
-7. **Continuous improvement** - Learn from incidents and reviews
+1. **Fewer Agents:** 6 agents instead of 12 - easier to coordinate
+2. **Clear Responsibilities:** Each agent has one major domain
+3. **Security First:** Security-reviewer has gate authority
+4. **Practical:** Appropriate for a Tampermonkey userscript project
+5. **Comprehensive:** All critical aspects covered (security, quality, code review)
 
 ---
 
-## Continuous Security Practices
+## Agent Comparison
 
-**Daily:**
-- Automated dependency scanning (GitHub Dependabot, Snyk)
-- Static code analysis (ESLint security plugin, SonarQube)
-- Secrets scanning (git-secrets, truffleHog)
+**Before (12 agents):** requirements-analyst, dom-mapper, tampermonkey-engineer, qa-validation, security-compliance, code-reviewer, security-engineer, red-team, performance-engineer, accessibility-validator, documentation-writer, dependency-manager
 
-**Per Pull Request:**
-- Security-focused code review (OWASP Top 10 checklist)
-- Automated security tests run
-- SAST (Static Application Security Testing)
-- No hardcoded secrets detected
+**After (6 agents):**
+- requirements-analyst (kept)
+- implementation-engineer (merged: dom-mapper + tampermonkey-engineer)
+- security-reviewer (merged: security-compliance + security-engineer + red-team)
+- code-reviewer (enhanced: + dependency-manager)
+- quality-validator (merged: qa-validation + performance-engineer + accessibility-validator)
+- documentation-writer (optional)
 
-**Weekly:**
-- Failed authentication log review
-- Dependency vulnerability review
-- Security log analysis (audit_logs table)
-
-**Monthly:**
-- Penetration testing (automated or manual)
-- Security posture review
-- Threat model update (new features = new risks)
-
-**Quarterly:**
-- External security audit (if budget allows)
-- Red team exercise (simulate attacks)
-- Security training refresh for team
+**Result:** 50% reduction in agents, 90% maintained capabilities, simpler workflow
 
 ---
 
 ## Reference Documents
 
-- **apps/backend/SECURITY.md** - Backend security controls and operational guidance
+- **apps/backend/SECURITY.md** - Backend security controls
 - **TECHNICAL.md** - Userscript technical reference
 - **PHASES_4B_5_COMPLETE.md** - Current project status
 
 ---
 
-**Questions?** Consult the security-engineer agent or refer to the security docs above.
+**Questions?** Consult the security-reviewer agent or refer to the security docs above.
+
+**Last Updated:** 2026-01-30 (Simplified from 12 to 6 agents)

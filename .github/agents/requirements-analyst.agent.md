@@ -1,3 +1,16 @@
+---
+name: requirements-analyst
+description: Define scope, required inputs, computation rules, and UX acceptance criteria for the earnings calculation. Gathers and clarifies data needs, computation rules, and UX acceptance criteria while flagging sensitive data requirements and compliance needs.
+tools:
+  - read
+  - grep
+  - view
+infer: false
+metadata:
+  role: requirements-analyst
+  phase: discovery
+---
+
 # Agent: requirements-analyst
 
 ## Mission
