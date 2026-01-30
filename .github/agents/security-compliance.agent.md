@@ -1,3 +1,16 @@
+---
+name: security-compliance
+description: Protect user privacy and ensure the script stays read-only, local-only, and aligned with site terms. Ensures privacy by design, GDPR compliance, Terms of Service adherence, validates E2E encryption, and confirms local-first architecture.
+tools:
+  - read
+  - view
+  - grep
+infer: false
+metadata:
+  role: security-compliance
+  phase: security
+---
+
 # Agent: security-compliance
 
 ## Mission

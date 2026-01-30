@@ -1,3 +1,19 @@
+---
+name: tampermonkey-engineer
+description: Implement the user script, integrate extraction + calculation, and render results in-page. Builds Tampermonkey scaffolds, data extraction, calculation, and UI output with robust error handling while following frontend security guidance.
+tools:
+  - read
+  - edit
+  - create
+  - view
+  - bash
+  - grep
+infer: false
+metadata:
+  role: tampermonkey-engineer
+  phase: implementation
+---
+
 # Agent: tampermonkey-engineer
 
 ## Mission

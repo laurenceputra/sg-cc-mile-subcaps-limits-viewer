@@ -1,3 +1,17 @@
+---
+name: code-reviewer
+description: Review the codebase from a senior engineering perspective to identify risks, regressions, and missing tests. Performs senior-level review with OWASP Top 10 checklist, security anti-pattern detection, and dependency vulnerability review.
+tools:
+  - read
+  - view
+  - bash
+  - grep
+infer: false
+metadata:
+  role: code-reviewer
+  phase: review
+---
+
 # Agent: code-reviewer
 
 ## Mission

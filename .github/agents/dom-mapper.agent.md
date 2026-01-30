@@ -1,3 +1,16 @@
+---
+name: dom-mapper
+description: Map the portal DOM and identify stable selectors, extraction points, and refresh/state behaviors. Inspects page structure, identifies stable selectors with fallbacks, documents XSS risks in DOM manipulation, and validates selector stability.
+tools:
+  - read
+  - view
+  - grep
+infer: false
+metadata:
+  role: dom-mapper
+  phase: discovery
+---
+
 # Agent: dom-mapper
 
 ## Mission
