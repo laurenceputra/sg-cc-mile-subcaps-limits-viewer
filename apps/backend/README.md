@@ -2,6 +2,22 @@
 
 Optional sync backend for encrypted settings and shared mappings. Supports both Cloudflare Workers and Docker deployment.
 
+## 📚 Comprehensive Deployment Guide
+
+**For detailed deployment instructions, troubleshooting, and production best practices, see:**
+**[DEPLOYMENT.md](DEPLOYMENT.md)**
+
+The deployment guide covers:
+- Node.js/Docker deployment (self-hosted)
+- Cloudflare Workers deployment (serverless)
+- Production considerations and security hardening
+- Monitoring, maintenance, and troubleshooting
+- Environment configuration and scaling strategies
+
+## Quick Start
+
+Below are quick start instructions. For production deployments, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Cloudflare Workers Deployment
 
 ### Prerequisites
