@@ -36,7 +36,9 @@ export function normalizeMerchant(merchant) {
 }
 
 export function generateDeviceId() {
-  return `device-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `device-${Date.now()}-${randomPart}`;
 }
 
 /**

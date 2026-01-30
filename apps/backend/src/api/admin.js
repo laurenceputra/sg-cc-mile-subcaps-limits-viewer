@@ -9,10 +9,12 @@ const admin = new Hono();
 // Simple admin auth middleware (extend with proper admin role check)
 admin.use('/*', async (c, next) => {
   const adminKey = c.req.header('X-Admin-Key');
+  const paddedKey = adminKey || '';
+  const configuredKey = c.env.ADMIN_KEY || '';
   
   // SECURITY: Use constant-time comparison for admin key to prevent timing attacks
   // that could allow attackers to guess the admin key character by character
-  if (!adminKey || !constantTimeEqual(adminKey, c.env.ADMIN_KEY)) {
+  if (!adminKey || !constantTimeEqual(paddedKey, configuredKey)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   

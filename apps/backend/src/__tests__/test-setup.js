@@ -75,6 +75,7 @@ export function createTestEnv(overrides = {}) {
     ALLOWED_ORIGINS: 'https://pib.uob.com.sg,https://test.example.com',
     ENVIRONMENT: 'test',
     NODE_ENV: 'test',
+    REDIS_URL: '',
     ...overrides
   };
 }

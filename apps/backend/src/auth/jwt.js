@@ -32,9 +32,11 @@ export function constantTimeEqual(a, b) {
 export async function generateToken(userId, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
   const payload = {
     userId,
-    jti: `${userId}_${now}_${Math.random().toString(36).substring(2, 15)}`, // Unique token ID
+    jti: `${userId}_${now}_${randomPart}`, // Unique token ID
     iat: now,
     exp: now + (7 * 24 * 60 * 60) // 7 days
   };

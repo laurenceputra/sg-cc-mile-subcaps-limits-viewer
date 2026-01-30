@@ -70,6 +70,12 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 Security controls (validation, CSRF, rate limits, audit logging, headers) are documented in:
 **[SECURITY.md](SECURITY.md)**.
 
+## Rate Limiting (Node + Workers)
+
+- Node uses `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
+- Workers use Cloudflare Rate Limiting bindings configured in `wrangler.toml`.
+- Workers limits are per-location; see `SECURITY.md` for Node vs Workers windows.
+
 ### Auth
 - `POST /auth/register` - Create account
 - `POST /auth/login` - Login and get JWT

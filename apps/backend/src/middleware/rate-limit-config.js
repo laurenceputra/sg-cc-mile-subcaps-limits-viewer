@@ -11,7 +11,8 @@ export const rateLimitConfig = {
   // Login endpoints - strict limits to prevent credential stuffing
   login: {
     maxAttempts: 5,
-    windowMs: 15 * 60 * 1000, // 15 minutes
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 15 * 60 * 1000, // 15 minutes in Node
     blockDurationMs: 60 * 60 * 1000, // 1 hour block after max attempts
     progressiveDelay: {
       baseMs: 200,
@@ -23,32 +24,37 @@ export const rateLimitConfig = {
   // Registration - prevent account enumeration and spam
   register: {
     maxAttempts: 3,
-    windowMs: 60 * 60 * 1000, // 1 hour
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 60 * 60 * 1000, // 1 hour in Node
     blockDurationMs: 24 * 60 * 60 * 1000 // 24 hour block
   },
 
   // Sync endpoints - reasonable limits for legitimate use
   sync: {
     maxRequests: 100,
-    windowMs: 60 * 60 * 1000, // per hour per user
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 60 * 60 * 1000, // per hour per user in Node
   },
 
   // Shared mappings - higher frequency for active browsing
   sharedMappings: {
     maxRequests: 20,
-    windowMs: 60 * 1000, // per minute per user
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 60 * 1000, // per minute per user in Node
   },
 
   // Logout and device management - prevent abuse
   logout: {
     maxRequests: 10,
-    windowMs: 60 * 1000, // per minute per user
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 60 * 1000, // per minute per user in Node
   },
 
   // Admin endpoints - very strict
   admin: {
     maxRequests: 10,
-    windowMs: 60 * 1000, // per minute
+    windowMs: 60 * 1000, // per minute per location in Workers
+    nodeWindowMs: 60 * 1000, // per minute in Node
   },
 
   // Global payload size limit

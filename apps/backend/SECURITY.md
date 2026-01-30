@@ -74,16 +74,20 @@ Notes:
 
 ## Rate Limiting
 
-| Endpoint Type | Limit | Window | Block |
-| --- | --- | --- | --- |
-| Login | 5 attempts | 15 minutes | 1 hour |
-| Registration | 3 attempts | 1 hour | 24 hours |
-| Sync | 100 requests | 1 hour | - |
-| Shared mappings | 20 requests | 1 minute | - |
-| Admin | 10 requests | 1 minute | - |
-| Payload size | 1MB | - | - |
+| Endpoint Type | Limit | Node Window | Workers Window | Block |
+| --- | --- | --- | --- | --- |
+| Login | 5 attempts | 15 minutes | 1 minute | 1 hour |
+| Registration | 3 attempts | 1 hour | 1 minute | 24 hours |
+| Sync | 100 requests | 1 hour | 1 minute | - |
+| Shared mappings | 20 requests | 1 minute | 1 minute | - |
+| Admin | 10 requests | 1 minute | 1 minute | - |
+| Payload size | 1MB | - | - | - |
 
 Login attempts include progressive delay (exponential backoff).
+
+### Runtime differences
+- **Node:** `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
+- **Workers:** Cloudflare Rate Limiting bindings in `wrangler.toml` (periods are 10 or 60 seconds, per-location).
 
 ## Audit Logging
 
