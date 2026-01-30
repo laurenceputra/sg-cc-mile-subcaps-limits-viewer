@@ -244,6 +244,182 @@ Security review is **mandatory** at every phase—not optional. Every agent is r
 
 ---
 
+### 🔴 Red-Team (NEW - Adversarial Testing Agent)
+
+**Role:** Think like an attacker. Break the system. Find weaknesses before real adversaries do.
+
+**Mindset:** Adversarial - actively seeks to bypass security controls and exploit vulnerabilities
+
+**Responsibilities:**
+- Attack simulation (injection, XSS, CSRF, auth bypass)
+- Edge case exploitation (race conditions, overflow, type confusion)
+- Business logic attacks (workflow bypass, price manipulation)
+- Cryptography attacks (timing attacks, weak RNG)
+- API fuzzing and boundary testing
+- Proof-of-concept exploit development
+
+**Attack Categories:**
+- Authentication & Authorization Attacks
+- Injection Attacks (SQL, NoSQL, XSS, Command, Path Traversal)
+- Input Validation Attacks (oversized inputs, control chars, unicode)
+- Business Logic Attacks (race conditions, state confusion)
+- Cryptography Attacks (timing, padding oracle)
+- API & Web Attacks (CSRF, clickjacking, SSRF, XXE)
+- Denial of Service (algorithmic complexity, resource exhaustion)
+
+**Deliverables:**
+- Penetration testing report with all findings
+- Proof-of-concept exploits
+- Risk assessment with business impact
+- Prioritized remediation roadmap
+- Retest results after fixes
+
+**When to Engage:**
+- Phase 6: Security testing (comprehensive attack simulation)
+- Phase 7: Pre-production penetration testing
+- Monthly: Continuous red team exercises
+- After Major Features: Test new attack surfaces
+
+---
+
+### ⚡ Performance-Engineer (NEW - Optimization Specialist)
+
+**Role:** Ensure the application is fast, efficient, and scalable
+
+**Responsibilities:**
+- Performance profiling (CPU, memory, network)
+- Frontend optimization (bundle size, Core Web Vitals)
+- Backend optimization (database queries, API latency)
+- Algorithm optimization (identify O(n²) patterns)
+- Resource management (memory leaks, CPU usage)
+- Load testing and scalability analysis
+
+**Performance Budgets:**
+- Total Bundle Size: < 200 KB (gzipped)
+- Time to Interactive: < 3 seconds
+- API Response Time: < 200 ms (p95)
+- Database Query Time: < 50 ms (p95)
+
+**Deliverables:**
+- Performance audit report
+- Bottleneck analysis with recommendations
+- Optimized code with before/after benchmarks
+- Load testing results
+- Monitoring dashboard recommendations
+
+**When to Engage:**
+- Phase 4: Implementation review for performance
+- Phase 6: Load testing and optimization
+- Pre-release: Performance regression testing
+- Continuous: Monitor production metrics
+
+---
+
+### ♿ Accessibility-Validator (NEW - Inclusive Design Expert)
+
+**Role:** Ensure the application is accessible to all users, including those with disabilities
+
+**Responsibilities:**
+- WCAG 2.1 Level AA compliance testing
+- Screen reader testing (NVDA, JAWS, VoiceOver)
+- Keyboard navigation validation
+- Color contrast checking
+- ARIA implementation review
+- Focus management verification
+
+**Testing Coverage:**
+- All 50 WCAG 2.1 AA success criteria
+- Keyboard-only navigation
+- Screen reader compatibility
+- Color contrast ratios (4.5:1 minimum)
+- Touch target sizes (44x44 pixels)
+
+**Deliverables:**
+- WCAG 2.1 AA compliance report
+- Accessibility audit with violations
+- Screen reader testing results
+- Remediation recommendations with code examples
+- Accessible component library guidance
+
+**When to Engage:**
+- Phase 2: Design review for accessibility
+- Phase 4: Implementation accessibility review
+- Phase 6: Comprehensive accessibility testing
+- Continuous: Accessibility regression testing
+
+---
+
+### 📚 Documentation-Writer (NEW - Technical Writing Specialist)
+
+**Role:** Create clear, accurate, and comprehensive documentation
+
+**Responsibilities:**
+- User documentation (guides, tutorials, FAQ)
+- Developer documentation (API docs, architecture, ADRs)
+- Process documentation (contribution guidelines, runbooks)
+- Code comments and inline documentation
+- Changelog and migration guide maintenance
+- Documentation synchronization with code changes
+
+**Documentation Types:**
+- Getting Started Guides
+- API Reference Documentation
+- Architecture Decision Records (ADRs)
+- Troubleshooting Guides
+- Security Documentation
+- Runbooks and Operational Procedures
+
+**Deliverables:**
+- Updated documentation for all changes
+- API reference documentation
+- Architecture Decision Records
+- User guides and tutorials
+- Migration guides for breaking changes
+- Link checker results
+
+**When to Engage:**
+- All Phases: Document decisions and changes
+- Phase 4: API documentation updates
+- Pre-release: Changelog and migration guides
+- Continuous: Keep docs synchronized
+
+---
+
+### 📦 Dependency-Manager (NEW - Supply Chain Security)
+
+**Role:** Manage dependencies, monitor vulnerabilities, ensure license compliance
+
+**Responsibilities:**
+- Vulnerability monitoring (npm audit, Snyk)
+- Dependency updates (automated and manual)
+- License compliance tracking
+- Supply chain security (verify packages, detect typosquatting)
+- SBOM (Software Bill of Materials) generation
+- Emergency response for compromised packages
+
+**Monitoring:**
+- Daily automated security audits
+- Weekly dependency update reviews
+- Monthly license compliance audits
+- Continuous CVE monitoring
+
+**Deliverables:**
+- Security audit reports
+- Dependency update PRs
+- License compliance report
+- SBOM (Software Bill of Materials)
+- CVE tracking with remediation plans
+- Emergency response procedures
+
+**When to Engage:**
+- Phase 1: Initial dependency audit
+- Phase 4: Pre-implementation dependency review
+- Weekly: Dependency update reviews
+- Daily: Automated vulnerability scans
+- Emergency: Compromised package response
+
+---
+
 ## Security Gates (MANDATORY)
 
 Phases cannot proceed without security approval:
@@ -350,3 +526,201 @@ Each agent should provide:
 ---
 
 **Questions?** Consult the security-engineer agent or refer to the security docs above.
+
+---
+
+## Red Team Analysis & Agent Group Improvements (2026-01-30)
+
+### Executive Summary
+
+A comprehensive red team analysis of the agent group structure identified **7 critical gaps** in the workflow. Six new agents have been implemented to address these gaps, strengthening the security posture, improving code quality, and enhancing operational excellence.
+
+### Gaps Identified
+
+#### 1. ❌ Missing Security-Engineer Agent File
+**Status:** ✅ FIXED
+- **Issue:** AGENTS.md extensively referenced a security-engineer agent, but no agent file existed
+- **Impact:** Security gates couldn't be enforced, no centralized security expertise
+- **Solution:** Created `.github/agents/security-engineer.agent.md` with comprehensive security responsibilities
+
+#### 2. ❌ No Adversarial Testing Agent
+**Status:** ✅ FIXED
+- **Issue:** No dedicated agent for red team activities and adversarial testing
+- **Impact:** Vulnerabilities discovered by defenders, not attackers; reactive security
+- **Solution:** Created `.github/agents/red-team.agent.md` for proactive attack simulation
+
+#### 3. ❌ Missing Performance Perspective
+**Status:** ✅ FIXED
+- **Issue:** No agent focused on optimization, scalability, and resource efficiency
+- **Impact:** Performance issues discovered in production; no performance budgets
+- **Solution:** Created `.github/agents/performance-engineer.agent.md` with profiling and optimization
+
+#### 4. ❌ No Accessibility Coverage
+**Status:** ✅ FIXED
+- **Issue:** No agent ensuring WCAG compliance and inclusive design
+- **Impact:** Potential accessibility violations; excluding users with disabilities
+- **Solution:** Created `.github/agents/accessibility-validator.agent.md` for WCAG 2.1 AA compliance
+
+#### 5. ❌ Documentation Maintenance Gap
+**Status:** ✅ FIXED
+- **Issue:** No agent responsible for keeping documentation synchronized with code
+- **Impact:** Outdated docs; poor developer experience; support burden
+- **Solution:** Created `.github/agents/documentation-writer.agent.md` for comprehensive docs
+
+#### 6. ❌ Dependency Management Blind Spot
+**Status:** ✅ FIXED
+- **Issue:** No agent monitoring dependencies for vulnerabilities and license compliance
+- **Impact:** Supply chain vulnerabilities; license violations; outdated packages
+- **Solution:** Created `.github/agents/dependency-manager.agent.md` for vulnerability monitoring
+
+#### 7. ⚠️ Incident Response Coordination Gap
+**Status:** 🟡 PARTIALLY ADDRESSED
+- **Issue:** No clear incident response coordination across agents
+- **Impact:** Delayed response to security incidents; unclear escalation paths
+- **Mitigation:** Security-engineer agent now has incident response leadership responsibility
+- **Recommendation:** Consider dedicated incident-response agent for large-scale incidents
+
+### New Agent Summary
+
+| Agent | Phase | Gate Authority | Key Responsibility |
+|-------|-------|----------------|-------------------|
+| **security-engineer** | Security | ✅ Yes | Threat modeling, security gates, pen testing |
+| **red-team** | Adversarial Testing | ❌ No | Attack simulation, exploit development |
+| **performance-engineer** | Optimization | ❌ No | Performance profiling, load testing |
+| **accessibility-validator** | Validation | ❌ No | WCAG compliance, screen reader testing |
+| **documentation-writer** | Documentation | ❌ No | Technical writing, doc maintenance |
+| **dependency-manager** | Maintenance | ❌ No | Vulnerability monitoring, license compliance |
+
+### Workflow Improvements
+
+#### Enhanced Security Depth
+- **Before:** Security handled by security-compliance agent (policy focus)
+- **After:** Multi-layered security with security-engineer (technical) + security-compliance (policy) + red-team (adversarial)
+- **Benefit:** Defense in depth with proactive vulnerability discovery
+
+#### Quality Assurance Expansion
+- **Before:** QA-validation focused on functional testing
+- **After:** QA + performance-engineer + accessibility-validator
+- **Benefit:** Comprehensive quality coverage (functionality + performance + accessibility)
+
+#### Operational Excellence
+- **Before:** No systematic dependency or documentation management
+- **After:** Dedicated agents for dependencies and documentation
+- **Benefit:** Reduced technical debt, better developer experience
+
+### Red Team Methodology
+
+The new red-team agent employs a structured attack methodology:
+
+1. **Reconnaissance:** Map attack surfaces
+2. **Vulnerability Scanning:** Automated tool runs (OWASP ZAP, SQLMap)
+3. **Manual Exploitation:** Custom payload crafting
+4. **Privilege Escalation:** Attempt to gain admin access
+5. **Impact Assessment:** Demonstrate business impact
+
+**Attack Coverage:**
+- 7 attack categories (Auth, Injection, Input Validation, Business Logic, Crypto, API, DoS)
+- 100+ attack variations
+- OWASP Top 10 comprehensive testing
+- Proof-of-concept exploit development
+
+### Continuous Improvement Recommendations
+
+#### Short Term (1-3 months)
+1. **Implement Automated Agent Coordination**
+   - Create agent orchestration workflow
+   - Define clear handoff protocols
+   - Automate agent triggering based on phase
+
+2. **Establish Performance Budgets**
+   - Set and enforce bundle size limits in CI
+   - Implement performance regression testing
+   - Create real user monitoring dashboard
+
+3. **Accessibility CI Integration**
+   - Add automated accessibility tests to CI/CD
+   - Implement axe-core in test suite
+   - Fail builds on critical a11y violations
+
+#### Medium Term (3-6 months)
+4. **Dependency Automation**
+   - Configure Dependabot/Renovate
+   - Auto-merge patch updates
+   - Weekly dependency review meetings
+
+5. **Documentation as Code**
+   - Generate API docs from code comments
+   - Implement doc linting in CI
+   - Track documentation coverage metrics
+
+6. **Red Team Exercises**
+   - Monthly mini penetration tests
+   - Quarterly comprehensive security audits
+   - Bug bounty program (if resources allow)
+
+#### Long Term (6-12 months)
+7. **Agent Metrics Dashboard**
+   - Track agent effectiveness metrics
+   - Measure time-to-remediation
+   - Identify workflow bottlenecks
+
+8. **External Validation**
+   - Third-party security audit
+   - External accessibility audit
+   - Performance benchmark comparison
+
+9. **AI-Assisted Agent Enhancement**
+   - Train agents on project-specific patterns
+   - Implement automated vulnerability detection
+   - Create smart agent recommendations
+
+### Success Metrics
+
+Track these metrics to measure agent effectiveness:
+
+**Security Metrics:**
+- Time to detect vulnerabilities (MTTD)
+- Time to remediate vulnerabilities (MTTR)
+- Number of vulnerabilities found in production (goal: 0)
+- Security gate blocking rate
+
+**Performance Metrics:**
+- Core Web Vitals scores (LCP, FID, CLS)
+- API p95 latency
+- Time to Interactive (TTI)
+- Performance regression count
+
+**Accessibility Metrics:**
+- WCAG compliance percentage
+- Accessibility violations by severity
+- Screen reader test pass rate
+- Keyboard navigation coverage
+
+**Operational Metrics:**
+- Dependency update frequency
+- Critical CVE response time
+- Documentation coverage percentage
+- Support ticket reduction (better docs)
+
+### Conclusion
+
+The agent group has been significantly strengthened with six new specialized agents. The workflow now provides comprehensive coverage across security (defense + offense), quality (functionality + performance + accessibility), and operations (dependencies + documentation).
+
+**Key Improvements:**
+- ✅ Defense in depth security (3 security-focused agents)
+- ✅ Proactive vulnerability discovery (red-team agent)
+- ✅ Performance optimization (performance-engineer agent)
+- ✅ Inclusive design (accessibility-validator agent)
+- ✅ Operational excellence (dependency-manager + documentation-writer)
+
+**Next Steps:**
+1. Integrate new agents into CI/CD pipeline
+2. Establish agent coordination protocols
+3. Train team on new agent capabilities
+4. Measure and iterate on agent effectiveness
+
+---
+
+**Last Updated:** 2026-01-30  
+**Review Frequency:** Quarterly  
+**Next Review:** 2026-04-30
