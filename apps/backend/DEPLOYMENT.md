@@ -156,10 +156,10 @@ The server will:
 
 ```bash
 # Health check
-curl http://localhost:3000/health
+curl http://localhost:3000/
 
 # Expected response:
-# {"status":"ok","timestamp":"2024-01-30T12:00:00.000Z"}
+# {"status":"ok","service":"bank-cc-sync"}
 
 # Test authentication endpoint
 curl -X POST http://localhost:3000/auth/register \
@@ -552,11 +552,11 @@ Before going live, verify:
 **Node.js/Docker:**
 ```bash
 # HTTP health check
-curl http://localhost:3000/health
+curl http://localhost:3000/
 
 # Docker health check (add to docker-compose.yml)
 healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+  test: ["CMD", "curl", "-f", "http://localhost:3000/"]
   interval: 30s
   timeout: 10s
   retries: 3
@@ -566,7 +566,7 @@ healthcheck:
 **Cloudflare Workers:**
 ```bash
 # Workers health check
-curl https://bank-cc-sync.<subdomain>.workers.dev/health
+curl https://bank-cc-sync.<subdomain>.workers.dev/
 
 # Monitor via Cloudflare Dashboard
 # Workers > bank-cc-sync > Metrics
