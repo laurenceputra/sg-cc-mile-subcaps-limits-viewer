@@ -8,7 +8,7 @@
  * 4. Enhanced constantTimeEqual with length-leak protection
  */
 
-import { constantTimeEqual } from './apps/backend/src/auth/jwt.js';
+import { constantTimeEqual } from '../../apps/backend/src/auth/jwt.js';
 
 console.log('🔒 Security Fixes Validation Tests\n');
 console.log('=' .repeat(60));
