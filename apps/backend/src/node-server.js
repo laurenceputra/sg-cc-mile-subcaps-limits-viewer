@@ -39,7 +39,7 @@ const db = new Database(sqliteDb);
 initCleanupSchedule(db);
 
 // Wrap Hono app with db context
-const server = serve({
+serve({
   fetch: (request) => {
     return app.fetch(request, {
       db,

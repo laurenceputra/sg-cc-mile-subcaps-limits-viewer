@@ -59,7 +59,6 @@ export function validateEnvironment(env, isProduction = false) {
   console.log('[Security] Validating environment configuration...');
   
   const errors = [];
-  const warnings = [];
   
   // Validate each required environment variable
   for (const varName of REQUIRED_ENV_VARS) {

@@ -2,8 +2,6 @@
  * Final Security Review Checklist
  */
 
-import { constantTimeEqual } from './apps/backend/src/auth/jwt.js';
-
 console.log('🔐 FINAL SECURITY REVIEW CHECKLIST\n');
 console.log('=' .repeat(70));
 

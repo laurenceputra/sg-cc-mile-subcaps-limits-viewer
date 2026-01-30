@@ -16,7 +16,7 @@ console.log('   ✅ PASS: Required APIs present');
 console.log('\n2. Base64 APIs:');
 try {
   const test = btoa('test');
-  const decoded = atob(test);
+  atob(test);
   console.log('   btoa/atob available: true');
   console.log('   ✅ PASS: Base64 APIs work');
 } catch (e) {

@@ -11,8 +11,7 @@ import {
   createTestEnv,
   randomEmail,
   hashPassword,
-  createTestUser,
-  wait
+  createTestUser
 } from '../test-setup.js';
 
 describe('Auth - Registration', () => {

@@ -124,7 +124,7 @@ export class SyncManager {
     }
 
     try {
-      const result = await this.syncClient.contributeMappings(mappings);
+      await this.syncClient.contributeMappings(mappings);
       return { success: true, contributed: mappings.length };
     } catch (error) {
       console.error('[SyncManager] Contribute mappings failed:', error);

@@ -240,7 +240,6 @@ describe('Sync - Put Data', () => {
     
     // Concurrent updates should not overwrite newer data
     const successCount = results.filter(r => r.status === 200).length;
-    const conflictCount = results.filter(r => r.status === 409).length;
 
     expect(successCount).toBeGreaterThanOrEqual(1);
 

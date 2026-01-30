@@ -10,8 +10,7 @@ import {
   cleanupTestDb, 
   createTestEnv,
   createTestUser,
-  hashPassword,
-  wait
+  hashPassword
 } from '../test-setup.js';
 
 describe('Security - CSRF Protection', () => {
