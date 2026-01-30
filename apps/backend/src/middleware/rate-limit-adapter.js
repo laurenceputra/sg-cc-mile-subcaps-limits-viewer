@@ -14,7 +14,7 @@ function setRateLimitHeaders(c, limit, remaining, retryAfterSeconds) {
 
 export function createRateLimiterAdapter(adapter) {
   const createRateLimiter = (limitType, config) => async (c, next) => {
-    const identifier = getClientIdentifier(c);
+    const identifier = await getClientIdentifier(c);
     const limit = config.maxAttempts || config.maxRequests;
     const result = await adapter.consume(limitType, config, identifier, c);
     const retryAfter = result.retryAfter || 0;
@@ -37,7 +37,7 @@ export function createRateLimiterAdapter(adapter) {
           return;
         }
 
-        const identifier = getClientIdentifier(c);
+        const identifier = await getClientIdentifier(c);
         const consumedPoints = await adapter.getConsumedPoints('login', rateLimitConfig.login, identifier);
 
         if (consumedPoints > 0) {

@@ -75,6 +75,7 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - Node uses `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
 - Workers use Cloudflare Rate Limiting bindings configured in `wrangler.toml`.
 - Workers limits are per-location; see `SECURITY.md` for Node vs Workers windows.
+- Rate limit keys are hashed with `JWT_SECRET` to avoid PII in keys.
 
 ### Auth
 - `POST /auth/register` - Create account

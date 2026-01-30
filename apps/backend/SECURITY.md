@@ -88,6 +88,10 @@ Login attempts include progressive delay (exponential backoff).
 ### Runtime differences
 - **Node:** `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
 - **Workers:** Cloudflare Rate Limiting bindings in `wrangler.toml` (periods are 10 or 60 seconds, per-location).
+- **Accepted divergence:** Workers limits are per-location and eventually consistent; Node limits are per-instance (or Redis-backed) with longer windows.
+
+### Rate limit keys
+- Raw identifiers (email/IP/user agent/path) are hashed with `JWT_SECRET` before use to avoid PII in storage.
 
 ## Audit Logging
 
