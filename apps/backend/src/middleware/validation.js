@@ -331,10 +331,6 @@ export function validateJsonMiddleware() {
         return next();
       }
 
-      if (method === 'POST' && !contentType) {
-        return next();
-      }
-
       const body = await c.req.json();
       
       // Check for excessive nesting (DoS prevention)
