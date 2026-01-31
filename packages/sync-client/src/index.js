@@ -1,7 +1,9 @@
-export { StorageAdapter } from './storage-adapter.js';
-export { ApiClient } from './api-client.js';
-export { SyncEngine } from './sync-engine.js';
-export { CryptoManager } from './crypto-manager.js';
+import { StorageAdapter } from './storage-adapter.js';
+import { ApiClient } from './api-client.js';
+import { SyncEngine } from './sync-engine.js';
+import { CryptoManager } from './crypto-manager.js';
+
+export { StorageAdapter, ApiClient, SyncEngine, CryptoManager };
 
 export class SyncClient {
   constructor(config) {

@@ -17,10 +17,431 @@
 (function () {
   'use strict';
 
+  class StorageAdapter {
+    constructor() {
+      this.useGM = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
+    }
+
+    get(key, fallback = null) {
+      try {
+        if (this.useGM) {
+          return GM_getValue(key, fallback);
+        }
+      } catch (error) {
+        console.error('[Storage] GM_getValue error:', error);
+      }
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? stored : fallback;
+    }
+
+    set(key, value) {
+      try {
+        if (this.useGM) {
+          GM_setValue(key, value);
+          return;
+        }
+      } catch (error) {
+        console.error('[Storage] GM_setValue error:', error);
+      }
+      window.localStorage.setItem(key, value);
+    }
+
+    remove(key) {
+      try {
+        if (this.useGM && typeof GM_deleteValue === 'function') {
+          GM_deleteValue(key);
+          return;
+        }
+      } catch (error) {
+        console.error('[Storage] GM_deleteValue error:', error);
+      }
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  class ApiClient {
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl;
+      this.token = null;
+    }
+
+    setToken(token) {
+      this.token = token;
+    }
+
+    async request(endpoint, options = {}) {
+      const url = `${this.baseUrl}${endpoint}`;
+      const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers
+      };
+
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+
+      const config = {
+        ...options,
+        headers
+      };
+
+      try {
+        const response = await fetch(url, config);
+        
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ message: response.statusText }));
+          throw new Error(error.message || `HTTP ${response.status}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        console.error('[ApiClient] Request failed:', error);
+        throw error;
+      }
+    }
+
+    async login(email, passwordHash) {
+      const response = await this.request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, passwordHash })
+      });
+      this.setToken(response.token);
+      return response;
+    }
+
+    async register(email, passwordHash, tier = 'free') {
+      const response = await this.request('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, passwordHash, tier })
+      });
+      this.setToken(response.token);
+      return response;
+    }
+
+    async getSyncData() {
+      return await this.request('/sync/data');
+    }
+
+    async putSyncData(encryptedData, version) {
+      return await this.request('/sync/data', {
+        method: 'PUT',
+        body: JSON.stringify({ encryptedData, version })
+      });
+    }
+
+    async getSharedMappings(cardType) {
+      return await this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
+    }
+
+    async contributeMappings(mappings) {
+      return await this.request('/shared/mappings/contribute', {
+        method: 'POST',
+        body: JSON.stringify({ mappings })
+      });
+    }
+
+    async deleteUserData() {
+      return await this.request('/user/data', {
+        method: 'DELETE'
+      });
+    }
+  }
+
   function generateDeviceId() {
     const randomBytes = crypto.getRandomValues(new Uint8Array(16));
     const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
     return `device-${Date.now()}-${randomPart}`;
+  }
+
+  /**
+   * Convert ArrayBuffer to Base64
+   * @param {ArrayBuffer} buffer - Buffer to convert
+   * @returns {string} - Base64 string
+   */
+  function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Convert Base64 to ArrayBuffer
+   * @param {string} base64 - Base64 string
+   * @returns {ArrayBuffer} - Array buffer
+   */
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  function validateSyncPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (typeof payload.version !== 'number' || payload.version < 0) return false;
+    if (typeof payload.deviceId !== 'string' || !payload.deviceId) return false;
+    if (typeof payload.timestamp !== 'number' || payload.timestamp <= 0) return false;
+    if (!payload.data || typeof payload.data !== 'object') return false;
+    if (!payload.data.cards || typeof payload.data.cards !== 'object') return false;
+    return true;
+  }
+
+  class SyncEngine {
+    constructor(apiClient, cryptoManager, storage) {
+      this.api = apiClient;
+      this.crypto = cryptoManager;
+      this.storage = storage;
+    }
+
+    async pull() {
+      try {
+        const response = await this.api.getSyncData();
+        
+        if (!response || !response.encryptedData) {
+          return { success: true, data: null, version: 0 };
+        }
+
+        const decrypted = await this.crypto.decrypt(
+          response.encryptedData.ciphertext,
+          response.encryptedData.iv,
+          response.encryptedData.salt
+        );
+
+        if (!validateSyncPayload(decrypted)) {
+          throw new Error('Invalid sync payload structure');
+        }
+
+        return {
+          success: true,
+          data: decrypted.data,
+          version: response.version,
+          timestamp: decrypted.timestamp
+        };
+      } catch (error) {
+        console.error('[SyncEngine] Pull failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    async push(data, version, deviceId) {
+      try {
+        const payload = {
+          version: version + 1,
+          deviceId: deviceId,
+          timestamp: Date.now(),
+          data: data
+        };
+
+        const encrypted = await this.crypto.encrypt(payload);
+
+        const response = await this.api.putSyncData(encrypted, payload.version);
+
+        return {
+          success: true,
+          version: response.version
+        };
+      } catch (error) {
+        console.error('[SyncEngine] Push failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    mergeCardSettings(local, remote) {
+      if (!remote) return local;
+      if (!local) return remote;
+
+      const merged = { ...local };
+
+      // Merge merchant maps (union, newer wins on conflicts)
+      merged.merchantMap = { ...local.merchantMap };
+      for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
+        merged.merchantMap[merchant] = category;
+      }
+
+      // Merge monthly totals
+      merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
+
+      // For selectedCategories and defaultCategory, use remote if present
+      if (remote.selectedCategories) {
+        merged.selectedCategories = remote.selectedCategories;
+      }
+      if (remote.defaultCategory) {
+        merged.defaultCategory = remote.defaultCategory;
+      }
+
+      return merged;
+    }
+
+    async sync(localData, currentVersion, deviceId) {
+      const pullResult = await this.pull();
+      
+      if (!pullResult.success) {
+        return pullResult;
+      }
+
+      let dataToSync = localData;
+
+      if (pullResult.data) {
+        // Merge remote changes into local
+        const mergedCards = {};
+        const allCardNames = new Set([
+          ...Object.keys(localData.cards || {}),
+          ...Object.keys(pullResult.data.cards || {})
+        ]);
+
+        for (const cardName of allCardNames) {
+          mergedCards[cardName] = this.mergeCardSettings(
+            localData.cards[cardName],
+            pullResult.data.cards[cardName]
+          );
+        }
+
+        dataToSync = { cards: mergedCards };
+      }
+
+      const pushResult = await this.push(dataToSync, pullResult.version, deviceId);
+
+      if (pushResult.success) {
+        return {
+          success: true,
+          data: dataToSync,
+          version: pushResult.version
+        };
+      }
+
+      return pushResult;
+    }
+  }
+
+  /**
+   * Derive encryption key from passphrase
+   * SECURITY: Uses PBKDF2 with 310,000 iterations (OWASP 2023 recommendation)
+   * to protect against brute-force attacks on encrypted data at rest.
+   * 
+   * @param {string} passphrase - User passphrase
+   * @param {Uint8Array} salt - Salt for key derivation (must be 16 bytes minimum)
+   * @param {number} iterations - PBKDF2 iterations (default: 310000)
+   * @returns {Promise<CryptoKey>} - Derived AES-256-GCM key
+   */
+  async function deriveKey(passphrase, salt, iterations = 310000) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(passphrase),
+      'PBKDF2',
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    return crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: iterations,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  /**
+   * Encrypt data with AES-GCM
+   * SECURITY: AES-GCM provides authenticated encryption, protecting against
+   * both confidentiality and integrity attacks. Uses 96-bit random IV per encryption.
+   * 
+   * @param {CryptoKey} key - Encryption key
+   * @param {any} data - Data to encrypt (will be JSON stringified)
+   * @returns {Promise<{ciphertext: string, iv: string}>} - Encrypted data with IV
+   */
+  async function encrypt(key, data) {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plaintext = enc.encode(JSON.stringify(data));
+
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      key,
+      plaintext
+    );
+
+    return {
+      ciphertext: arrayBufferToBase64(ciphertext),
+      iv: arrayBufferToBase64(iv)
+    };
+  }
+
+  /**
+   * Decrypt data with AES-GCM
+   * SECURITY: AES-GCM automatically verifies authentication tag, throwing on tampering.
+   * Timing of decryption failure is constant regardless of where tampering occurred.
+   * 
+   * @param {CryptoKey} key - Decryption key
+   * @param {string} ciphertext - Base64 encoded ciphertext
+   * @param {string} iv - Base64 encoded IV
+   * @returns {Promise<any>} - Decrypted data (JSON parsed)
+   * @throws {Error} - On authentication failure or decryption error
+   */
+  async function decrypt(key, ciphertext, iv) {
+    const dec = new TextDecoder();
+    const ciphertextBuffer = base64ToArrayBuffer(ciphertext);
+    const ivBuffer = base64ToArrayBuffer(iv);
+
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: ivBuffer },
+      key,
+      ciphertextBuffer
+    );
+
+    return JSON.parse(dec.decode(plaintext));
+  }
+
+  /**
+   * Generate cryptographically random salt
+   * SECURITY: Uses crypto.getRandomValues for CSPRNG output.
+   * 16 bytes (128 bits) is sufficient for PBKDF2 salt uniqueness.
+   * 
+   * @returns {Uint8Array} - 16-byte random salt
+   */
+  function generateSalt() {
+    return crypto.getRandomValues(new Uint8Array(16));
+  }
+
+  class CryptoManager {
+    constructor(passphrase, salt = null) {
+      this.passphrase = passphrase;
+      this.salt = salt || generateSalt();
+      this.key = null;
+    }
+
+    async init() {
+      this.key = await deriveKey(this.passphrase, this.salt);
+    }
+
+    async encrypt(data) {
+      if (!this.key) await this.init();
+      const encrypted = await encrypt(this.key, data);
+      return {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        salt: arrayBufferToBase64(this.salt)
+      };
+    }
+
+    async decrypt(ciphertext, iv, saltBase64) {
+      if (saltBase64) {
+        this.salt = base64ToArrayBuffer(saltBase64);
+      }
+      if (!this.key) await this.init();
+      return await decrypt(this.key, ciphertext, iv);
+    }
   }
 
   class SyncClient {
