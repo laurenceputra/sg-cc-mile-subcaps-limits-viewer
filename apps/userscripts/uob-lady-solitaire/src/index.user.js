@@ -1,7 +1,6 @@
 // Phase 3: Sync integration (imports added)
-// import { SyncManager } from './sync-manager.js';
-// import { createSyncTab } from './sync-ui.js';
-// Uncomment above and integrate in UI tabs section
+import { SyncManager } from './sync-manager.js';
+import { createSyncTab } from './sync-ui.js';
 
 (() => {
   'use strict';
@@ -12,8 +11,7 @@
   window.__ccSubcapInjected = true;
 
   // Phase 3: Initialize sync manager
-  // const syncManager = new SyncManager(storage);
-  
+  const syncManager = new SyncManager(storage);
 
   const URL_PREFIX = 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do';
   const STORAGE_KEY = 'ccSubcapSettings';
@@ -1150,6 +1148,100 @@
       cardSettings,
       onChange
     );
+
+    // Add manual wildcard pattern section
+    const wildcardDivider = document.createElement('div');
+    wildcardDivider.style.borderTop = `1px solid ${THEME.border}`;
+    wildcardDivider.style.margin = '12px 0';
+    container.appendChild(wildcardDivider);
+
+    const wildcardSection = document.createElement('div');
+    wildcardSection.style.marginTop = '12px';
+    
+    const wildcardTitle = document.createElement('div');
+    wildcardTitle.textContent = 'Add Wildcard Pattern';
+    wildcardTitle.style.fontWeight = '600';
+    wildcardTitle.style.color = THEME.accent;
+    wildcardTitle.style.marginBottom = '8px';
+    wildcardSection.appendChild(wildcardTitle);
+
+    const wildcardHelp = document.createElement('div');
+    wildcardHelp.textContent = 'Use * to match any characters. Example: STARBUCKS* matches all Starbucks merchants.';
+    wildcardHelp.style.fontSize = '12px';
+    wildcardHelp.style.color = THEME.muted;
+    wildcardHelp.style.marginBottom = '8px';
+    wildcardSection.appendChild(wildcardHelp);
+
+    const wildcardForm = document.createElement('div');
+    wildcardForm.style.display = 'grid';
+    wildcardForm.style.gridTemplateColumns = '2fr 1fr auto';
+    wildcardForm.style.gap = '8px';
+    wildcardForm.style.alignItems = 'center';
+
+    const patternInput = document.createElement('input');
+    patternInput.type = 'text';
+    patternInput.placeholder = 'e.g., STARBUCKS* or *GRAB*';
+    patternInput.style.padding = '6px 8px';
+    patternInput.style.borderRadius = '6px';
+    patternInput.style.border = `1px solid ${THEME.border}`;
+    patternInput.style.background = THEME.surface;
+    patternInput.style.color = THEME.text;
+
+    const categorySelect = document.createElement('select');
+    categorySelect.style.padding = '6px 8px';
+    categorySelect.style.borderRadius = '6px';
+    categorySelect.style.border = `1px solid ${THEME.border}`;
+    categorySelect.style.background = THEME.surface;
+    categorySelect.style.color = THEME.text;
+
+    const options = getMappingOptions(cardSettings, cardSettings.defaultCategory);
+    options.forEach((category) => {
+      const option = document.createElement('option');
+      option.value = category;
+      option.textContent = category;
+      categorySelect.appendChild(option);
+    });
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.textContent = 'Add';
+    addButton.style.padding = '6px 12px';
+    addButton.style.borderRadius = '6px';
+    addButton.style.border = `1px solid ${THEME.accent}`;
+    addButton.style.background = THEME.accent;
+    addButton.style.color = '#ffffff';
+    addButton.style.fontSize = '13px';
+    addButton.style.fontWeight = '600';
+    addButton.style.cursor = 'pointer';
+
+    addButton.addEventListener('click', () => {
+      const pattern = patternInput.value.trim();
+      const category = categorySelect.value;
+      
+      if (!pattern) {
+        alert('Please enter a pattern');
+        return;
+      }
+      
+      if (cardSettings.merchantMap && cardSettings.merchantMap[pattern]) {
+        if (!confirm(`Pattern "${pattern}" already exists. Overwrite?`)) {
+          return;
+        }
+      }
+      
+      onChange((nextSettings) => {
+        nextSettings.merchantMap[pattern] = category;
+      });
+      
+      patternInput.value = '';
+      alert(`Added pattern: ${pattern} → ${category}`);
+    });
+
+    wildcardForm.appendChild(patternInput);
+    wildcardForm.appendChild(categorySelect);
+    wildcardForm.appendChild(addButton);
+    wildcardSection.appendChild(wildcardForm);
+    container.appendChild(wildcardSection);
   }
 
   function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
@@ -1502,17 +1594,21 @@
   function switchTab(tab) {
     const manageContent = document.getElementById(UI_IDS.manageContent);
     const spendContent = document.getElementById(UI_IDS.spendContent);
+    const syncContent = document.getElementById(UI_IDS.syncContent);
     const tabManage = document.getElementById(UI_IDS.tabManage);
     const tabSpend = document.getElementById(UI_IDS.tabSpend);
+    const tabSync = document.getElementById(UI_IDS.tabSync);
 
-    if (!manageContent || !spendContent || !tabManage || !tabSpend) {
+    if (!manageContent || !spendContent || !syncContent || !tabManage || !tabSpend || !tabSync) {
       return;
     }
 
     const isManage = tab === 'manage';
     const isSpend = tab === 'spend';
+    const isSync = tab === 'sync';
     manageContent.style.display = isManage ? 'block' : 'none';
     spendContent.style.display = isSpend ? 'block' : 'none';
+    syncContent.style.display = isSync ? 'block' : 'none';
 
     const setTabState = (tabElement, isActive) => {
       tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
@@ -1523,6 +1619,7 @@
 
     setTabState(tabManage, isManage);
     setTabState(tabSpend, isSpend);
+    setTabState(tabSync, isSync);
   }
 
   function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
@@ -1616,8 +1713,21 @@
       tabSpend.style.cursor = 'pointer';
       tabSpend.addEventListener('click', () => switchTab('spend'));
 
+      const tabSync = document.createElement('button');
+      tabSync.id = UI_IDS.tabSync;
+      tabSync.type = 'button';
+      tabSync.textContent = 'Sync';
+      tabSync.style.border = `1px solid ${THEME.border}`;
+      tabSync.style.borderRadius = '999px';
+      tabSync.style.padding = '6px 12px';
+      tabSync.style.background = 'transparent';
+      tabSync.style.color = THEME.text;
+      tabSync.style.cursor = 'pointer';
+      tabSync.addEventListener('click', () => switchTab('sync'));
+
       tabs.appendChild(tabSpend);
       tabs.appendChild(tabManage);
+      tabs.appendChild(tabSync);
 
       const privacyNotice = document.createElement('div');
       privacyNotice.textContent =
@@ -1637,11 +1747,17 @@
       spendContent.style.display = 'none';
       spendContent.style.overflow = 'auto';
 
+      const syncContent = createSyncTab(syncManager, cardSettings, THEME);
+      syncContent.id = UI_IDS.syncContent;
+      syncContent.style.display = 'none';
+      syncContent.style.overflow = 'auto';
+
       panel.appendChild(header);
       panel.appendChild(tabs);
       panel.appendChild(privacyNotice);
       panel.appendChild(manageContent);
       panel.appendChild(spendContent);
+      panel.appendChild(syncContent);
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
     } else {
