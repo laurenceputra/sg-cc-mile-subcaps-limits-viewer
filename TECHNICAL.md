@@ -29,6 +29,34 @@
 
 If the portal markup changes, update these selectors in `main()`.
 
+## Category mapping with wildcard support
+
+The script allows you to assign merchants to categories manually. As of version 0.6.0, **wildcard matching** is supported for flexible merchant categorization:
+
+### How to use wildcards
+
+- Use `*` as a wildcard character to match any sequence of characters
+- Wildcards can appear at the beginning, middle, or end of a pattern
+- Matching is **case-insensitive**
+
+### Examples
+
+| Pattern | Matches | Does not match |
+|---------|---------|----------------|
+| `STARBUCKS*` | STARBUCKS SINGAPORE, STARBUCKS ORCHARD | MCDONALDS |
+| `*STARBUCKS` | SINGAPORE STARBUCKS, THE STARBUCKS | STARBUCKS DOWNTOWN |
+| `STARBUCKS*CAFE` | STARBUCKS SINGAPORE CAFE | STARBUCKS SINGAPORE |
+| `*GRAB*` | GRAB SINGAPORE, GRABTAXI, THE GRAB APP, MY GRAB RIDE | UBER, GOJEK |
+
+### Matching priority
+
+1. **Exact match** (case-sensitive) is checked first (for backward compatibility and performance)
+2. **Case-insensitive exact match** for non-wildcard patterns is checked second
+3. **Wildcard patterns** are checked if no exact match is found
+4. **Default category** is used if no match is found
+
+This allows you to create flexible rules like `GRAB*` to categorize all Grab-related merchants as "Transport" without having to add each variant individually.
+
 ## Diagnostics and data issues
 
 The UI includes a **Data issues** section when parsing problems occur:
