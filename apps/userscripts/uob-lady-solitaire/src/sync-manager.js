@@ -28,12 +28,15 @@ export class SyncManager {
     return this.config.enabled === true;
   }
 
-  async setupSync(email, passphrase, deviceName) {
+  async setupSync(email, passphrase, deviceName, serverUrl) {
     try {
       const deviceId = generateDeviceId();
       
+      // Use provided serverUrl or fall back to default
+      const actualServerUrl = serverUrl || SYNC_CONFIG.serverUrl;
+      
       this.syncClient = new SyncClient({
-        serverUrl: SYNC_CONFIG.serverUrl
+        serverUrl: actualServerUrl
       });
 
       await this.syncClient.init(passphrase);
@@ -60,7 +63,8 @@ export class SyncManager {
         token: authResult.token,
         tier: authResult.tier,
         shareMappings: authResult.tier === 'free', // Free users share by default
-        lastSync: 0
+        lastSync: 0,
+        serverUrl: actualServerUrl // Store custom server URL
       });
 
       this.syncClient.api.setToken(authResult.token);

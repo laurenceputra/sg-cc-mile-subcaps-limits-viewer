@@ -1,3 +1,5 @@
+import { SYNC_CONFIG } from './config.js';
+
 export function createSyncTab(syncManager, settings, THEME) {
   const container = document.createElement('div');
   container.id = 'cc-subcap-sync';
@@ -116,6 +118,11 @@ function showSyncSetupDialog(syncManager, THEME) {
       max-width: 500px; width: 90%; box-shadow: ${THEME.shadow};
     ">
       <h3 style="margin: 0 0 16px 0;">Setup Sync</h3>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Server URL</label>
+      <input id="sync-server-url" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
       <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
       <input id="sync-email" type="email" placeholder="your@email.com" style="
         width: 100%; padding: 12px; border: 1px solid ${THEME.border};
@@ -152,12 +159,13 @@ function showSyncSetupDialog(syncManager, THEME) {
   });
 
   overlay.querySelector('#sync-setup-save').addEventListener('click', async () => {
+    const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
     const email = overlay.querySelector('#sync-email').value;
     const passphrase = overlay.querySelector('#sync-passphrase').value;
     const deviceName = overlay.querySelector('#sync-device').value;
     const statusDiv = overlay.querySelector('#sync-setup-status');
 
-    if (!email || !passphrase || !deviceName) {
+    if (!serverUrl || !email || !passphrase || !deviceName) {
       statusDiv.style.display = 'block';
       statusDiv.style.background = THEME.warningSoft;
       statusDiv.style.color = THEME.warning;
@@ -174,7 +182,7 @@ function showSyncSetupDialog(syncManager, THEME) {
     statusDiv.style.borderRadius = '8px';
     statusDiv.textContent = 'Setting up sync...';
 
-    const result = await syncManager.setupSync(email, passphrase, deviceName);
+    const result = await syncManager.setupSync(email, passphrase, deviceName, serverUrl);
 
     if (result.success) {
       statusDiv.style.background = '#d1fae5';
