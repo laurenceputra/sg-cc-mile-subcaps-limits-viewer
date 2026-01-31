@@ -871,9 +871,6 @@
     }
     window.__ccSubcapInjected = true;
 
-    // Phase 3: Initialize sync manager
-    const syncManager = new SyncManager(storage);
-
     const URL_PREFIX = 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do';
     const STORAGE_KEY = 'ccSubcapSettings';
     const TARGET_CARD_NAME = "LADY'S SOLITAIRE CARD";
@@ -953,6 +950,9 @@
         window.localStorage.setItem(key, value);
       }
     };
+
+    // Phase 3: Initialize sync manager
+    const syncManager = new SyncManager(storage);
 
     function loadSettings() {
       const raw = storage.get(STORAGE_KEY, '{}');
