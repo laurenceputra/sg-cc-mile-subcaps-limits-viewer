@@ -2,6 +2,14 @@
 
 Tampermonkey userscript that summarizes UOB Lady's Solitaire credit card spend, tracks subcap categories, and keeps all data local to your browser.
 
+## Features
+
+- **Spend tracking**: Extract and categorize credit card transactions
+- **Subcap management**: Track spending across multiple category slots
+- **Wildcard matching**: Use patterns like `STARBUCKS*` to automatically categorize merchants
+- **Local-first**: All data stored in your browser
+- **Optional sync**: End-to-end encrypted sync available (currently disabled)
+
 ## Quick install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/).

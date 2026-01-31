@@ -430,13 +430,48 @@
     return options;
   }
 
+  /**
+   * Checks if a merchant name matches a pattern with wildcard support.
+   * Supports '*' as a wildcard character that matches any sequence of characters.
+   * @param {string} merchantName - The merchant name to match
+   * @param {string} pattern - The pattern to match against (may contain wildcards)
+   * @returns {boolean} True if the merchant name matches the pattern
+   */
+  function matchesWildcard(merchantName, pattern) {
+    // If no wildcard, do exact match
+    if (!pattern.includes('*')) {
+      return merchantName === pattern;
+    }
+    
+    // Convert wildcard pattern to regex
+    // Escape special regex characters except *
+    const escapedPattern = pattern
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*');
+    
+    const regex = new RegExp('^' + escapedPattern + '$', 'i'); // case-insensitive
+    return regex.test(merchantName);
+  }
+
   function resolveCategory(merchantName, cardSettings) {
     if (!merchantName) {
       return cardSettings.defaultCategory || 'Others';
     }
-    if (cardSettings.merchantMap && cardSettings.merchantMap[merchantName]) {
-      return cardSettings.merchantMap[merchantName];
+    
+    if (cardSettings.merchantMap) {
+      // First try exact match for backward compatibility and performance
+      if (cardSettings.merchantMap[merchantName]) {
+        return cardSettings.merchantMap[merchantName];
+      }
+      
+      // Then try wildcard matching
+      for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
+        if (pattern.includes('*') && matchesWildcard(merchantName, pattern)) {
+          return category;
+        }
+      }
     }
+    
     return cardSettings.defaultCategory || 'Others';
   }
 
