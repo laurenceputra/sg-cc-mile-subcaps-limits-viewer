@@ -497,6 +497,12 @@
       accentShadow: '0 18px 32px rgba(37, 99, 235, 0.28)',
       warning: '#b45309',
       warningSoft: '#fef3c7',
+      error: '#ef4444',
+      errorSoft: '#fee2e2',
+      errorText: '#991b1b',
+      success: '#166534',
+      successSoft: '#dcfce7',
+      successBorder: '#86efac',
       overlay: 'rgba(15, 23, 42, 0.25)',
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
@@ -1666,9 +1672,9 @@
       const showStatus = (message, isSuccess) => {
         statusMessage.textContent = message;
         statusMessage.style.display = 'block';
-        statusMessage.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
-        statusMessage.style.color = isSuccess ? '#166534' : '#991b1b';
-        statusMessage.style.border = `1px solid ${isSuccess ? '#86efac' : '#fca5a5'}`;
+        statusMessage.style.background = isSuccess ? THEME.successSoft : THEME.errorSoft;
+        statusMessage.style.color = isSuccess ? THEME.success : THEME.errorText;
+        statusMessage.style.border = `1px solid ${isSuccess ? THEME.successBorder : '#fca5a5'}`;
         setTimeout(() => {
           statusMessage.style.display = 'none';
         }, 3000);
@@ -1679,7 +1685,7 @@
         const category = categorySelect.value;
         
         if (!pattern) {
-          patternInput.style.borderColor = '#ef4444';
+          patternInput.style.borderColor = THEME.error;
           showStatus('Please enter a pattern', false);
           return;
         }
