@@ -67,6 +67,47 @@ import { createSyncTab } from './sync-ui.js';
 
   const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen the panel through the button.';
 
+  // Helper constants for warnings
+  const CATEGORY_THRESHOLDS = { critical: 750, warning: 700 };
+
+  // Helper functions
+  function applyStyles(element, styles) {
+    Object.entries(styles).forEach(([key, value]) => {
+      element.style[key] = value;
+    });
+  }
+
+  function getWarningSeverity(value) {
+    if (value >= CATEGORY_THRESHOLDS.critical) return 'critical';
+    if (value >= CATEGORY_THRESHOLDS.warning) return 'warning';
+    return 'normal';
+  }
+
+  function createStyledPill(text, severity = 'normal') {
+    const severityStyles = {
+      critical: { background: '#fee2e2', border: '1px solid #dc2626', color: '#991b1b', fontWeight: '700' },
+      warning: { background: THEME.warningSoft, border: `1px solid ${THEME.warning}`, color: THEME.warning, fontWeight: '600' },
+      normal: { background: THEME.surface, border: `1px solid ${THEME.border}`, color: THEME.muted, fontWeight: '500' }
+    };
+    
+    const pill = document.createElement('div');
+    const baseStyles = {
+      padding: '4px 8px',
+      borderRadius: '999px',
+      fontSize: '12px',
+      display: 'inline-block'
+    };
+    
+    applyStyles(pill, { ...baseStyles, ...severityStyles[severity] });
+    pill.textContent = text;
+    return pill;
+  }
+
+  function getParsedDate(entry) {
+    if (!entry) return null;
+    return fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+  }
+
   const storage = {
     get(key, fallback) {
       try {
@@ -609,7 +650,7 @@ import { createSyncTab } from './sync-ui.js';
 
     Object.keys(cardSettings.transactions || {}).forEach((refNo) => {
       const entry = cardSettings.transactions[refNo];
-      const parsedDate = fromISODate(entry?.posting_date_iso) || parsePostingDate(entry?.posting_date);
+      const parsedDate = getParsedDate(entry);
       if (parsedDate && isWithinCutoff(parsedDate, cutoff)) {
         nextStored[refNo] = entry;
       }
@@ -619,7 +660,7 @@ import { createSyncTab } from './sync-ui.js';
       if (!tx.ref_no) {
         return;
       }
-      const parsedDate = fromISODate(tx.posting_date_iso) || parsePostingDate(tx.posting_date);
+      const parsedDate = getParsedDate(tx);
       if (!parsedDate || !isWithinCutoff(parsedDate, cutoff)) {
         return;
       }
@@ -654,8 +695,7 @@ import { createSyncTab } from './sync-ui.js';
       }
 
       const merchantDetail = normalizeText(entry.merchant_detail || '');
-      const parsedDate =
-        fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+      const parsedDate = getParsedDate(entry);
       const postingDateIso = entry.posting_date_iso || (parsedDate ? toISODate(parsedDate) : '');
       const amountValue =
         typeof entry.amount_value === 'number'
@@ -1545,29 +1585,13 @@ import { createSyncTab } from './sync-ui.js';
       
       categoryOrder.forEach((category) => {
         const value = monthData.totals?.[category] || 0;
-        const pill = document.createElement('div');
-        pill.textContent = `${category} ${value.toFixed(2)}`;
-        pill.style.padding = '4px 8px';
-        pill.style.borderRadius = '999px';
-        pill.style.fontSize = '12px';
+        const severity = getWarningSeverity(value);
+        const pill = createStyledPill(`${category} ${value.toFixed(2)}`, severity);
         
-        // Apply warning styling based on thresholds
-        if (value >= 750) {
-          pill.style.background = '#fee2e2';
-          pill.style.border = '1px solid #dc2626';
-          pill.style.color = '#991b1b';
-          pill.style.fontWeight = '700';
+        if (severity === 'critical') {
           warnings.push({ category, value, level: 'critical' });
-        } else if (value >= 700) {
-          pill.style.background = THEME.warningSoft;
-          pill.style.border = `1px solid ${THEME.warning}`;
-          pill.style.color = THEME.warning;
-          pill.style.fontWeight = '600';
+        } else if (severity === 'warning') {
           warnings.push({ category, value, level: 'warning' });
-        } else {
-          pill.style.background = THEME.surface;
-          pill.style.border = `1px solid ${THEME.border}`;
-          pill.style.color = THEME.muted;
         }
         
         headerRight.appendChild(pill);
@@ -1590,8 +1614,8 @@ import { createSyncTab } from './sync-ui.js';
           return;
         }
         const sortedTransactions = group.transactions.slice().sort((a, b) => {
-          const dateA = fromISODate(a.posting_date_iso) || parsePostingDate(a.posting_date);
-          const dateB = fromISODate(b.posting_date_iso) || parsePostingDate(b.posting_date);
+          const dateA = getParsedDate(a);
+          const dateB = getParsedDate(b);
           const timeA = dateA ? dateA.getTime() : 0;
           const timeB = dateB ? dateB.getTime() : 0;
           if (timeA !== timeB) {
