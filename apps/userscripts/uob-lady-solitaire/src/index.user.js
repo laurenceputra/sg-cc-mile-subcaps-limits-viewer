@@ -65,6 +65,8 @@ import { createSyncTab } from './sync-ui.js';
     shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
   };
 
+  const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+
   const storage = {
     get(key, fallback) {
       try {
@@ -1290,6 +1292,15 @@ import { createSyncTab } from './sync-ui.js';
     container.style.flexDirection = 'column';
     container.style.gap = '12px';
 
+    const notice = document.createElement('div');
+    notice.style.background = THEME.warningSoft;
+    notice.style.border = `1px solid ${THEME.warning}`;
+    notice.style.borderRadius = '8px';
+    notice.style.padding = '12px';
+    notice.style.fontSize = '12px';
+    notice.style.color = THEME.warning;
+    notice.innerHTML = TRANSACTION_LOADING_NOTICE;
+
     const selectorsSection = document.createElement('div');
     selectorsSection.style.display = 'flex';
     selectorsSection.style.flexDirection = 'column';
@@ -1323,6 +1334,7 @@ import { createSyncTab } from './sync-ui.js';
       onChange
     );
 
+    container.appendChild(notice);
     container.appendChild(selectorsSection);
     container.appendChild(summarySection);
     container.appendChild(mappingSection);
@@ -1343,8 +1355,19 @@ import { createSyncTab } from './sync-ui.js';
     subtitle.style.opacity = '0.7';
     subtitle.style.fontSize = '12px';
 
+    const notice = document.createElement('div');
+    notice.style.background = THEME.warningSoft;
+    notice.style.border = `1px solid ${THEME.warning}`;
+    notice.style.borderRadius = '8px';
+    notice.style.padding = '12px';
+    notice.style.fontSize = '12px';
+    notice.style.color = THEME.warning;
+    notice.style.marginTop = '8px';
+    notice.innerHTML = TRANSACTION_LOADING_NOTICE;
+
     container.appendChild(title);
     container.appendChild(subtitle);
+    container.appendChild(notice);
 
     const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
     const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));

@@ -18,8 +18,8 @@ export function createSyncTab(syncManager, settings, THEME) {
       <div style="background: ${THEME.accentSoft}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: ${THEME.accentText}">Privacy First:</strong>
         <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
-          <li>All data encrypted before leaving your browser</li>
-          <li>Only settings and merchant mappings are synced</li>
+          <li>Settings are encrypted before leaving your browser</li>
+          <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
           <li>Raw transactions stay local</li>
         </ul>
       </div>

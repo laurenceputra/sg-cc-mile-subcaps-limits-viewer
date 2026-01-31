@@ -715,8 +715,8 @@
       <div style="background: ${THEME.accentSoft}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: ${THEME.accentText}">Privacy First:</strong>
         <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
-          <li>All data encrypted before leaving your browser</li>
-          <li>Only settings and merchant mappings are synced</li>
+          <li>Settings are encrypted before leaving your browser</li>
+          <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
           <li>Raw transactions stay local</li>
         </ul>
       </div>
@@ -971,6 +971,8 @@
       overlay: 'rgba(15, 23, 42, 0.25)',
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
+
+    const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
 
     const storage = {
       get(key, fallback) {
@@ -2197,6 +2199,15 @@
       container.style.flexDirection = 'column';
       container.style.gap = '12px';
 
+      const notice = document.createElement('div');
+      notice.style.background = THEME.warningSoft;
+      notice.style.border = `1px solid ${THEME.warning}`;
+      notice.style.borderRadius = '8px';
+      notice.style.padding = '12px';
+      notice.style.fontSize = '12px';
+      notice.style.color = THEME.warning;
+      notice.innerHTML = TRANSACTION_LOADING_NOTICE;
+
       const selectorsSection = document.createElement('div');
       selectorsSection.style.display = 'flex';
       selectorsSection.style.flexDirection = 'column';
@@ -2230,6 +2241,7 @@
         onChange
       );
 
+      container.appendChild(notice);
       container.appendChild(selectorsSection);
       container.appendChild(summarySection);
       container.appendChild(mappingSection);
@@ -2250,8 +2262,19 @@
       subtitle.style.opacity = '0.7';
       subtitle.style.fontSize = '12px';
 
+      const notice = document.createElement('div');
+      notice.style.background = THEME.warningSoft;
+      notice.style.border = `1px solid ${THEME.warning}`;
+      notice.style.borderRadius = '8px';
+      notice.style.padding = '12px';
+      notice.style.fontSize = '12px';
+      notice.style.color = THEME.warning;
+      notice.style.marginTop = '8px';
+      notice.innerHTML = TRANSACTION_LOADING_NOTICE;
+
       container.appendChild(title);
       container.appendChild(subtitle);
+      container.appendChild(notice);
 
       const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
       const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));
