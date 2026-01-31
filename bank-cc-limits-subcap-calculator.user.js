@@ -525,6 +525,16 @@
         // Use provided serverUrl or fall back to default
         const actualServerUrl = serverUrl || SYNC_CONFIG.serverUrl;
         
+        // Validate server URL
+        try {
+          const url = new URL(actualServerUrl);
+          if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+            throw new Error('Server URL must use HTTP or HTTPS protocol');
+          }
+        } catch (error) {
+          throw new Error(`Invalid server URL: ${error.message}`);
+        }
+        
         this.syncClient = new SyncClient({
           serverUrl: actualServerUrl
         });
@@ -847,6 +857,22 @@
         statusDiv.style.padding = '12px';
         statusDiv.style.borderRadius = '8px';
         statusDiv.textContent = 'All fields are required';
+        return;
+      }
+
+      // Validate server URL
+      try {
+        const url = new URL(serverUrl);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+          throw new Error('Server URL must use HTTP or HTTPS protocol');
+        }
+      } catch (error) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = THEME.warningSoft;
+        statusDiv.style.color = THEME.warning;
+        statusDiv.style.padding = '12px';
+        statusDiv.style.borderRadius = '8px';
+        statusDiv.textContent = 'Invalid server URL. Please enter a valid URL (e.g., https://your-server.com)';
         return;
       }
 

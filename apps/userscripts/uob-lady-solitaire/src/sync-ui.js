@@ -175,6 +175,22 @@ function showSyncSetupDialog(syncManager, THEME) {
       return;
     }
 
+    // Validate server URL
+    try {
+      const url = new URL(serverUrl);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        throw new Error('Server URL must use HTTP or HTTPS protocol');
+      }
+    } catch (error) {
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = THEME.warningSoft;
+      statusDiv.style.color = THEME.warning;
+      statusDiv.style.padding = '12px';
+      statusDiv.style.borderRadius = '8px';
+      statusDiv.textContent = 'Invalid server URL. Please enter a valid URL (e.g., https://your-server.com)';
+      return;
+    }
+
     statusDiv.style.display = 'block';
     statusDiv.style.background = THEME.accentSoft;
     statusDiv.style.color = THEME.accentText;
