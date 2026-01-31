@@ -65,7 +65,7 @@ import { createSyncTab } from './sync-ui.js';
     shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
   };
 
-  const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+  const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen this view using the button on the bottom right.';
 
   const storage = {
     get(key, fallback) {
