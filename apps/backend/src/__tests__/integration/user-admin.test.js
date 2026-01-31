@@ -21,7 +21,7 @@ describe('User - Data Management', () => {
 
   beforeEach(async () => {
     db = createTestDb();
-    env = createTestEnv();
+    env = createTestEnv({ JWT_SECRET: 'test-secret-key-for-testing-only' });
     testUser = await createTestUser(db);
     
     const req = new Request('http://localhost/auth/login', {
