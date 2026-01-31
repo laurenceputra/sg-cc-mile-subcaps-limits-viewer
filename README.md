@@ -25,11 +25,19 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 ## Documentation
 
+**Getting Started:**
+- **User flows and capabilities**: [USER_FLOWS.md](USER_FLOWS.md) - Complete guide to all features
+- **Visual flow diagrams**: [USER_FLOW_DIAGRAMS.md](USER_FLOW_DIAGRAMS.md) - Illustrated workflows
+
+**Technical References:**
 - Userscript technical reference: [TECHNICAL.md](TECHNICAL.md)
 - Sync integration notes: [apps/userscripts/uob-lady-solitaire/README.md](apps/userscripts/uob-lady-solitaire/README.md)
+- Backend deployment: [apps/backend/README.md](apps/backend/README.md)
+
+**Security & Development:**
 - Security-first workflow: [AGENTS.md](AGENTS.md)
-- Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 - Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
+- Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 
 ## Disclaimer
 
