@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { Database as DbWrapper } from './apps/backend/src/storage/db.js';
+import { Database as DbWrapper } from '../../apps/backend/src/storage/db.js';
 
 console.log('🗄️  Testing SQL Atomic Operation\n');
 

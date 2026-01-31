@@ -41,6 +41,9 @@ export async function getClientIdentifier(c) {
     identifier = `ip:${ip}`;
   }
 
-  const secret = c.env?.JWT_SECRET || 'dev-secret';
+  const secret = c.env?.JWT_SECRET;
+  if (typeof secret !== 'string' || !secret.trim()) {
+    throw new Error('JWT_SECRET is required for rate limiting');
+  }
   return hashIdentifier(secret, identifier);
 }

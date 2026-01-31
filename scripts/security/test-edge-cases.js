@@ -2,7 +2,7 @@
  * Additional Edge Case Security Tests
  */
 
-import { constantTimeEqual } from './apps/backend/src/auth/jwt.js';
+import { constantTimeEqual } from '../../apps/backend/src/auth/jwt.js';
 
 console.log('🔬 Deep Security Analysis - Edge Cases\n');
 

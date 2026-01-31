@@ -2,7 +2,7 @@
  * Test compatibility with different JavaScript environments
  */
 
-import { constantTimeEqual } from './apps/backend/src/auth/jwt.js';
+import { constantTimeEqual } from '../../apps/backend/src/auth/jwt.js';
 
 console.log('🌐 Environment Compatibility Tests\n');
 
