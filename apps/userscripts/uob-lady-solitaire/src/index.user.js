@@ -60,6 +60,7 @@ import { createSyncTab } from './sync-ui.js';
     error: '#ef4444',
     errorSoft: '#fee2e2',
     errorText: '#991b1b',
+    errorBorder: '#fca5a5',
     success: '#166534',
     successSoft: '#dcfce7',
     successBorder: '#86efac',
@@ -1234,7 +1235,7 @@ import { createSyncTab } from './sync-ui.js';
       statusMessage.style.display = 'block';
       statusMessage.style.background = isSuccess ? THEME.successSoft : THEME.errorSoft;
       statusMessage.style.color = isSuccess ? THEME.success : THEME.errorText;
-      statusMessage.style.border = `1px solid ${isSuccess ? THEME.successBorder : '#fca5a5'}`;
+      statusMessage.style.border = `1px solid ${isSuccess ? THEME.successBorder : THEME.errorBorder}`;
       setTimeout(() => {
         statusMessage.style.display = 'none';
       }, 3000);
