@@ -1654,32 +1654,65 @@
       addButton.style.fontWeight = '600';
       addButton.style.cursor = 'pointer';
 
+      // Status message element
+      const statusMessage = document.createElement('div');
+      statusMessage.style.gridColumn = '1 / -1';
+      statusMessage.style.fontSize = '12px';
+      statusMessage.style.padding = '6px 8px';
+      statusMessage.style.borderRadius = '6px';
+      statusMessage.style.display = 'none';
+      statusMessage.style.marginTop = '4px';
+
+      const showStatus = (message, isSuccess) => {
+        statusMessage.textContent = message;
+        statusMessage.style.display = 'block';
+        statusMessage.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
+        statusMessage.style.color = isSuccess ? '#166534' : '#991b1b';
+        statusMessage.style.border = `1px solid ${isSuccess ? '#86efac' : '#fca5a5'}`;
+        setTimeout(() => {
+          statusMessage.style.display = 'none';
+        }, 3000);
+      };
+
       addButton.addEventListener('click', () => {
         const pattern = patternInput.value.trim();
         const category = categorySelect.value;
         
         if (!pattern) {
-          alert('Please enter a pattern');
+          patternInput.style.borderColor = '#ef4444';
+          showStatus('Please enter a pattern', false);
           return;
         }
         
-        if (cardSettings.merchantMap && cardSettings.merchantMap[pattern]) {
+        // Reset border color
+        patternInput.style.borderColor = THEME.border;
+        
+        // Initialize merchantMap if it doesn't exist
+        if (!cardSettings.merchantMap) {
+          cardSettings.merchantMap = {};
+        }
+        
+        if (cardSettings.merchantMap[pattern]) {
           if (!confirm(`Pattern "${pattern}" already exists. Overwrite?`)) {
             return;
           }
         }
         
         onChange((nextSettings) => {
+          if (!nextSettings.merchantMap) {
+            nextSettings.merchantMap = {};
+          }
           nextSettings.merchantMap[pattern] = category;
         });
         
         patternInput.value = '';
-        alert(`Added pattern: ${pattern} → ${category}`);
+        showStatus(`✓ Added: ${pattern} → ${category}`, true);
       });
 
       wildcardForm.appendChild(patternInput);
       wildcardForm.appendChild(categorySelect);
       wildcardForm.appendChild(addButton);
+      wildcardForm.appendChild(statusMessage);
       wildcardSection.appendChild(wildcardForm);
       container.appendChild(wildcardSection);
     }
