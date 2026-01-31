@@ -972,7 +972,7 @@
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
 
-    const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+    const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen the panel through the button.';
 
     const storage = {
       get(key, fallback) {
@@ -2078,11 +2078,83 @@
       wildcardForm.appendChild(addButton);
       wildcardForm.appendChild(statusMessage);
       wildcardSection.appendChild(wildcardForm);
+      
+      // Show existing wildcard patterns
+      const wildcardPatterns = Object.entries(cardSettings.merchantMap || {})
+        .filter(([pattern]) => pattern.includes('*'))
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      
+      if (wildcardPatterns.length > 0) {
+        const existingTitle = document.createElement('div');
+        existingTitle.textContent = 'Existing Wildcard Patterns';
+        existingTitle.style.fontWeight = '600';
+        existingTitle.style.color = THEME.accent;
+        existingTitle.style.marginTop = '12px';
+        existingTitle.style.marginBottom = '8px';
+        wildcardSection.appendChild(existingTitle);
+        
+        const patternList = document.createElement('div');
+        patternList.style.display = 'flex';
+        patternList.style.flexDirection = 'column';
+        patternList.style.gap = '6px';
+        
+        wildcardPatterns.forEach(([pattern, category]) => {
+          const patternRow = document.createElement('div');
+          patternRow.style.display = 'grid';
+          patternRow.style.gridTemplateColumns = '2fr 1fr auto';
+          patternRow.style.gap = '8px';
+          patternRow.style.alignItems = 'center';
+          patternRow.style.padding = '6px';
+          patternRow.style.background = THEME.surface;
+          patternRow.style.borderRadius = '6px';
+          patternRow.style.border = `1px solid ${THEME.border}`;
+          
+          const patternLabel = document.createElement('div');
+          patternLabel.textContent = pattern;
+          patternLabel.style.wordBreak = 'break-word';
+          patternLabel.style.fontFamily = 'monospace';
+          
+          const categoryLabel = document.createElement('div');
+          categoryLabel.textContent = category;
+          categoryLabel.style.color = THEME.muted;
+          
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.textContent = 'Delete';
+          deleteButton.style.padding = '4px 8px';
+          deleteButton.style.borderRadius = '4px';
+          deleteButton.style.border = `1px solid ${THEME.errorBorder}`;
+          deleteButton.style.background = THEME.errorSoft;
+          deleteButton.style.color = THEME.errorText;
+          deleteButton.style.fontSize = '12px';
+          deleteButton.style.fontWeight = '600';
+          deleteButton.style.cursor = 'pointer';
+          
+          deleteButton.addEventListener('click', () => {
+            if (!confirm(`Delete pattern "${pattern}"?`)) {
+              return;
+            }
+            onChange((nextSettings) => {
+              if (nextSettings.merchantMap && nextSettings.merchantMap[pattern]) {
+                delete nextSettings.merchantMap[pattern];
+              }
+            });
+          });
+          
+          patternRow.appendChild(patternLabel);
+          patternRow.appendChild(categoryLabel);
+          patternRow.appendChild(deleteButton);
+          patternList.appendChild(patternRow);
+        });
+        
+        wildcardSection.appendChild(patternList);
+      }
+      
       container.appendChild(wildcardSection);
 
       const wildcardDivider = document.createElement('div');
       wildcardDivider.style.borderTop = `1px solid ${THEME.border}`;
-      wildcardDivider.style.margin = '12px 0';
+      wildcardDivider.style.margin = '20px 0';
       container.appendChild(wildcardDivider);
 
       // Add title and mass categorization button
@@ -2181,7 +2253,7 @@
 
       const divider = document.createElement('div');
       divider.style.borderTop = `1px solid ${THEME.border}`;
-      divider.style.margin = '12px 0';
+      divider.style.margin = '20px 0';
       container.appendChild(divider);
 
       renderMerchantSection(
@@ -2561,6 +2633,8 @@
       });
     }
 
+    let currentTab = 'spend';
+
     function switchTab(tab) {
       const manageContent = document.getElementById(UI_IDS.manageContent);
       const spendContent = document.getElementById(UI_IDS.spendContent);
@@ -2573,6 +2647,7 @@
         return;
       }
 
+      currentTab = tab;
       const isManage = tab === 'manage';
       const isSpend = tab === 'spend';
       const isSync = tab === 'sync';
@@ -2752,7 +2827,7 @@
       if (shouldShow || wasVisible) {
         overlay.style.display = 'flex';
       }
-      switchTab('spend');
+      switchTab(currentTab);
     }
 
     async function main() {
