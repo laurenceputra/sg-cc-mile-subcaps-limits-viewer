@@ -195,18 +195,19 @@
     if (!url || typeof url !== 'string') {
       throw new Error('Server URL is required');
     }
+    
+    let parsed;
     try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-        throw new Error('Server URL must use HTTP or HTTPS protocol');
-      }
+      parsed = new URL(url);
     } catch (error) {
-      // Re-throw protocol errors as-is
-      if (error.message.includes('HTTP')) {
-        throw error;
-      }
-      // For URL parsing errors, provide clearer message
+      // URL constructor failed - invalid URL format
       throw new Error('Invalid URL format');
+    }
+    
+    // Check protocol separately after successful parsing
+    const allowedProtocols = ['http:', 'https:'];
+    if (!allowedProtocols.includes(parsed.protocol)) {
+      throw new Error('Server URL must use HTTP or HTTPS protocol');
     }
   }
 
