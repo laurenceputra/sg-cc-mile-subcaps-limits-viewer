@@ -480,10 +480,10 @@
           return cardSettings.merchantMap[merchantName];
         }
         
-        // Then try wildcard matching
+        // Then try wildcard matching (only check patterns with wildcards)
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
           if (pattern.includes('*') && matchesWildcard(merchantName, pattern)) {
-            return category;
+            return category; // Return immediately on first match
           }
         }
       }
