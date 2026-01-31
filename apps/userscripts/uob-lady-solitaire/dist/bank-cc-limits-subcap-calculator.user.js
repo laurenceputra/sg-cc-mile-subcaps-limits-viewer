@@ -972,6 +972,8 @@
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
 
+    const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+
     const storage = {
       get(key, fallback) {
         try {
@@ -2204,7 +2206,7 @@
       notice.style.padding = '12px';
       notice.style.fontSize = '12px';
       notice.style.color = THEME.warning;
-      notice.innerHTML = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+      notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       const selectorsSection = document.createElement('div');
       selectorsSection.style.display = 'flex';
@@ -2268,7 +2270,7 @@
       notice.style.fontSize = '12px';
       notice.style.color = THEME.warning;
       notice.style.marginTop = '8px';
-      notice.innerHTML = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+      notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       container.appendChild(title);
       container.appendChild(subtitle);
