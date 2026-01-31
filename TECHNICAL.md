@@ -50,9 +50,10 @@ The script allows you to assign merchants to categories manually. As of version 
 
 ### Matching priority
 
-1. **Exact match** is checked first (for backward compatibility and performance)
-2. **Wildcard patterns** are checked if no exact match is found
-3. **Default category** is used if no match is found
+1. **Exact match** (case-sensitive) is checked first (for backward compatibility and performance)
+2. **Case-insensitive exact match** for non-wildcard patterns is checked second
+3. **Wildcard patterns** are checked if no exact match is found
+4. **Default category** is used if no match is found
 
 This allows you to create flexible rules like `GRAB*` to categorize all Grab-related merchants as "Transport" without having to add each variant individually.
 
