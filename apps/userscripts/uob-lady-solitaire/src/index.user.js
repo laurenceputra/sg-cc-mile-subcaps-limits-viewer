@@ -438,6 +438,11 @@
    * @returns {boolean} True if the merchant name matches the pattern
    */
   function matchesWildcard(merchantName, pattern) {
+    // Handle null/undefined and non-string inputs defensively
+    if (typeof merchantName !== 'string' || typeof pattern !== 'string') {
+      return false;
+    }
+    
     // If no wildcard, do exact match
     if (!pattern.includes('*')) {
       return merchantName === pattern;
@@ -464,10 +469,21 @@
         return cardSettings.merchantMap[merchantName];
       }
       
-      // Then try wildcard matching (only check patterns with wildcards)
+      // Then try case-insensitive exact matching for non-wildcard keys
+      const normalizedName = merchantName.toUpperCase();
+      for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
+        if (!pattern.includes('*') && pattern.toUpperCase() === normalizedName) {
+          return category;
+        }
+      }
+      
+      // Then try wildcard matching (only check patterns with wildcards).
+      // NOTE: Patterns are evaluated in the insertion order of cardSettings.merchantMap.
+      // The first matching pattern in that order wins, so define merchantMap entries
+      // in priority order when using overlapping wildcard patterns.
       for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
         if (pattern.includes('*') && matchesWildcard(merchantName, pattern)) {
-          return category; // Return immediately on first match
+          return category; // Return immediately on first match in insertion order
         }
       }
     }
