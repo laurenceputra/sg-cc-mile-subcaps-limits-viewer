@@ -1264,13 +1264,11 @@ import { createSyncTab } from './sync-ui.js';
         deleteButton.style.cursor = 'pointer';
         
         deleteButton.addEventListener('click', () => {
-          if (!confirm(`Delete pattern "${pattern}"?`)) {
+          if (!confirm(`Delete wildcard pattern "${pattern}"? This will remove the categorization rule.`)) {
             return;
           }
           onChange((nextSettings) => {
-            if (nextSettings.merchantMap && nextSettings.merchantMap[pattern]) {
-              delete nextSettings.merchantMap[pattern];
-            }
+            delete nextSettings.merchantMap?.[pattern];
           });
         });
         
@@ -1750,7 +1748,7 @@ import { createSyncTab } from './sync-ui.js';
     });
   }
 
-  let currentTab = 'spend';
+  let activeTabId = 'spend';
 
   function switchTab(tab) {
     const manageContent = document.getElementById(UI_IDS.manageContent);
@@ -1764,7 +1762,7 @@ import { createSyncTab } from './sync-ui.js';
       return;
     }
 
-    currentTab = tab;
+    activeTabId = tab;
     const isManage = tab === 'manage';
     const isSpend = tab === 'spend';
     const isSync = tab === 'sync';
@@ -1944,7 +1942,7 @@ import { createSyncTab } from './sync-ui.js';
     if (shouldShow || wasVisible) {
       overlay.style.display = 'flex';
     }
-    switchTab(currentTab);
+    switchTab(activeTabId);
   }
 
   async function main() {
