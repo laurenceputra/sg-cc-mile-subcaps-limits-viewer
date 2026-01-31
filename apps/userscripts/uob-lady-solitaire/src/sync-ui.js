@@ -1,4 +1,5 @@
 import { SYNC_CONFIG } from './config.js';
+import { validateServerUrl } from '@bank-cc/shared';
 
 export function createSyncTab(syncManager, settings, THEME) {
   const container = document.createElement('div');
@@ -177,17 +178,14 @@ function showSyncSetupDialog(syncManager, THEME) {
 
     // Validate server URL
     try {
-      const url = new URL(serverUrl);
-      if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-        throw new Error('Server URL must use HTTP or HTTPS protocol');
-      }
+      validateServerUrl(serverUrl);
     } catch (error) {
       statusDiv.style.display = 'block';
       statusDiv.style.background = THEME.warningSoft;
       statusDiv.style.color = THEME.warning;
       statusDiv.style.padding = '12px';
       statusDiv.style.borderRadius = '8px';
-      statusDiv.textContent = `Invalid server URL: ${error.message}`;
+      statusDiv.textContent = error.message;
       return;
     }
 

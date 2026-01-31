@@ -191,6 +191,25 @@
     return true;
   }
 
+  function validateServerUrl(url) {
+    if (!url || typeof url !== 'string') {
+      throw new Error('Server URL is required');
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error('Server URL must use HTTP or HTTPS protocol');
+      }
+    } catch (error) {
+      // Re-throw protocol errors as-is
+      if (error.message.includes('HTTP')) {
+        throw error;
+      }
+      // For URL parsing errors, provide clearer message
+      throw new Error('Invalid URL format');
+    }
+  }
+
   class SyncEngine {
     constructor(apiClient, cryptoManager, storage) {
       this.api = apiClient;
@@ -526,14 +545,7 @@
         const actualServerUrl = serverUrl || SYNC_CONFIG.serverUrl;
         
         // Validate server URL
-        try {
-          const url = new URL(actualServerUrl);
-          if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-            throw new Error('Server URL must use HTTP or HTTPS protocol');
-          }
-        } catch (error) {
-          throw new Error(`Invalid server URL: ${error.message}`);
-        }
+        validateServerUrl(actualServerUrl);
         
         this.syncClient = new SyncClient({
           serverUrl: actualServerUrl
@@ -862,17 +874,14 @@
 
       // Validate server URL
       try {
-        const url = new URL(serverUrl);
-        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-          throw new Error('Server URL must use HTTP or HTTPS protocol');
-        }
+        validateServerUrl(serverUrl);
       } catch (error) {
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
         statusDiv.style.padding = '12px';
         statusDiv.style.borderRadius = '8px';
-        statusDiv.textContent = `Invalid server URL: ${error.message}`;
+        statusDiv.textContent = error.message;
         return;
       }
 

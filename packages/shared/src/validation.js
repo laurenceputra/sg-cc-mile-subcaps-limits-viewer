@@ -32,3 +32,22 @@ export function validateSharedMapping(mapping) {
   if (typeof mapping.cardType !== 'string' || !mapping.cardType) return false;
   return true;
 }
+
+export function validateServerUrl(url) {
+  if (!url || typeof url !== 'string') {
+    throw new Error('Server URL is required');
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Server URL must use HTTP or HTTPS protocol');
+    }
+  } catch (error) {
+    // Re-throw protocol errors as-is
+    if (error.message.includes('HTTP')) {
+      throw error;
+    }
+    // For URL parsing errors, provide clearer message
+    throw new Error('Invalid URL format');
+  }
+}

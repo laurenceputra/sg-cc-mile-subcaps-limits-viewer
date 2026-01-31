@@ -1,5 +1,5 @@
 import { SyncClient } from '@bank-cc/sync-client';
-import { generateDeviceId } from '@bank-cc/shared';
+import { generateDeviceId, validateServerUrl } from '@bank-cc/shared';
 import { SYNC_CONFIG } from './config.js';
 
 export class SyncManager {
@@ -36,14 +36,7 @@ export class SyncManager {
       const actualServerUrl = serverUrl || SYNC_CONFIG.serverUrl;
       
       // Validate server URL
-      try {
-        const url = new URL(actualServerUrl);
-        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-          throw new Error('Server URL must use HTTP or HTTPS protocol');
-        }
-      } catch (error) {
-        throw new Error(`Invalid server URL: ${error.message}`);
-      }
+      validateServerUrl(actualServerUrl);
       
       this.syncClient = new SyncClient({
         serverUrl: actualServerUrl
