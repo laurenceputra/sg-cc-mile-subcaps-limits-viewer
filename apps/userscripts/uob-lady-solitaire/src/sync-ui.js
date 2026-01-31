@@ -187,7 +187,7 @@ function showSyncSetupDialog(syncManager, THEME) {
       statusDiv.style.color = THEME.warning;
       statusDiv.style.padding = '12px';
       statusDiv.style.borderRadius = '8px';
-      statusDiv.textContent = 'Invalid server URL. Please enter a valid URL (e.g., https://your-server.com)';
+      statusDiv.textContent = `Invalid server URL: ${error.message}`;
       return;
     }
 
