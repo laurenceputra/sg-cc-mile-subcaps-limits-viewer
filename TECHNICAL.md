@@ -35,6 +35,21 @@ The script allows you to assign merchants to categories manually. As of version 
 
 ### How to use wildcards
 
+**Method 1: Add wildcard pattern manually (recommended)**
+1. Open the **Subcap Tools** panel
+2. Navigate to the **Manage Transactions** tab
+3. Scroll to the **"Add Wildcard Pattern"** section at the bottom
+4. Enter a pattern (e.g., `STARBUCKS*` or `*GRAB*`)
+5. Select the category to assign
+6. Click **Add**
+
+**Method 2: Categorize existing merchants**
+1. Wait for a transaction from the merchant to appear on the page
+2. Find the merchant in the categorization list
+3. Select a category - the pattern can then be edited to use wildcards via browser console or by re-adding it with the wildcard form
+
+### Pattern syntax
+
 - Use `*` as a wildcard character to match any sequence of characters
 - Wildcards can appear at the beginning, middle, or end of a pattern
 - Matching is **case-insensitive**

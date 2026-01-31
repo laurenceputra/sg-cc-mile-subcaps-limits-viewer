@@ -31,7 +31,10 @@ ${BUILD_NOTICE}`
   plugins: [
     resolve({
       browser: true,
-      preferBuiltins: false
+      preferBuiltins: false,
+      extensions: ['.js', '.mjs'],
+      mainFields: ['main', 'module'],
+      exportConditions: ['import', 'default']
     }),
     commonjs(),
     copy({

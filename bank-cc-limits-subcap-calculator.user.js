@@ -17,10 +17,852 @@
 (function () {
   'use strict';
 
+  class StorageAdapter {
+    constructor() {
+      this.useGM = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
+    }
+
+    get(key, fallback = null) {
+      try {
+        if (this.useGM) {
+          return GM_getValue(key, fallback);
+        }
+      } catch (error) {
+        console.error('[Storage] GM_getValue error:', error);
+      }
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? stored : fallback;
+    }
+
+    set(key, value) {
+      try {
+        if (this.useGM) {
+          GM_setValue(key, value);
+          return;
+        }
+      } catch (error) {
+        console.error('[Storage] GM_setValue error:', error);
+      }
+      window.localStorage.setItem(key, value);
+    }
+
+    remove(key) {
+      try {
+        if (this.useGM && typeof GM_deleteValue === 'function') {
+          GM_deleteValue(key);
+          return;
+        }
+      } catch (error) {
+        console.error('[Storage] GM_deleteValue error:', error);
+      }
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  class ApiClient {
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl;
+      this.token = null;
+    }
+
+    setToken(token) {
+      this.token = token;
+    }
+
+    async request(endpoint, options = {}) {
+      const url = `${this.baseUrl}${endpoint}`;
+      const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers
+      };
+
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+
+      const config = {
+        ...options,
+        headers
+      };
+
+      try {
+        const response = await fetch(url, config);
+        
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ message: response.statusText }));
+          throw new Error(error.message || `HTTP ${response.status}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        console.error('[ApiClient] Request failed:', error);
+        throw error;
+      }
+    }
+
+    async login(email, passwordHash) {
+      const response = await this.request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, passwordHash })
+      });
+      this.setToken(response.token);
+      return response;
+    }
+
+    async register(email, passwordHash, tier = 'free') {
+      const response = await this.request('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, passwordHash, tier })
+      });
+      this.setToken(response.token);
+      return response;
+    }
+
+    async getSyncData() {
+      return await this.request('/sync/data');
+    }
+
+    async putSyncData(encryptedData, version) {
+      return await this.request('/sync/data', {
+        method: 'PUT',
+        body: JSON.stringify({ encryptedData, version })
+      });
+    }
+
+    async getSharedMappings(cardType) {
+      return await this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
+    }
+
+    async contributeMappings(mappings) {
+      return await this.request('/shared/mappings/contribute', {
+        method: 'POST',
+        body: JSON.stringify({ mappings })
+      });
+    }
+
+    async deleteUserData() {
+      return await this.request('/user/data', {
+        method: 'DELETE'
+      });
+    }
+  }
+
+  function generateDeviceId() {
+    const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+    const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `device-${Date.now()}-${randomPart}`;
+  }
+
+  /**
+   * Convert ArrayBuffer to Base64
+   * @param {ArrayBuffer} buffer - Buffer to convert
+   * @returns {string} - Base64 string
+   */
+  function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Convert Base64 to ArrayBuffer
+   * @param {string} base64 - Base64 string
+   * @returns {ArrayBuffer} - Array buffer
+   */
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  function validateSyncPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (typeof payload.version !== 'number' || payload.version < 0) return false;
+    if (typeof payload.deviceId !== 'string' || !payload.deviceId) return false;
+    if (typeof payload.timestamp !== 'number' || payload.timestamp <= 0) return false;
+    if (!payload.data || typeof payload.data !== 'object') return false;
+    if (!payload.data.cards || typeof payload.data.cards !== 'object') return false;
+    return true;
+  }
+
+  class SyncEngine {
+    constructor(apiClient, cryptoManager, storage) {
+      this.api = apiClient;
+      this.crypto = cryptoManager;
+      this.storage = storage;
+    }
+
+    async pull() {
+      try {
+        const response = await this.api.getSyncData();
+        
+        if (!response || !response.encryptedData) {
+          return { success: true, data: null, version: 0 };
+        }
+
+        const decrypted = await this.crypto.decrypt(
+          response.encryptedData.ciphertext,
+          response.encryptedData.iv,
+          response.encryptedData.salt
+        );
+
+        if (!validateSyncPayload(decrypted)) {
+          throw new Error('Invalid sync payload structure');
+        }
+
+        return {
+          success: true,
+          data: decrypted.data,
+          version: response.version,
+          timestamp: decrypted.timestamp
+        };
+      } catch (error) {
+        console.error('[SyncEngine] Pull failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    async push(data, version, deviceId) {
+      try {
+        const payload = {
+          version: version + 1,
+          deviceId: deviceId,
+          timestamp: Date.now(),
+          data: data
+        };
+
+        const encrypted = await this.crypto.encrypt(payload);
+
+        const response = await this.api.putSyncData(encrypted, payload.version);
+
+        return {
+          success: true,
+          version: response.version
+        };
+      } catch (error) {
+        console.error('[SyncEngine] Push failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    mergeCardSettings(local, remote) {
+      if (!remote) return local;
+      if (!local) return remote;
+
+      const merged = { ...local };
+
+      // Merge merchant maps (union, newer wins on conflicts)
+      merged.merchantMap = { ...local.merchantMap };
+      for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
+        merged.merchantMap[merchant] = category;
+      }
+
+      // Merge monthly totals
+      merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
+
+      // For selectedCategories and defaultCategory, use remote if present
+      if (remote.selectedCategories) {
+        merged.selectedCategories = remote.selectedCategories;
+      }
+      if (remote.defaultCategory) {
+        merged.defaultCategory = remote.defaultCategory;
+      }
+
+      return merged;
+    }
+
+    async sync(localData, currentVersion, deviceId) {
+      const pullResult = await this.pull();
+      
+      if (!pullResult.success) {
+        return pullResult;
+      }
+
+      let dataToSync = localData;
+
+      if (pullResult.data) {
+        // Merge remote changes into local
+        const mergedCards = {};
+        const allCardNames = new Set([
+          ...Object.keys(localData.cards || {}),
+          ...Object.keys(pullResult.data.cards || {})
+        ]);
+
+        for (const cardName of allCardNames) {
+          mergedCards[cardName] = this.mergeCardSettings(
+            localData.cards[cardName],
+            pullResult.data.cards[cardName]
+          );
+        }
+
+        dataToSync = { cards: mergedCards };
+      }
+
+      const pushResult = await this.push(dataToSync, pullResult.version, deviceId);
+
+      if (pushResult.success) {
+        return {
+          success: true,
+          data: dataToSync,
+          version: pushResult.version
+        };
+      }
+
+      return pushResult;
+    }
+  }
+
+  /**
+   * Derive encryption key from passphrase
+   * SECURITY: Uses PBKDF2 with 310,000 iterations (OWASP 2023 recommendation)
+   * to protect against brute-force attacks on encrypted data at rest.
+   * 
+   * @param {string} passphrase - User passphrase
+   * @param {Uint8Array} salt - Salt for key derivation (must be 16 bytes minimum)
+   * @param {number} iterations - PBKDF2 iterations (default: 310000)
+   * @returns {Promise<CryptoKey>} - Derived AES-256-GCM key
+   */
+  async function deriveKey(passphrase, salt, iterations = 310000) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(passphrase),
+      'PBKDF2',
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    return crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: iterations,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  /**
+   * Encrypt data with AES-GCM
+   * SECURITY: AES-GCM provides authenticated encryption, protecting against
+   * both confidentiality and integrity attacks. Uses 96-bit random IV per encryption.
+   * 
+   * @param {CryptoKey} key - Encryption key
+   * @param {any} data - Data to encrypt (will be JSON stringified)
+   * @returns {Promise<{ciphertext: string, iv: string}>} - Encrypted data with IV
+   */
+  async function encrypt(key, data) {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plaintext = enc.encode(JSON.stringify(data));
+
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      key,
+      plaintext
+    );
+
+    return {
+      ciphertext: arrayBufferToBase64(ciphertext),
+      iv: arrayBufferToBase64(iv)
+    };
+  }
+
+  /**
+   * Decrypt data with AES-GCM
+   * SECURITY: AES-GCM automatically verifies authentication tag, throwing on tampering.
+   * Timing of decryption failure is constant regardless of where tampering occurred.
+   * 
+   * @param {CryptoKey} key - Decryption key
+   * @param {string} ciphertext - Base64 encoded ciphertext
+   * @param {string} iv - Base64 encoded IV
+   * @returns {Promise<any>} - Decrypted data (JSON parsed)
+   * @throws {Error} - On authentication failure or decryption error
+   */
+  async function decrypt(key, ciphertext, iv) {
+    const dec = new TextDecoder();
+    const ciphertextBuffer = base64ToArrayBuffer(ciphertext);
+    const ivBuffer = base64ToArrayBuffer(iv);
+
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: ivBuffer },
+      key,
+      ciphertextBuffer
+    );
+
+    return JSON.parse(dec.decode(plaintext));
+  }
+
+  /**
+   * Generate cryptographically random salt
+   * SECURITY: Uses crypto.getRandomValues for CSPRNG output.
+   * 16 bytes (128 bits) is sufficient for PBKDF2 salt uniqueness.
+   * 
+   * @returns {Uint8Array} - 16-byte random salt
+   */
+  function generateSalt() {
+    return crypto.getRandomValues(new Uint8Array(16));
+  }
+
+  class CryptoManager {
+    constructor(passphrase, salt = null) {
+      this.passphrase = passphrase;
+      this.salt = salt || generateSalt();
+      this.key = null;
+    }
+
+    async init() {
+      this.key = await deriveKey(this.passphrase, this.salt);
+    }
+
+    async encrypt(data) {
+      if (!this.key) await this.init();
+      const encrypted = await encrypt(this.key, data);
+      return {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        salt: arrayBufferToBase64(this.salt)
+      };
+    }
+
+    async decrypt(ciphertext, iv, saltBase64) {
+      if (saltBase64) {
+        this.salt = base64ToArrayBuffer(saltBase64);
+      }
+      if (!this.key) await this.init();
+      return await decrypt(this.key, ciphertext, iv);
+    }
+  }
+
+  class SyncClient {
+    constructor(config) {
+      this.config = config;
+      this.storage = new StorageAdapter();
+      this.api = new ApiClient(config.serverUrl);
+      this.cryptoManager = null;
+      this.syncEngine = null;
+    }
+
+    async init(passphrase) {
+      this.cryptoManager = new CryptoManager(passphrase);
+      await this.cryptoManager.init();
+      this.syncEngine = new SyncEngine(this.api, this.cryptoManager, this.storage);
+    }
+
+    async login(email, passwordHash) {
+      return await this.api.login(email, passwordHash);
+    }
+
+    async register(email, passwordHash, tier = 'free') {
+      return await this.api.register(email, passwordHash, tier);
+    }
+
+    async sync(localData, currentVersion, deviceId) {
+      if (!this.syncEngine) {
+        throw new Error('SyncClient not initialized. Call init() first.');
+      }
+      return await this.syncEngine.sync(localData, currentVersion, deviceId);
+    }
+
+    async getSharedMappings(cardType) {
+      return await this.api.getSharedMappings(cardType);
+    }
+
+    async contributeMappings(mappings) {
+      return await this.api.contributeMappings(mappings);
+    }
+  }
+
+  // Build-time configuration for sync server
+  const SYNC_CONFIG = {
+    // Change this URL if self-hosting
+    serverUrl: 'https://bank-cc-sync.your-domain.workers.dev',
+    
+    // For self-hosters: Update to your own server URL before building
+    // Example: 'https://sync.example.com' or 'http://localhost:3000'
+  };
+
+  class SyncManager {
+    constructor(storage) {
+      this.storage = storage;
+      this.syncClient = null;
+      this.enabled = false;
+      this.config = this.loadSyncConfig();
+    }
+
+    loadSyncConfig() {
+      const raw = this.storage.get('ccSubcapSyncConfig', '{}');
+      try {
+        return JSON.parse(raw || '{}');
+      } catch (error) {
+        return {};
+      }
+    }
+
+    saveSyncConfig(config) {
+      this.storage.set('ccSubcapSyncConfig', JSON.stringify(config));
+      this.config = config;
+    }
+
+    isEnabled() {
+      return this.config.enabled === true;
+    }
+
+    async setupSync(email, passphrase, deviceName) {
+      try {
+        const deviceId = generateDeviceId();
+        
+        this.syncClient = new SyncClient({
+          serverUrl: SYNC_CONFIG.serverUrl
+        });
+
+        await this.syncClient.init(passphrase);
+
+        // Store email temporarily for salt derivation in hashPassphrase
+        this.config.email = email;
+        
+        // Hash passphrase before sending to server
+        const hashedPassphrase = await this.hashPassphrase(passphrase);
+        
+        // Try login first, fallback to register
+        let authResult;
+        try {
+          authResult = await this.syncClient.login(email, hashedPassphrase);
+        } catch (error) {
+          authResult = await this.syncClient.register(email, hashedPassphrase);
+        }
+
+        this.saveSyncConfig({
+          enabled: true,
+          deviceId,
+          deviceName,
+          email,
+          token: authResult.token,
+          tier: authResult.tier,
+          shareMappings: authResult.tier === 'free', // Free users share by default
+          lastSync: 0
+        });
+
+        this.syncClient.api.setToken(authResult.token);
+        this.enabled = true;
+
+        return { success: true };
+      } catch (error) {
+        console.error('[SyncManager] Setup failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    async sync(localData) {
+      if (!this.isEnabled() || !this.syncClient) {
+        return { success: false, error: 'Sync not enabled' };
+      }
+
+      try {
+        const result = await this.syncClient.sync(
+          localData,
+          this.config.version || 0,
+          this.config.deviceId
+        );
+
+        if (result.success) {
+          this.saveSyncConfig({
+            ...this.config,
+            version: result.version,
+            lastSync: Date.now()
+          });
+        }
+
+        return result;
+      } catch (error) {
+        console.error('[SyncManager] Sync failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    async getSharedMappings(cardType) {
+      if (!this.isEnabled() || !this.syncClient) {
+        return { success: false, mappings: [] };
+      }
+
+      try {
+        const result = await this.syncClient.getSharedMappings(cardType);
+        return { success: true, mappings: result.mappings || [] };
+      } catch (error) {
+        console.error('[SyncManager] Get shared mappings failed:', error);
+        return { success: false, mappings: [] };
+      }
+    }
+
+    async contributeMappings(mappings) {
+      if (!this.isEnabled() || !this.syncClient) {
+        return { success: false };
+      }
+
+      if (!this.config.shareMappings) {
+        return { success: true, message: 'Sharing disabled' };
+      }
+
+      try {
+        await this.syncClient.contributeMappings(mappings);
+        return { success: true, contributed: mappings.length };
+      } catch (error) {
+        console.error('[SyncManager] Contribute mappings failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    /**
+     * Hash passphrase using PBKDF2 with Web Crypto API
+     * SECURITY: Uses 310,000 iterations (OWASP 2023 recommendation for PBKDF2-SHA256)
+     * to protect against brute-force attacks. Salt is derived from email to ensure
+     * deterministic hashing for authentication while maintaining uniqueness per user.
+     */
+    async hashPassphrase(passphrase) {
+      const enc = new TextEncoder();
+      
+      // Derive salt from email for deterministic authentication
+      // SECURITY: Each user has unique salt, preventing rainbow table attacks
+      const saltData = enc.encode(this.config.email || 'default-salt');
+      const saltHash = await crypto.subtle.digest('SHA-256', saltData);
+      const salt = new Uint8Array(saltHash).slice(0, 16);
+      
+      // Import passphrase as key material
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(passphrase),
+        'PBKDF2',
+        false,
+        ['deriveBits']
+      );
+      
+      // Derive 256-bit hash using PBKDF2 with 310,000 iterations
+      const derivedBits = await crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: salt,
+          iterations: 310000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        256
+      );
+      
+      // Return as hex string for server comparison
+      return Array.from(new Uint8Array(derivedBits))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+
+    disableSync() {
+      this.saveSyncConfig({});
+      this.enabled = false;
+      this.syncClient = null;
+    }
+  }
+
+  function createSyncTab(syncManager, settings, THEME) {
+    const container = document.createElement('div');
+    container.id = 'cc-subcap-sync';
+    container.style.cssText = 'display: none; padding: 24px;';
+
+    const isEnabled = syncManager.isEnabled();
+    const config = syncManager.config;
+
+    if (!isEnabled) {
+      container.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
+      <p style="color: ${THEME.muted}; margin-bottom: 16px;">
+        Enable sync to access your settings across devices.
+      </p>
+      <div style="background: ${THEME.accentSoft}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        <strong style="color: ${THEME.accentText}">Privacy First:</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
+          <li>All data encrypted before leaving your browser</li>
+          <li>Only settings and merchant mappings are synced</li>
+          <li>Raw transactions stay local</li>
+        </ul>
+      </div>
+      <button id="setup-sync-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.accent};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+      ">Setup Sync</button>
+    `;
+
+      const setupBtn = container.querySelector('#setup-sync-btn');
+      setupBtn.addEventListener('click', () => {
+        showSyncSetupDialog(syncManager, THEME);
+      });
+    } else {
+      const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
+      const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
+
+      container.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
+      <div style="background: ${THEME.panel}; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+        <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
+        <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
+        <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
+        <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
+        <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+      </div>
+      <button id="sync-now-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.accent};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+        margin-right: 8px;
+      ">Sync Now</button>
+      <button id="disable-sync-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.warning};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+      ">Disable Sync</button>
+      <div id="sync-status" style="margin-top: 16px; padding: 12px; border-radius: 8px; display: none;"></div>
+    `;
+
+      container.querySelector('#sync-now-btn').addEventListener('click', async () => {
+        const statusDiv = container.querySelector('#sync-status');
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = THEME.accentSoft;
+        statusDiv.style.color = THEME.accentText;
+        statusDiv.textContent = 'Syncing...';
+
+        const result = await syncManager.sync({ cards: settings.cards });
+
+        if (result.success) {
+          statusDiv.style.background = '#d1fae5';
+          statusDiv.style.color = '#065f46';
+          statusDiv.textContent = '✓ Synced successfully!';
+          setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+        } else {
+          statusDiv.style.background = THEME.warningSoft;
+          statusDiv.style.color = THEME.warning;
+          statusDiv.textContent = `❌ Sync failed: ${result.error}`;
+        }
+      });
+
+      container.querySelector('#disable-sync-btn').addEventListener('click', () => {
+        if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
+          syncManager.disableSync();
+          location.reload();
+        }
+      });
+    }
+
+    return container;
+  }
+
+  function showSyncSetupDialog(syncManager, THEME) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: ${THEME.overlay}; z-index: 100001;
+    display: flex; align-items: center; justify-content: center;
+  `;
+
+    overlay.innerHTML = `
+    <div style="
+      background: white; padding: 32px; border-radius: 16px;
+      max-width: 500px; width: 90%; box-shadow: ${THEME.shadow};
+    ">
+      <h3 style="margin: 0 0 16px 0;">Setup Sync</h3>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
+      <input id="sync-email" type="email" placeholder="your@email.com" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Passphrase</label>
+      <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Device Name</label>
+      <input id="sync-device" type="text" placeholder="My Laptop" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 24px; box-sizing: border-box;
+      "/>
+      <div style="display: flex; gap: 8px;">
+        <button id="sync-setup-save" style="
+          flex: 1; padding: 12px; background: ${THEME.accent}; color: white;
+          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
+        ">Setup</button>
+        <button id="sync-setup-cancel" style="
+          flex: 1; padding: 12px; background: ${THEME.panel}; color: ${THEME.text};
+          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
+        ">Cancel</button>
+      </div>
+      <div id="sync-setup-status" style="margin-top: 16px; display: none;"></div>
+    </div>
+  `;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#sync-setup-cancel').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    overlay.querySelector('#sync-setup-save').addEventListener('click', async () => {
+      const email = overlay.querySelector('#sync-email').value;
+      const passphrase = overlay.querySelector('#sync-passphrase').value;
+      const deviceName = overlay.querySelector('#sync-device').value;
+      const statusDiv = overlay.querySelector('#sync-setup-status');
+
+      if (!email || !passphrase || !deviceName) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = THEME.warningSoft;
+        statusDiv.style.color = THEME.warning;
+        statusDiv.style.padding = '12px';
+        statusDiv.style.borderRadius = '8px';
+        statusDiv.textContent = 'All fields are required';
+        return;
+      }
+
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = THEME.accentSoft;
+      statusDiv.style.color = THEME.accentText;
+      statusDiv.style.padding = '12px';
+      statusDiv.style.borderRadius = '8px';
+      statusDiv.textContent = 'Setting up sync...';
+
+      const result = await syncManager.setupSync(email, passphrase, deviceName);
+
+      if (result.success) {
+        statusDiv.style.background = '#d1fae5';
+        statusDiv.style.color = '#065f46';
+        statusDiv.textContent = '✓ Sync setup complete! Reloading...';
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        statusDiv.style.background = THEME.warningSoft;
+        statusDiv.style.color = THEME.warning;
+        statusDiv.textContent = `❌ Setup failed: ${result.error}`;
+      }
+    });
+  }
+
   // Phase 3: Sync integration (imports added)
-  // import { SyncManager } from './sync-manager.js';
-  // import { createSyncTab } from './sync-ui.js';
-  // Uncomment above and integrate in UI tabs section
 
   (() => {
 
@@ -30,8 +872,7 @@
     window.__ccSubcapInjected = true;
 
     // Phase 3: Initialize sync manager
-    // const syncManager = new SyncManager(storage);
-    
+    const syncManager = new SyncManager(storage);
 
     const URL_PREFIX = 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do';
     const STORAGE_KEY = 'ccSubcapSettings';
@@ -58,8 +899,10 @@
       manageContent: 'cc-subcap-manage',
       spendContent: 'cc-subcap-spend',
       summaryContent: 'cc-subcap-summary',
+      syncContent: 'cc-subcap-sync',
       tabManage: 'cc-subcap-tab-manage',
       tabSpend: 'cc-subcap-tab-spend',
+      tabSync: 'cc-subcap-tab-sync',
       close: 'cc-subcap-close'
     };
 
@@ -75,6 +918,13 @@
       accentShadow: '0 18px 32px rgba(37, 99, 235, 0.28)',
       warning: '#b45309',
       warningSoft: '#fef3c7',
+      error: '#ef4444',
+      errorSoft: '#fee2e2',
+      errorText: '#991b1b',
+      errorBorder: '#fca5a5',
+      success: '#166534',
+      successSoft: '#dcfce7',
+      successBorder: '#86efac',
       overlay: 'rgba(15, 23, 42, 0.25)',
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
@@ -1166,6 +2016,133 @@
         cardSettings,
         onChange
       );
+
+      // Add manual wildcard pattern section
+      const wildcardDivider = document.createElement('div');
+      wildcardDivider.style.borderTop = `1px solid ${THEME.border}`;
+      wildcardDivider.style.margin = '12px 0';
+      container.appendChild(wildcardDivider);
+
+      const wildcardSection = document.createElement('div');
+      wildcardSection.style.marginTop = '12px';
+      
+      const wildcardTitle = document.createElement('div');
+      wildcardTitle.textContent = 'Add Wildcard Pattern';
+      wildcardTitle.style.fontWeight = '600';
+      wildcardTitle.style.color = THEME.accent;
+      wildcardTitle.style.marginBottom = '8px';
+      wildcardSection.appendChild(wildcardTitle);
+
+      const wildcardHelp = document.createElement('div');
+      wildcardHelp.textContent = 'Use * to match any characters. Example: STARBUCKS* matches all Starbucks merchants.';
+      wildcardHelp.style.fontSize = '12px';
+      wildcardHelp.style.color = THEME.muted;
+      wildcardHelp.style.marginBottom = '8px';
+      wildcardSection.appendChild(wildcardHelp);
+
+      const wildcardForm = document.createElement('div');
+      wildcardForm.style.display = 'grid';
+      wildcardForm.style.gridTemplateColumns = '2fr 1fr auto';
+      wildcardForm.style.gap = '8px';
+      wildcardForm.style.alignItems = 'center';
+
+      const patternInput = document.createElement('input');
+      patternInput.type = 'text';
+      patternInput.placeholder = 'e.g., STARBUCKS* or *GRAB*';
+      patternInput.style.padding = '6px 8px';
+      patternInput.style.borderRadius = '6px';
+      patternInput.style.border = `1px solid ${THEME.border}`;
+      patternInput.style.background = THEME.surface;
+      patternInput.style.color = THEME.text;
+
+      const categorySelect = document.createElement('select');
+      categorySelect.style.padding = '6px 8px';
+      categorySelect.style.borderRadius = '6px';
+      categorySelect.style.border = `1px solid ${THEME.border}`;
+      categorySelect.style.background = THEME.surface;
+      categorySelect.style.color = THEME.text;
+
+      const options = getMappingOptions(cardSettings, cardSettings.defaultCategory);
+      options.forEach((category) => {
+        const option = document.createElement('option');
+        option.value = category;
+        option.textContent = category;
+        categorySelect.appendChild(option);
+      });
+
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.textContent = 'Add';
+      addButton.style.padding = '6px 12px';
+      addButton.style.borderRadius = '6px';
+      addButton.style.border = `1px solid ${THEME.accent}`;
+      addButton.style.background = THEME.accent;
+      addButton.style.color = '#ffffff';
+      addButton.style.fontSize = '13px';
+      addButton.style.fontWeight = '600';
+      addButton.style.cursor = 'pointer';
+
+      // Status message element
+      const statusMessage = document.createElement('div');
+      statusMessage.style.gridColumn = '1 / -1';
+      statusMessage.style.fontSize = '12px';
+      statusMessage.style.padding = '6px 8px';
+      statusMessage.style.borderRadius = '6px';
+      statusMessage.style.display = 'none';
+      statusMessage.style.marginTop = '4px';
+
+      const showStatus = (message, isSuccess) => {
+        statusMessage.textContent = message;
+        statusMessage.style.display = 'block';
+        statusMessage.style.background = isSuccess ? THEME.successSoft : THEME.errorSoft;
+        statusMessage.style.color = isSuccess ? THEME.success : THEME.errorText;
+        statusMessage.style.border = `1px solid ${isSuccess ? THEME.successBorder : THEME.errorBorder}`;
+        setTimeout(() => {
+          statusMessage.style.display = 'none';
+        }, 3000);
+      };
+
+      addButton.addEventListener('click', () => {
+        const pattern = patternInput.value.trim();
+        const category = categorySelect.value;
+        
+        if (!pattern) {
+          patternInput.style.borderColor = THEME.error;
+          showStatus('Please enter a pattern', false);
+          return;
+        }
+        
+        // Reset border color
+        patternInput.style.borderColor = THEME.border;
+        
+        // Initialize merchantMap if it doesn't exist
+        if (!cardSettings.merchantMap) {
+          cardSettings.merchantMap = {};
+        }
+        
+        if (cardSettings.merchantMap[pattern]) {
+          if (!confirm(`Pattern "${pattern}" already exists. Overwrite?`)) {
+            return;
+          }
+        }
+        
+        onChange((nextSettings) => {
+          if (!nextSettings.merchantMap) {
+            nextSettings.merchantMap = {};
+          }
+          nextSettings.merchantMap[pattern] = category;
+        });
+        
+        patternInput.value = '';
+        showStatus(`✓ Added: ${pattern} → ${category}`, true);
+      });
+
+      wildcardForm.appendChild(patternInput);
+      wildcardForm.appendChild(categorySelect);
+      wildcardForm.appendChild(addButton);
+      wildcardForm.appendChild(statusMessage);
+      wildcardSection.appendChild(wildcardForm);
+      container.appendChild(wildcardSection);
     }
 
     function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
@@ -1518,17 +2495,21 @@
     function switchTab(tab) {
       const manageContent = document.getElementById(UI_IDS.manageContent);
       const spendContent = document.getElementById(UI_IDS.spendContent);
+      const syncContent = document.getElementById(UI_IDS.syncContent);
       const tabManage = document.getElementById(UI_IDS.tabManage);
       const tabSpend = document.getElementById(UI_IDS.tabSpend);
+      const tabSync = document.getElementById(UI_IDS.tabSync);
 
-      if (!manageContent || !spendContent || !tabManage || !tabSpend) {
+      if (!manageContent || !spendContent || !syncContent || !tabManage || !tabSpend || !tabSync) {
         return;
       }
 
       const isManage = tab === 'manage';
       const isSpend = tab === 'spend';
+      const isSync = tab === 'sync';
       manageContent.style.display = isManage ? 'block' : 'none';
       spendContent.style.display = isSpend ? 'block' : 'none';
+      syncContent.style.display = isSync ? 'block' : 'none';
 
       const setTabState = (tabElement, isActive) => {
         tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
@@ -1539,6 +2520,7 @@
 
       setTabState(tabManage, isManage);
       setTabState(tabSpend, isSpend);
+      setTabState(tabSync, isSync);
     }
 
     function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
@@ -1632,8 +2614,21 @@
         tabSpend.style.cursor = 'pointer';
         tabSpend.addEventListener('click', () => switchTab('spend'));
 
+        const tabSync = document.createElement('button');
+        tabSync.id = UI_IDS.tabSync;
+        tabSync.type = 'button';
+        tabSync.textContent = 'Sync';
+        tabSync.style.border = `1px solid ${THEME.border}`;
+        tabSync.style.borderRadius = '999px';
+        tabSync.style.padding = '6px 12px';
+        tabSync.style.background = 'transparent';
+        tabSync.style.color = THEME.text;
+        tabSync.style.cursor = 'pointer';
+        tabSync.addEventListener('click', () => switchTab('sync'));
+
         tabs.appendChild(tabSpend);
         tabs.appendChild(tabManage);
+        tabs.appendChild(tabSync);
 
         const privacyNotice = document.createElement('div');
         privacyNotice.textContent =
@@ -1653,11 +2648,17 @@
         spendContent.style.display = 'none';
         spendContent.style.overflow = 'auto';
 
+        const syncContent = createSyncTab(syncManager, cardSettings, THEME);
+        syncContent.id = UI_IDS.syncContent;
+        syncContent.style.display = 'none';
+        syncContent.style.overflow = 'auto';
+
         panel.appendChild(header);
         panel.appendChild(tabs);
         panel.appendChild(privacyNotice);
         panel.appendChild(manageContent);
         panel.appendChild(spendContent);
+        panel.appendChild(syncContent);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
       } else {
