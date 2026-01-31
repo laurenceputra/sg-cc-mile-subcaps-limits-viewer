@@ -1,0 +1,14 @@
+{
+  "name": "@bank-cc/sync-client",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sync client for bank CC calculator",
+  "main": "src/index.js",
+  "keywords": ["sync", "client"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@bank-cc/shared": "*",
+    "@bank-cc/crypto": "*"
+  }
+}

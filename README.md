@@ -1,23 +1,43 @@
 # Bank CC Limits Subcap Calculator
 
-Make your UOB credit-card subcaps effortless. This Tampermonkey userscript summarizes spend by category, highlights month-by-month totals, and helps you keep your bonus categories on track—without sending any data off your device.
+Monorepo for the UOB credit-card userscript and the optional sync backend. Everything is designed to be read-only and local-first by default.
 
-## Why you’ll like it
+## Projects
 
-- **Instant subcap clarity**: See category totals and monthly breakdowns in one panel.
-- **Local-first privacy**: Everything stays in your browser—no remote logging.
-- **Zero-risk use**: Read-only behavior; it never submits transactions.
+- **Userscript (UOB Lady's Solitaire)** — `apps/userscripts/uob-lady-solitaire/`  
+  Tampermonkey userscript that summarizes spend and manages subcap categories.  
+  Docs: [apps/userscripts/uob-lady-solitaire/README.md](apps/userscripts/uob-lady-solitaire/README.md)  
+  Installable build: [bank-cc-limits-subcap-calculator.user.js](bank-cc-limits-subcap-calculator.user.js) (generated; source of truth is `apps/userscripts/uob-lady-solitaire/src/index.user.js`)
 
-## Get started
+- **Sync backend** — `apps/backend/`  
+  Optional API for encrypted settings sync and shared mappings.  
+  Docs: [apps/backend/README.md](apps/backend/README.md)
+
+- **Shared packages** — `packages/`  
+  `shared`, `crypto`, and `sync-client` libraries used by the apps.
+
+## Quick userscript install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/).
-2. Add the script from `bank-cc-limits-subcap-calculator.user.js`.
+2. Add the script from `bank-cc-limits-subcap-calculator.user.js` (generated artifact; do not edit by hand).
 3. Open your UOB PIB credit card transaction page.
 4. Click **Subcap Tools** to view totals and manage categories.
 
-## Learn more
+## Documentation
 
-Looking for supported pages, selectors, or troubleshooting? See the technical documentation: [TECHNICAL.md](TECHNICAL.md).
+**Getting Started:**
+- **User flows and capabilities**: [USER_FLOWS.md](USER_FLOWS.md) - Complete guide to all features
+- **Visual flow diagrams**: [USER_FLOW_DIAGRAMS.md](USER_FLOW_DIAGRAMS.md) - Illustrated workflows
+
+**Technical References:**
+- Userscript technical reference: [TECHNICAL.md](TECHNICAL.md)
+- Sync integration notes: [apps/userscripts/uob-lady-solitaire/README.md](apps/userscripts/uob-lady-solitaire/README.md)
+- Backend deployment: [apps/backend/README.md](apps/backend/README.md)
+
+**Security & Development:**
+- Security-first workflow: [AGENTS.md](AGENTS.md)
+- Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
+- Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 
 ## Disclaimer
 

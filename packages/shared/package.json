@@ -1,0 +1,16 @@
+{
+  "name": "@bank-cc/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shared types and utilities for bank CC calculator",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./types": "./src/types.js",
+    "./validation": "./src/validation.js",
+    "./utils": "./src/utils.js"
+  },
+  "keywords": ["shared", "types"],
+  "author": "",
+  "license": "MIT"
+}

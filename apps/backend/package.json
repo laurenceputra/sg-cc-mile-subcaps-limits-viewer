@@ -1,0 +1,41 @@
+{
+  "name": "@bank-cc/backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sync backend for bank CC calculator (Cloudflare Workers + Docker)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "dev:node": "node src/node-server.js",
+    "build:docker": "docker build -f infra/docker/Dockerfile -t bank-cc-backend .",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=integration",
+    "test:security": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=security",
+    "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=e2e",
+    "test:load": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=load",
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch"
+  },
+  "keywords": [
+    "hono",
+    "cloudflare-workers",
+    "sync"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@bank-cc/shared": "*",
+    "@hono/node-server": "^1.19.9",
+    "hono": "^4.0.0",
+    "ioredis": "^5.9.2",
+    "rate-limiter-flexible": "^9.0.1"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "better-sqlite3": "^9.4.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2",
+    "wrangler": "^3.0.0"
+  }
+}
