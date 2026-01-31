@@ -443,9 +443,9 @@
       return false;
     }
     
-    // If no wildcard, do exact match
+    // If no wildcard, do case-insensitive exact match
     if (!pattern.includes('*')) {
-      return merchantName === pattern;
+      return merchantName.toUpperCase() === pattern.toUpperCase();
     }
     
     // Convert wildcard pattern to regex
