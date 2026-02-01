@@ -65,7 +65,48 @@ import { createSyncTab } from './sync-ui.js';
     shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
   };
 
-  const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then refresh this panel.';
+  const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen the panel through the button.';
+
+  // Helper constants for warnings
+  const CATEGORY_THRESHOLDS = { critical: 750, warning: 700 };
+
+  // Helper functions
+  function applyStyles(element, styles) {
+    Object.entries(styles).forEach(([key, value]) => {
+      element.style[key] = value;
+    });
+  }
+
+  function getWarningSeverity(value) {
+    if (value >= CATEGORY_THRESHOLDS.critical) return 'critical';
+    if (value >= CATEGORY_THRESHOLDS.warning) return 'warning';
+    return 'normal';
+  }
+
+  function createStyledPill(text, severity = 'normal') {
+    const severityStyles = {
+      critical: { background: '#fee2e2', border: '1px solid #dc2626', color: '#991b1b', fontWeight: '700' },
+      warning: { background: THEME.warningSoft, border: `1px solid ${THEME.warning}`, color: THEME.warning, fontWeight: '600' },
+      normal: { background: THEME.surface, border: `1px solid ${THEME.border}`, color: THEME.muted, fontWeight: '500' }
+    };
+    
+    const pill = document.createElement('div');
+    const baseStyles = {
+      padding: '4px 8px',
+      borderRadius: '999px',
+      fontSize: '12px',
+      display: 'inline-block'
+    };
+    
+    applyStyles(pill, { ...baseStyles, ...severityStyles[severity] });
+    pill.textContent = text;
+    return pill;
+  }
+
+  function getParsedDate(entry) {
+    if (!entry) return null;
+    return fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+  }
 
   const storage = {
     get(key, fallback) {
@@ -609,7 +650,7 @@ import { createSyncTab } from './sync-ui.js';
 
     Object.keys(cardSettings.transactions || {}).forEach((refNo) => {
       const entry = cardSettings.transactions[refNo];
-      const parsedDate = fromISODate(entry?.posting_date_iso) || parsePostingDate(entry?.posting_date);
+      const parsedDate = getParsedDate(entry);
       if (parsedDate && isWithinCutoff(parsedDate, cutoff)) {
         nextStored[refNo] = entry;
       }
@@ -619,7 +660,7 @@ import { createSyncTab } from './sync-ui.js';
       if (!tx.ref_no) {
         return;
       }
-      const parsedDate = fromISODate(tx.posting_date_iso) || parsePostingDate(tx.posting_date);
+      const parsedDate = getParsedDate(tx);
       if (!parsedDate || !isWithinCutoff(parsedDate, cutoff)) {
         return;
       }
@@ -654,8 +695,7 @@ import { createSyncTab } from './sync-ui.js';
       }
 
       const merchantDetail = normalizeText(entry.merchant_detail || '');
-      const parsedDate =
-        fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
+      const parsedDate = getParsedDate(entry);
       const postingDateIso = entry.posting_date_iso || (parsedDate ? toISODate(parsedDate) : '');
       const amountValue =
         typeof entry.amount_value === 'number'
@@ -1171,11 +1211,81 @@ import { createSyncTab } from './sync-ui.js';
     wildcardForm.appendChild(addButton);
     wildcardForm.appendChild(statusMessage);
     wildcardSection.appendChild(wildcardForm);
+    
+    // Show existing wildcard patterns
+    const wildcardPatterns = Object.entries(cardSettings.merchantMap || {})
+      .filter(([pattern]) => pattern.includes('*'))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    
+    if (wildcardPatterns.length > 0) {
+      const existingTitle = document.createElement('div');
+      existingTitle.textContent = 'Existing Wildcard Patterns';
+      existingTitle.style.fontWeight = '600';
+      existingTitle.style.color = THEME.accent;
+      existingTitle.style.marginTop = '12px';
+      existingTitle.style.marginBottom = '8px';
+      wildcardSection.appendChild(existingTitle);
+      
+      const patternList = document.createElement('div');
+      patternList.style.display = 'flex';
+      patternList.style.flexDirection = 'column';
+      patternList.style.gap = '6px';
+      
+      wildcardPatterns.forEach(([pattern, category]) => {
+        const patternRow = document.createElement('div');
+        patternRow.style.display = 'grid';
+        patternRow.style.gridTemplateColumns = '2fr 1fr auto';
+        patternRow.style.gap = '8px';
+        patternRow.style.alignItems = 'center';
+        patternRow.style.padding = '6px';
+        patternRow.style.background = THEME.surface;
+        patternRow.style.borderRadius = '6px';
+        patternRow.style.border = `1px solid ${THEME.border}`;
+        
+        const patternLabel = document.createElement('div');
+        patternLabel.textContent = pattern;
+        patternLabel.style.wordBreak = 'break-word';
+        patternLabel.style.fontFamily = 'monospace';
+        
+        const categoryLabel = document.createElement('div');
+        categoryLabel.textContent = category;
+        categoryLabel.style.color = THEME.muted;
+        
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.textContent = 'Delete';
+        deleteButton.style.padding = '4px 8px';
+        deleteButton.style.borderRadius = '4px';
+        deleteButton.style.border = `1px solid ${THEME.errorBorder}`;
+        deleteButton.style.background = THEME.errorSoft;
+        deleteButton.style.color = THEME.errorText;
+        deleteButton.style.fontSize = '12px';
+        deleteButton.style.fontWeight = '600';
+        deleteButton.style.cursor = 'pointer';
+        
+        deleteButton.addEventListener('click', () => {
+          if (!confirm(`Delete wildcard pattern "${pattern}"? This will remove the categorization rule.`)) {
+            return;
+          }
+          onChange((nextSettings) => {
+            delete nextSettings.merchantMap?.[pattern];
+          });
+        });
+        
+        patternRow.appendChild(patternLabel);
+        patternRow.appendChild(categoryLabel);
+        patternRow.appendChild(deleteButton);
+        patternList.appendChild(patternRow);
+      });
+      
+      wildcardSection.appendChild(patternList);
+    }
+    
     container.appendChild(wildcardSection);
 
     const wildcardDivider = document.createElement('div');
     wildcardDivider.style.borderTop = `1px solid ${THEME.border}`;
-    wildcardDivider.style.margin = '12px 0';
+    wildcardDivider.style.margin = '20px 0';
     container.appendChild(wildcardDivider);
 
     // Add title and mass categorization button
@@ -1274,7 +1384,7 @@ import { createSyncTab } from './sync-ui.js';
 
     const divider = document.createElement('div');
     divider.style.borderTop = `1px solid ${THEME.border}`;
-    divider.style.margin = '12px 0';
+    divider.style.margin = '20px 0';
     container.appendChild(divider);
 
     renderMerchantSection(
@@ -1473,29 +1583,13 @@ import { createSyncTab } from './sync-ui.js';
       
       categoryOrder.forEach((category) => {
         const value = monthData.totals?.[category] || 0;
-        const pill = document.createElement('div');
-        pill.textContent = `${category} ${value.toFixed(2)}`;
-        pill.style.padding = '4px 8px';
-        pill.style.borderRadius = '999px';
-        pill.style.fontSize = '12px';
+        const severity = getWarningSeverity(value);
+        const pill = createStyledPill(`${category} ${value.toFixed(2)}`, severity);
         
-        // Apply warning styling based on thresholds
-        if (value >= 750) {
-          pill.style.background = '#fee2e2';
-          pill.style.border = '1px solid #dc2626';
-          pill.style.color = '#991b1b';
-          pill.style.fontWeight = '700';
+        if (severity === 'critical') {
           warnings.push({ category, value, level: 'critical' });
-        } else if (value >= 700) {
-          pill.style.background = THEME.warningSoft;
-          pill.style.border = `1px solid ${THEME.warning}`;
-          pill.style.color = THEME.warning;
-          pill.style.fontWeight = '600';
+        } else if (severity === 'warning') {
           warnings.push({ category, value, level: 'warning' });
-        } else {
-          pill.style.background = THEME.surface;
-          pill.style.border = `1px solid ${THEME.border}`;
-          pill.style.color = THEME.muted;
         }
         
         headerRight.appendChild(pill);
@@ -1518,8 +1612,8 @@ import { createSyncTab } from './sync-ui.js';
           return;
         }
         const sortedTransactions = group.transactions.slice().sort((a, b) => {
-          const dateA = fromISODate(a.posting_date_iso) || parsePostingDate(a.posting_date);
-          const dateB = fromISODate(b.posting_date_iso) || parsePostingDate(b.posting_date);
+          const dateA = getParsedDate(a);
+          const dateB = getParsedDate(b);
           const timeA = dateA ? dateA.getTime() : 0;
           const timeB = dateB ? dateB.getTime() : 0;
           if (timeA !== timeB) {
@@ -1621,7 +1715,7 @@ import { createSyncTab } from './sync-ui.js';
           
           const message = document.createElement('div');
           const cats = criticalWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-          message.textContent = `The following categories have exceeded the $750 cap: ${cats}`;
+          message.textContent = `The following categories have exceeded the $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
           message.style.fontWeight = '400';
           
           warningBanner.appendChild(title);
@@ -1639,7 +1733,7 @@ import { createSyncTab } from './sync-ui.js';
           
           const message = document.createElement('div');
           const cats = softWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-          message.textContent = `Nearing $750 cap: ${cats}`;
+          message.textContent = `Nearing $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
           message.style.fontWeight = '400';
           
           warningBanner.appendChild(title);
@@ -1654,6 +1748,8 @@ import { createSyncTab } from './sync-ui.js';
     });
   }
 
+  let activeTabId = 'spend';
+
   function switchTab(tab) {
     const manageContent = document.getElementById(UI_IDS.manageContent);
     const spendContent = document.getElementById(UI_IDS.spendContent);
@@ -1666,6 +1762,7 @@ import { createSyncTab } from './sync-ui.js';
       return;
     }
 
+    activeTabId = tab;
     const isManage = tab === 'manage';
     const isSpend = tab === 'spend';
     const isSync = tab === 'sync';
@@ -1845,7 +1942,7 @@ import { createSyncTab } from './sync-ui.js';
     if (shouldShow || wasVisible) {
       overlay.style.display = 'flex';
     }
-    switchTab('spend');
+    switchTab(activeTabId);
   }
 
   async function main() {
