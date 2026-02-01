@@ -1715,7 +1715,7 @@ import { createSyncTab } from './sync-ui.js';
           
           const message = document.createElement('div');
           const cats = criticalWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-          message.textContent = `The following categories have exceeded the $750 cap: ${cats}`;
+          message.textContent = `The following categories have exceeded the $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
           message.style.fontWeight = '400';
           
           warningBanner.appendChild(title);
@@ -1733,7 +1733,7 @@ import { createSyncTab } from './sync-ui.js';
           
           const message = document.createElement('div');
           const cats = softWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-          message.textContent = `Nearing $750 cap: ${cats}`;
+          message.textContent = `Nearing $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
           message.style.fontWeight = '400';
           
           warningBanner.appendChild(title);
