@@ -13,16 +13,14 @@ Tampermonkey userscript that summarizes UOB Lady's Solitaire credit card spend, 
 ## Quick install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/).
-2. Use the built script at `dist/bank-cc-limits-subcap-calculator.user.js` (or the root copy at `/bank-cc-limits-subcap-calculator.user.js`).
+2. Use the single-file script at `src/index.user.js`.
 3. Open the UOB PIB credit card transaction page.
 4. Click **Subcap Tools** to open the panel.
 
 ## Development
 
-- Entry point (source of truth): `src/index.user.js`
-- Build: `npm run build` (outputs to `dist/` and copies `bank-cc-limits-subcap-calculator.user.js` to the repo root)
-- Watch mode: `npm run dev`
-- Generated artifacts: `dist/bank-cc-limits-subcap-calculator.user.js` and `/bank-cc-limits-subcap-calculator.user.js` — do not edit by hand.
+- Single-file source of truth: `src/index.user.js`
+- No build step is required; edit the file directly.
 
 ## Documentation
 
@@ -30,7 +28,7 @@ Tampermonkey userscript that summarizes UOB Lady's Solitaire credit card spend, 
 
 ## Sync integration
 
-Sync is **now enabled** in the userscript and bundled into the single `.user.js` file. The sync feature allows you to:
+Sync is **now enabled** in the userscript and included directly in the single `.user.js` file. The sync feature allows you to:
 - Synchronize settings and merchant mappings across devices
 - End-to-end encryption (data encrypted client-side before upload)
 - Optional sharing of merchant mappings with the community
@@ -48,12 +46,12 @@ Sync is **now enabled** in the userscript and bundled into the single `.user.js`
 
 ### Configuration
 
-The sync server URL is configured in `src/config.js`. The default is:
+The sync server URL is configured in `src/index.user.js` via `SYNC_CONFIG`. The default is:
 ```javascript
 serverUrl: 'https://bank-cc-sync.your-domain.workers.dev'
 ```
 
-**For self-hosting:** Update the URL in `config.js` before building.
+**For self-hosting:** Update the URL in `src/index.user.js`.
 
 ### What's synchronized
 
@@ -69,18 +67,17 @@ serverUrl: 'https://bank-cc-sync.your-domain.workers.dev'
 
 ### What's built
 
-- **Sync manager** (`src/sync-manager.js`): login/register, pull/merge/push, shared mappings, device management.
-- **Sync UI** (`src/sync-ui.js`): setup wizard, status, manual sync, disable sync.
-- **Build system**: rollup bundles sync-client dependencies and adds Tampermonkey grants.
-- **Integration**: Sync is now fully integrated into the userscript (imports enabled, UI tab added).
+- **Sync manager/UI**: login/register, pull/merge/push, shared mappings, device management, setup wizard, status, manual sync, disable sync.
+- **Build system**: none; sync code lives directly in the userscript.
+- **Integration**: Sync is fully integrated into the userscript (UI tab included).
 
 ### Technical details
 
-- **Single-file bundle**: All sync dependencies are bundled into the `.user.js` file by rollup
+- **Single-file bundle**: All sync dependencies live directly in the `.user.js` file
 - **Encryption**: Uses Web Crypto API for AES-256-GCM encryption
 - **Authentication**: JWT tokens with 7-day expiry
 - **Storage**: Tampermonkey `GM_getValue`/`GM_setValue` or `localStorage` as fallback
-- **Network**: Uses `GM_xmlhttpRequest` for cross-origin requests
+- **Network**: Uses `fetch` with Tampermonkey `@connect` permissions
 
 ### Shared mappings flow
 

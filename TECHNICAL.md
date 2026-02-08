@@ -9,7 +9,7 @@
 ## Installation details
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension.
-2. Create a new userscript and paste the contents of `bank-cc-limits-subcap-calculator.user.js` (generated build artifact; source of truth is `apps/userscripts/uob-lady-solitaire/src/index.user.js`).
+2. Create a new userscript and paste the contents of `apps/userscripts/uob-lady-solitaire/src/index.user.js` (single-file source of truth).
 3. Save the script and visit the supported UOB PIB card transaction page.
 4. Click **Subcap Tools** to open the UI.
 

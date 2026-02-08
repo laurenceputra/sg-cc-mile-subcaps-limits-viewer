@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { Database } from '../storage/db.js';
+import { rateLimitConfig } from '../middleware/rate-limit-config.js';
 import BetterSqlite3 from 'better-sqlite3';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -68,6 +69,53 @@ export async function createTestUser(db, options = {}) {
  * Create test environment variables
  */
 export function createTestEnv(overrides = {}) {
+  const createRateLimiter = (config) => {
+    const limit = config.maxAttempts || config.maxRequests;
+    const windowMs = config.windowMs;
+    const store = new Map();
+
+    return {
+      limit: ({ key }) => {
+        const now = Date.now();
+        const entry = store.get(key);
+
+        if (!entry || now > entry.resetAt) {
+          const resetAt = now + windowMs;
+          const count = 1;
+          store.set(key, { count, resetAt });
+          return {
+            success: true,
+            remaining: Math.max(0, limit - count)
+          };
+        }
+
+        entry.count += 1;
+        store.set(key, entry);
+
+        if (entry.count > limit) {
+          return {
+            success: false,
+            remaining: 0
+          };
+        }
+
+        return {
+          success: true,
+          remaining: Math.max(0, limit - entry.count)
+        };
+      }
+    };
+  };
+
+  const rateLimitBindings = {
+    RATE_LIMIT_LOGIN: createRateLimiter(rateLimitConfig.login),
+    RATE_LIMIT_REGISTER: createRateLimiter(rateLimitConfig.register),
+    RATE_LIMIT_SYNC: createRateLimiter(rateLimitConfig.sync),
+    RATE_LIMIT_SHAREDMAPPINGS: createRateLimiter(rateLimitConfig.sharedMappings),
+    RATE_LIMIT_LOGOUT: createRateLimiter(rateLimitConfig.logout),
+    RATE_LIMIT_ADMIN: createRateLimiter(rateLimitConfig.admin)
+  };
+
   return {
     JWT_SECRET: 'test-secret-key-for-testing-only',
     ADMIN_KEY: 'test-admin-key-123',
@@ -76,6 +124,7 @@ export function createTestEnv(overrides = {}) {
     ENVIRONMENT: 'test',
     NODE_ENV: 'test',
     REDIS_URL: '',
+    ...rateLimitBindings,
     ...overrides
   };
 }

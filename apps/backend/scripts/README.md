@@ -6,7 +6,6 @@ Helper scripts for backend validation. These are separate from the Jest test sui
 - `test-rate-limiting-integration.sh` - Rate limit integration checks
 - `test-security.sh` - Security checks
 - `test-validation-only.sh` - Validation-only test run
-- `test-server-start.sh` - Startup validation
 - `test-medium-security-fixes.sh` - Medium security fixes validation
 
 ## Node

@@ -139,7 +139,7 @@ describe('Auth - Registration', () => {
   test('should enforce rate limiting on registration', async () => {
     const requests = [];
     
-    // Attempt 4 registrations (limit is 3 per hour)
+    // Attempt 4 registrations (limit is 3 per minute)
     for (let i = 0; i < 4; i++) {
       const req = new Request('http://localhost/auth/register', {
         method: 'POST',
@@ -247,7 +247,7 @@ describe('Auth - Login', () => {
     const requests = [];
     const clientIp = '192.168.1.100';
     
-    // Attempt 6 logins (limit is 5 per 15 minutes)
+    // Attempt 6 logins (limit is 5 per minute)
     for (let i = 0; i < 6; i++) {
       const req = new Request('http://localhost/auth/login', {
         method: 'POST',
@@ -270,7 +270,7 @@ describe('Auth - Login', () => {
     expect(lastResult.status).toBe(429);
   });
 
-  test('should apply progressive delay on failed attempts', async () => {
+  test('should not apply progressive delay in Workers runtime', async () => {
     const startTime = Date.now();
     
     // Make 3 failed login attempts
@@ -292,9 +292,8 @@ describe('Auth - Login', () => {
 
     const elapsed = Date.now() - startTime;
     
-    // Should have delays applied (200ms, 400ms, 800ms = 1400ms minimum)
-    // Allow some tolerance for execution time
-    expect(elapsed).toBeGreaterThan(1000);
+    // Workers adapter disables progressive delay; keep this tight
+    expect(elapsed).toBeLessThan(500);
   });
 });
 

@@ -4,8 +4,7 @@ export default {
   collectCoverageFrom: [
     'src/**/*.js',
     '!src/__tests__/**',
-    '!src/cloudflare-worker.js', // Cloudflare-specific
-    '!src/node-server.js' // Server entry point
+    '!src/cloudflare-worker.js' // Cloudflare-specific
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],

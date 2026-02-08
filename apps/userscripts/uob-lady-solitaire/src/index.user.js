@@ -1,3 +1,837 @@
+// ==UserScript==
+// @name         Bank CC Limits Subcap Calculator
+// @namespace    local
+// @version      0.6.0
+// @description  Extract credit card transactions and manage subcap categories with optional sync
+// @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
+// @run-at       document-idle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @connect      bank-cc-sync.your-domain.workers.dev
+// @connect      localhost
+// ==/UserScript==
+
+const SYNC_CONFIG = {
+  // Change this URL if self-hosting
+  serverUrl: 'https://bank-cc-sync.your-domain.workers.dev',
+
+  // For self-hosters: Update to your own server URL before building
+  // Example: 'https://sync.example.com' or 'http://localhost:3000'
+};
+
+function generateDeviceId() {
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `device-${Date.now()}-${randomPart}`;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function validateSyncPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (typeof payload.version !== 'number' || payload.version < 0) return false;
+  if (typeof payload.deviceId !== 'string' || !payload.deviceId) return false;
+  if (typeof payload.timestamp !== 'number' || payload.timestamp <= 0) return false;
+  if (!payload.data || typeof payload.data !== 'object') return false;
+  if (!payload.data.cards || typeof payload.data.cards !== 'object') return false;
+  return true;
+}
+
+function validateServerUrl(url) {
+  if (!url || typeof url !== 'string') {
+    throw new Error('Server URL is required');
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error('Invalid URL format');
+  }
+
+  const allowedProtocols = ['http:', 'https:'];
+  if (!allowedProtocols.includes(parsed.protocol)) {
+    throw new Error('Server URL must use HTTP or HTTPS protocol');
+  }
+}
+
+async function deriveKey(passphrase, salt, iterations = 310000) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveBits', 'deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: iterations,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encrypt(key, data) {
+  const enc = new TextEncoder();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = enc.encode(JSON.stringify(data));
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    plaintext
+  );
+
+  return {
+    ciphertext: arrayBufferToBase64(ciphertext),
+    iv: arrayBufferToBase64(iv)
+  };
+}
+
+async function decrypt(key, ciphertext, iv) {
+  const dec = new TextDecoder();
+  const ciphertextBuffer = base64ToArrayBuffer(ciphertext);
+  const ivBuffer = base64ToArrayBuffer(iv);
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: ivBuffer },
+    key,
+    ciphertextBuffer
+  );
+
+  return JSON.parse(dec.decode(plaintext));
+}
+
+function generateSalt() {
+  return crypto.getRandomValues(new Uint8Array(16));
+}
+
+class StorageAdapter {
+  constructor() {
+    this.useGM = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
+  }
+
+  get(key, fallback = null) {
+    try {
+      if (this.useGM) {
+        return GM_getValue(key, fallback);
+      }
+    } catch (error) {
+      console.error('[Storage] GM_getValue error:', error);
+    }
+    const stored = window.localStorage.getItem(key);
+    return stored !== null ? stored : fallback;
+  }
+
+  set(key, value) {
+    try {
+      if (this.useGM) {
+        GM_setValue(key, value);
+        return;
+      }
+    } catch (error) {
+      console.error('[Storage] GM_setValue error:', error);
+    }
+    window.localStorage.setItem(key, value);
+  }
+
+  remove(key) {
+    try {
+      if (this.useGM && typeof GM_deleteValue === 'function') {
+        GM_deleteValue(key);
+        return;
+      }
+    } catch (error) {
+      console.error('[Storage] GM_deleteValue error:', error);
+    }
+    window.localStorage.removeItem(key);
+  }
+}
+
+class ApiClient {
+  constructor(baseUrl) {
+    this.baseUrl = baseUrl;
+    this.token = null;
+  }
+
+  setToken(token) {
+    this.token = token;
+  }
+
+  async request(endpoint, options = {}) {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const config = {
+      ...options,
+      headers
+    };
+
+    try {
+      const response = await fetch(url, config);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(error.message || `HTTP ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('[ApiClient] Request failed:', error);
+      throw error;
+    }
+  }
+
+  async login(email, passwordHash) {
+    const response = await this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, passwordHash })
+    });
+    this.setToken(response.token);
+    return response;
+  }
+
+  async register(email, passwordHash, tier = 'free') {
+    const response = await this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, passwordHash, tier })
+    });
+    this.setToken(response.token);
+    return response;
+  }
+
+  async getSyncData() {
+    return await this.request('/sync/data');
+  }
+
+  async putSyncData(encryptedData, version) {
+    return await this.request('/sync/data', {
+      method: 'PUT',
+      body: JSON.stringify({ encryptedData, version })
+    });
+  }
+
+  async getSharedMappings(cardType) {
+    return await this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
+  }
+
+  async contributeMappings(mappings) {
+    return await this.request('/shared/mappings/contribute', {
+      method: 'POST',
+      body: JSON.stringify({ mappings })
+    });
+  }
+
+  async deleteUserData() {
+    return await this.request('/user/data', {
+      method: 'DELETE'
+    });
+  }
+}
+
+class CryptoManager {
+  constructor(passphrase, salt = null) {
+    this.passphrase = passphrase;
+    this.salt = salt || generateSalt();
+    this.key = null;
+  }
+
+  async init() {
+    this.key = await deriveKey(this.passphrase, this.salt);
+  }
+
+  async encrypt(data) {
+    if (!this.key) await this.init();
+    const encrypted = await encrypt(this.key, data);
+    return {
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      salt: arrayBufferToBase64(this.salt)
+    };
+  }
+
+  async decrypt(ciphertext, iv, saltBase64) {
+    if (saltBase64) {
+      this.salt = base64ToArrayBuffer(saltBase64);
+    }
+    if (!this.key) await this.init();
+    return await decrypt(this.key, ciphertext, iv);
+  }
+}
+
+class SyncEngine {
+  constructor(apiClient, cryptoManager, storage) {
+    this.api = apiClient;
+    this.crypto = cryptoManager;
+    this.storage = storage;
+  }
+
+  async pull() {
+    try {
+      const response = await this.api.getSyncData();
+
+      if (!response || !response.encryptedData) {
+        return { success: true, data: null, version: 0 };
+      }
+
+      const decrypted = await this.crypto.decrypt(
+        response.encryptedData.ciphertext,
+        response.encryptedData.iv,
+        response.encryptedData.salt
+      );
+
+      if (!validateSyncPayload(decrypted)) {
+        throw new Error('Invalid sync payload structure');
+      }
+
+      return {
+        success: true,
+        data: decrypted.data,
+        version: response.version,
+        timestamp: decrypted.timestamp
+      };
+    } catch (error) {
+      console.error('[SyncEngine] Pull failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async push(data, version, deviceId) {
+    try {
+      const payload = {
+        version: version + 1,
+        deviceId: deviceId,
+        timestamp: Date.now(),
+        data: data
+      };
+
+      const encrypted = await this.crypto.encrypt(payload);
+
+      const response = await this.api.putSyncData(encrypted, payload.version);
+
+      return {
+        success: true,
+        version: response.version
+      };
+    } catch (error) {
+      console.error('[SyncEngine] Push failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  mergeCardSettings(local, remote) {
+    if (!remote) return local;
+    if (!local) return remote;
+
+    const merged = { ...local };
+
+    merged.merchantMap = { ...local.merchantMap };
+    for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
+      merged.merchantMap[merchant] = category;
+    }
+
+    merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
+
+    if (remote.selectedCategories) {
+      merged.selectedCategories = remote.selectedCategories;
+    }
+    if (remote.defaultCategory) {
+      merged.defaultCategory = remote.defaultCategory;
+    }
+
+    return merged;
+  }
+
+  async sync(localData, currentVersion, deviceId) {
+    const pullResult = await this.pull();
+
+    if (!pullResult.success) {
+      return pullResult;
+    }
+
+    let dataToSync = localData;
+
+    if (pullResult.data) {
+      const mergedCards = {};
+      const allCardNames = new Set([
+        ...Object.keys(localData.cards || {}),
+        ...Object.keys(pullResult.data.cards || {})
+      ]);
+
+      for (const cardName of allCardNames) {
+        mergedCards[cardName] = this.mergeCardSettings(
+          localData.cards[cardName],
+          pullResult.data.cards[cardName]
+        );
+      }
+
+      dataToSync = { cards: mergedCards };
+    }
+
+    const pushResult = await this.push(dataToSync, pullResult.version, deviceId);
+
+    if (pushResult.success) {
+      return {
+        success: true,
+        data: dataToSync,
+        version: pushResult.version
+      };
+    }
+
+    return pushResult;
+  }
+}
+
+class SyncClient {
+  constructor(config) {
+    this.config = config;
+    this.storage = new StorageAdapter();
+    this.api = new ApiClient(config.serverUrl);
+    this.cryptoManager = null;
+    this.syncEngine = null;
+  }
+
+  async init(passphrase) {
+    this.cryptoManager = new CryptoManager(passphrase);
+    await this.cryptoManager.init();
+    this.syncEngine = new SyncEngine(this.api, this.cryptoManager, this.storage);
+  }
+
+  async login(email, passwordHash) {
+    return await this.api.login(email, passwordHash);
+  }
+
+  async register(email, passwordHash, tier = 'free') {
+    return await this.api.register(email, passwordHash, tier);
+  }
+
+  async sync(localData, currentVersion, deviceId) {
+    if (!this.syncEngine) {
+      throw new Error('SyncClient not initialized. Call init() first.');
+    }
+    return await this.syncEngine.sync(localData, currentVersion, deviceId);
+  }
+
+  async getSharedMappings(cardType) {
+    return await this.api.getSharedMappings(cardType);
+  }
+
+  async contributeMappings(mappings) {
+    return await this.api.contributeMappings(mappings);
+  }
+}
+
+class SyncManager {
+  constructor(storage) {
+    this.storage = storage;
+    this.syncClient = null;
+    this.enabled = false;
+    this.config = this.loadSyncConfig();
+  }
+
+  loadSyncConfig() {
+    const raw = this.storage.get('ccSubcapSyncConfig', '{}');
+    try {
+      return JSON.parse(raw || '{}');
+    } catch (error) {
+      return {};
+    }
+  }
+
+  saveSyncConfig(config) {
+    this.storage.set('ccSubcapSyncConfig', JSON.stringify(config));
+    this.config = config;
+  }
+
+  isEnabled() {
+    return this.config.enabled === true;
+  }
+
+  async setupSync(email, passphrase, deviceName, serverUrl) {
+    try {
+      const deviceId = generateDeviceId();
+
+      const actualServerUrl = serverUrl || SYNC_CONFIG.serverUrl;
+
+      validateServerUrl(actualServerUrl);
+
+      this.syncClient = new SyncClient({
+        serverUrl: actualServerUrl
+      });
+
+      await this.syncClient.init(passphrase);
+
+      this.config.email = email;
+
+      const hashedPassphrase = await this.hashPassphrase(passphrase);
+
+      let authResult;
+      try {
+        authResult = await this.syncClient.login(email, hashedPassphrase);
+      } catch (error) {
+        authResult = await this.syncClient.register(email, hashedPassphrase);
+      }
+
+      this.saveSyncConfig({
+        enabled: true,
+        deviceId,
+        deviceName,
+        email,
+        token: authResult.token,
+        tier: authResult.tier,
+        shareMappings: authResult.tier === 'free',
+        lastSync: 0,
+        serverUrl: actualServerUrl
+      });
+
+      this.syncClient.api.setToken(authResult.token);
+      this.enabled = true;
+
+      return { success: true };
+    } catch (error) {
+      console.error('[SyncManager] Setup failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async sync(localData) {
+    if (!this.isEnabled() || !this.syncClient) {
+      return { success: false, error: 'Sync not enabled' };
+    }
+
+    try {
+      const result = await this.syncClient.sync(
+        localData,
+        this.config.version || 0,
+        this.config.deviceId
+      );
+
+      if (result.success) {
+        this.saveSyncConfig({
+          ...this.config,
+          version: result.version,
+          lastSync: Date.now()
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error('[SyncManager] Sync failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getSharedMappings(cardType) {
+    if (!this.isEnabled() || !this.syncClient) {
+      return { success: false, mappings: [] };
+    }
+
+    try {
+      const result = await this.syncClient.getSharedMappings(cardType);
+      return { success: true, mappings: result.mappings || [] };
+    } catch (error) {
+      console.error('[SyncManager] Get shared mappings failed:', error);
+      return { success: false, mappings: [] };
+    }
+  }
+
+  async contributeMappings(mappings) {
+    if (!this.isEnabled() || !this.syncClient) {
+      return { success: false };
+    }
+
+    if (!this.config.shareMappings) {
+      return { success: true, message: 'Sharing disabled' };
+    }
+
+    try {
+      await this.syncClient.contributeMappings(mappings);
+      return { success: true, contributed: mappings.length };
+    } catch (error) {
+      console.error('[SyncManager] Contribute mappings failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async hashPassphrase(passphrase) {
+    const enc = new TextEncoder();
+
+    const saltData = enc.encode(this.config.email || 'default-salt');
+    const saltHash = await crypto.subtle.digest('SHA-256', saltData);
+    const salt = new Uint8Array(saltHash).slice(0, 16);
+
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(passphrase),
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 310000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      256
+    );
+
+    return Array.from(new Uint8Array(derivedBits))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  disableSync() {
+    this.saveSyncConfig({});
+    this.enabled = false;
+    this.syncClient = null;
+  }
+}
+
+function createSyncTab(syncManager, settings, THEME) {
+  const container = document.createElement('div');
+  container.id = 'cc-subcap-sync';
+  container.style.cssText = 'display: none; padding: 24px;';
+
+  const isEnabled = syncManager.isEnabled();
+  const config = syncManager.config;
+
+  if (!isEnabled) {
+    container.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
+      <p style="color: ${THEME.muted}; margin-bottom: 16px;">
+        Enable sync to access your settings across devices.
+      </p>
+      <div style="background: ${THEME.accentSoft}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        <strong style="color: ${THEME.accentText}">Privacy First:</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
+          <li>Settings are encrypted before leaving your browser</li>
+          <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
+          <li>Raw transactions stay local</li>
+        </ul>
+      </div>
+      <button id="setup-sync-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.accent};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+      ">Setup Sync</button>
+    `;
+
+    const setupBtn = container.querySelector('#setup-sync-btn');
+    setupBtn.addEventListener('click', () => {
+      showSyncSetupDialog(syncManager, THEME);
+    });
+  } else {
+    const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
+    const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
+
+    container.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
+      <div style="background: ${THEME.panel}; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+        <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
+        <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
+        <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
+        <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
+        <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+      </div>
+      <button id="sync-now-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.accent};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+        margin-right: 8px;
+      ">Sync Now</button>
+      <button id="disable-sync-btn" style="
+        padding: 12px 24px;
+        background: ${THEME.warning};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+      ">Disable Sync</button>
+      <div id="sync-status" style="margin-top: 16px; padding: 12px; border-radius: 8px; display: none;"></div>
+    `;
+
+    container.querySelector('#sync-now-btn').addEventListener('click', async () => {
+      const statusDiv = container.querySelector('#sync-status');
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = THEME.accentSoft;
+      statusDiv.style.color = THEME.accentText;
+      statusDiv.textContent = 'Syncing...';
+
+      const result = await syncManager.sync({ cards: settings.cards });
+
+      if (result.success) {
+        statusDiv.style.background = '#d1fae5';
+        statusDiv.style.color = '#065f46';
+        statusDiv.textContent = '✓ Synced successfully!';
+        setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+      } else {
+        statusDiv.style.background = THEME.warningSoft;
+        statusDiv.style.color = THEME.warning;
+        statusDiv.textContent = `❌ Sync failed: ${result.error}`;
+      }
+    });
+
+    container.querySelector('#disable-sync-btn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
+        syncManager.disableSync();
+        location.reload();
+      }
+    });
+  }
+
+  return container;
+}
+
+function showSyncSetupDialog(syncManager, THEME) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: ${THEME.overlay}; z-index: 100001;
+    display: flex; align-items: center; justify-content: center;
+  `;
+
+  overlay.innerHTML = `
+    <div style="
+      background: white; padding: 32px; border-radius: 16px;
+      max-width: 500px; width: 90%; box-shadow: ${THEME.shadow};
+    ">
+      <h3 style="margin: 0 0 16px 0;">Setup Sync</h3>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Server URL</label>
+      <input id="sync-server-url" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
+      <input id="sync-email" type="email" placeholder="your@email.com" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Passphrase</label>
+      <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
+      "/>
+      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Device Name</label>
+      <input id="sync-device" type="text" placeholder="My Laptop" style="
+        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+        border-radius: 8px; margin-bottom: 24px; box-sizing: border-box;
+      "/>
+      <div style="display: flex; gap: 8px;">
+        <button id="sync-setup-save" style="
+          flex: 1; padding: 12px; background: ${THEME.accent}; color: white;
+          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
+        ">Setup</button>
+        <button id="sync-setup-cancel" style="
+          flex: 1; padding: 12px; background: ${THEME.panel}; color: ${THEME.text};
+          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
+        ">Cancel</button>
+      </div>
+      <div id="sync-setup-status" style="margin-top: 16px; display: none;"></div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#sync-setup-cancel').addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  overlay.querySelector('#sync-setup-save').addEventListener('click', async () => {
+    const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
+    const email = overlay.querySelector('#sync-email').value;
+    const passphrase = overlay.querySelector('#sync-passphrase').value;
+    const deviceName = overlay.querySelector('#sync-device').value;
+    const statusDiv = overlay.querySelector('#sync-setup-status');
+
+    if (!serverUrl || !email || !passphrase || !deviceName) {
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = THEME.warningSoft;
+      statusDiv.style.color = THEME.warning;
+      statusDiv.style.padding = '12px';
+      statusDiv.style.borderRadius = '8px';
+      statusDiv.textContent = 'All fields are required';
+      return;
+    }
+
+    try {
+      validateServerUrl(serverUrl);
+    } catch (error) {
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = THEME.warningSoft;
+      statusDiv.style.color = THEME.warning;
+      statusDiv.style.padding = '12px';
+      statusDiv.style.borderRadius = '8px';
+      statusDiv.textContent = error.message;
+      return;
+    }
+
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = THEME.accentSoft;
+    statusDiv.style.color = THEME.accentText;
+    statusDiv.style.padding = '12px';
+    statusDiv.style.borderRadius = '8px';
+    statusDiv.textContent = 'Setting up sync...';
+
+    const result = await syncManager.setupSync(email, passphrase, deviceName, serverUrl);
+
+    if (result.success) {
+      statusDiv.style.background = '#d1fae5';
+      statusDiv.style.color = '#065f46';
+      statusDiv.textContent = '✓ Sync setup complete! Reloading...';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      statusDiv.style.background = THEME.warningSoft;
+      statusDiv.style.color = THEME.warning;
+      statusDiv.textContent = `❌ Setup failed: ${result.error}`;
+    }
+  });
+}
+
 // Phase 3: Sync integration (imports added)
 import { SyncManager } from './sync-manager.js';
 import { createSyncTab } from './sync-ui.js';

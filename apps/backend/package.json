@@ -2,13 +2,11 @@
   "name": "@bank-cc/backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "Sync backend for bank CC calculator (Cloudflare Workers + Docker)",
+  "description": "Sync backend for bank CC calculator (Cloudflare Workers)",
   "main": "src/index.js",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "dev:node": "node src/node-server.js",
-    "build:docker": "docker build -f infra/docker/Dockerfile -t bank-cc-backend .",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=integration",
     "test:security": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=security",
@@ -25,11 +23,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@bank-cc/shared": "*",
-    "@hono/node-server": "^1.19.9",
-    "hono": "^4.0.0",
-    "ioredis": "^5.9.2",
-    "rate-limiter-flexible": "^9.0.1"
+    "hono": "^4.0.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

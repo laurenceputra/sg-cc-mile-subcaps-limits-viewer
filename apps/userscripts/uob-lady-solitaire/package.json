@@ -3,23 +3,9 @@
   "version": "0.6.0",
   "type": "module",
   "description": "UOB Lady's Solitaire Card subcap calculator userscript",
-  "main": "dist/bank-cc-limits-subcap-calculator.user.js",
-  "scripts": {
-    "build": "rollup -c",
-    "dev": "rollup -c -w"
-  },
+  "main": "src/index.user.js",
   "keywords": ["tampermonkey", "uob", "credit-card"],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "@bank-cc/sync-client": "*",
-    "@bank-cc/shared": "*",
-    "@bank-cc/crypto": "*"
-  },
-  "devDependencies": {
-    "@rollup/plugin-commonjs": "^25.0.7",
-    "@rollup/plugin-node-resolve": "^15.2.3",
-    "rollup": "^4.9.6",
-    "rollup-plugin-copy": "^3.5.0"
-  }
+  "dependencies": {}
 }

@@ -99,7 +99,7 @@ describe('Sync - Get Data', () => {
   test('should enforce rate limiting', async () => {
     const requests = [];
     
-    // Attempt 101 requests (limit is 100 per hour)
+    // Attempt 101 requests (limit is 100 per minute)
     for (let i = 0; i < 101; i++) {
       const req = new Request('http://localhost/sync/data', {
         method: 'GET',

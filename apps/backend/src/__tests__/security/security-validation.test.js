@@ -370,7 +370,7 @@ describe('Security - Rate Limiting', () => {
     await cleanupTestDb(db);
   });
 
-  test('should enforce login rate limit (5 per 15 min)', async () => {
+  test('should enforce login rate limit (5 per minute)', async () => {
     const testUser = await createTestUser(db);
     const requests = [];
     const clientIp = '10.0.0.1';
@@ -400,7 +400,7 @@ describe('Security - Rate Limiting', () => {
     expect(statuses[5]).toBe(429);
   });
 
-  test('should enforce registration rate limit (3 per hour)', async () => {
+  test('should enforce registration rate limit (3 per minute)', async () => {
     const requests = [];
     const clientIp = '10.0.0.2';
 

@@ -1,6 +1,6 @@
 # Bank CC Sync Backend
 
-Optional sync backend for encrypted settings and shared mappings. Supports both Cloudflare Workers and Docker deployment.
+Optional sync backend for encrypted settings and shared mappings. Cloudflare Workers deployment only.
 
 ## 📚 Comprehensive Deployment Guide
 
@@ -8,7 +8,6 @@ Optional sync backend for encrypted settings and shared mappings. Supports both 
 **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 The deployment guide covers:
-- Node.js/Docker deployment (self-hosted)
 - Cloudflare Workers deployment (serverless)
 - Production considerations and security hardening
 - Monitoring, maintenance, and troubleshooting
@@ -56,29 +55,6 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
    ```
 6. Deploy: `npm run deploy`
 
-## Docker Self-Hosting
-
-### Prerequisites
-
-**Generate Secure Secrets (see instructions above in Cloudflare section)**
-
-### Deployment Steps
-
-1. Create `.env` file with generated secrets:
-   ```bash
-   JWT_SECRET=<your-generated-jwt-secret>
-   ADMIN_KEY=<your-generated-admin-key>
-   ENVIRONMENT=production
-   ```
-
-2. Start: `docker-compose up -d`
-
-3. Database is persisted in Docker volume `db-data`
-
-4. Access: `http://localhost:3000`
-
-**IMPORTANT:** The server will refuse to start if JWT_SECRET or ADMIN_KEY are not set or are using insecure default values.
-
 ## API Endpoints
 
 ### Security Summary
@@ -86,11 +62,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 Security controls (validation, CSRF, rate limits, audit logging, headers) are documented in:
 **[SECURITY.md](SECURITY.md)**.
 
-## Rate Limiting (Node + Workers)
+## Rate Limiting (Workers)
 
-- Node uses `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
 - Workers use Cloudflare Rate Limiting bindings configured in `wrangler.toml`.
-- Workers limits are per-location; see `SECURITY.md` for Node vs Workers windows.
+- Workers limits are per-location; see `SECURITY.md` for configured windows.
 - Rate limit keys are hashed with `JWT_SECRET` to avoid PII in keys.
 
 ### Auth
@@ -149,7 +124,7 @@ The backend automatically logs all security-relevant events:
 ## Security Best Practices
 
 1. **Always use generated secrets** - Never use default values
-2. **Keep secrets secure** - Use secrets management (Docker Secrets, Vault, etc.)
+2. **Keep secrets secure** - Use secrets management (Cloudflare secrets, Vault, etc.)
 3. **Enable HTTPS** - Use TLS certificates in production
 4. **Monitor audit logs** - Regularly review security events
 5. **Rotate secrets periodically** - Change JWT_SECRET and ADMIN_KEY on a schedule
