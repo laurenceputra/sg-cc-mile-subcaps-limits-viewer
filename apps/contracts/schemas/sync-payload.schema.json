@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "apps/contracts/schemas/sync-payload.schema.json",
+  "title": "SyncPayload",
+  "type": "object",
+  "required": ["version", "deviceId", "timestamp", "data"],
+  "properties": {
+    "version": {
+      "type": "number",
+      "minimum": 0
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "data": {
+      "type": "object",
+      "required": ["cards"],
+      "properties": {
+        "cards": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

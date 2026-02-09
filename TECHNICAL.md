@@ -1,5 +1,11 @@
 # Technical Documentation
 
+## Repo architecture
+
+- Userscript implementation is self-contained in `apps/userscripts/uob-lady-solitaire/`.
+- Backend implementation is self-contained in `apps/backend/`.
+- Shared behavior between apps is defined by HTTP contracts in `apps/contracts/` (no shared runtime package).
+
 ## Supported scope
 
 - **Bank/portal**: UOB Personal Internet Banking (PIB)

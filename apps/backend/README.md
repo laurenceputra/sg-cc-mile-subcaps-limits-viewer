@@ -2,6 +2,11 @@
 
 Optional sync backend for encrypted settings and shared mappings. Supports both Cloudflare Workers and Docker deployment.
 
+## App boundary
+
+- Backend code is self-contained under `apps/backend/`.
+- Client integration contract is documented in `apps/contracts/sync-api.md` and `apps/contracts/schemas/`.
+
 ## 📚 Comprehensive Deployment Guide
 
 **For detailed deployment instructions, troubleshooting, and production best practices, see:**

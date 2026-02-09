@@ -2,6 +2,11 @@
 
 Tampermonkey userscript that summarizes UOB Lady's Solitaire credit card spend, tracks subcap categories, and keeps all data local to your browser.
 
+## App boundary
+
+- Userscript code is self-contained under `apps/userscripts/uob-lady-solitaire/`.
+- Sync/backend integration uses the HTTP contract documented in `apps/contracts/sync-api.md`.
+
 ## Features
 
 - **Spend tracking**: Extract and categorize credit card transactions
@@ -71,7 +76,7 @@ serverUrl: 'https://bank-cc-sync.your-domain.workers.dev'
 
 - **Sync manager** (`src/sync-manager.js`): login/register, pull/merge/push, shared mappings, device management.
 - **Sync UI** (`src/sync-ui.js`): setup wizard, status, manual sync, disable sync.
-- **Build system**: rollup bundles sync-client dependencies and adds Tampermonkey grants.
+- **Sync modules** (`src/sync/*.js`): app-local API, crypto, validation, and sync engine helpers.
 - **Integration**: Sync is now fully integrated into the userscript (imports enabled, UI tab added).
 
 ### Technical details
