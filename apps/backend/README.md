@@ -1,88 +1,49 @@
 # Bank CC Sync Backend
 
-Optional sync backend for encrypted settings and shared mappings. Supports both Cloudflare Workers and Docker deployment.
+Optional sync backend for encrypted settings and shared mappings. Runs on **Cloudflare Workers + D1** only.
 
 ## App boundary
 
 - Backend code is self-contained under `apps/backend/`.
 - Client integration contract is documented in `apps/contracts/sync-api.md` and `apps/contracts/schemas/`.
 
-## 📚 Comprehensive Deployment Guide
+## 📚 Deployment guide
 
-**For detailed deployment instructions, troubleshooting, and production best practices, see:**
-**[DEPLOYMENT.md](DEPLOYMENT.md)**
+For full deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
-The deployment guide covers:
-- Node.js/Docker deployment (self-hosted)
-- Cloudflare Workers deployment (serverless)
-- Production considerations and security hardening
-- Monitoring, maintenance, and troubleshooting
-- Environment configuration and scaling strategies
+## Quick start (Cloudflare Workers)
 
-## Quick Start
-
-Below are quick start instructions. For production deployments, see [DEPLOYMENT.md](DEPLOYMENT.md).
-
-## Cloudflare Workers Deployment
-
-### Prerequisites
-
-**Generate Secure Secrets:**
-
-Before deployment, generate strong secrets for JWT signing and admin authentication:
-
-```bash
-# Method 1: Using OpenSSL (recommended)
-openssl rand -base64 32
-
-# Method 2: Using Node.js
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-
-# Method 3: Using Python
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-**CRITICAL SECURITY REQUIREMENTS:**
-- Secrets MUST be at least 32 characters
-- NEVER use default values like 'dev-secret' or 'admin-dev-key' in production
-- Use different secrets for JWT_SECRET and ADMIN_KEY
-- Store secrets securely (never commit to version control)
-
-### Deployment Steps
-
-1. Install Wrangler: `npm install -g wrangler`
-2. Create D1 database: `wrangler d1 create bank_cc_sync`
-3. Update `wrangler.toml` with database ID
-4. Run schema: `wrangler d1 execute bank_cc_sync --file=src/storage/schema.sql`
-5. Set secrets:
+1. Install dependencies:
+   ```bash
+   npm --prefix apps/backend install
+   ```
+2. Install Wrangler: `npm install -g wrangler`
+3. Create D1 database: `wrangler d1 create bank_cc_sync`
+4. Update `wrangler.toml` with the database ID.
+5. Run schema:
+   ```bash
+   wrangler d1 execute bank_cc_sync --file=src/storage/schema.sql
+   ```
+6. Set secrets:
    ```bash
    wrangler secret put JWT_SECRET
    wrangler secret put ADMIN_KEY
    ```
-6. Deploy: `npm run deploy`
+7. Start locally: `npm --prefix apps/backend run dev`
+8. Deploy: `npm --prefix apps/backend run deploy`
 
-## Docker Self-Hosting
+## Testing
 
-### Prerequisites
+Workers-only tests:
+```bash
+npm --prefix apps/backend test
+```
 
-**Generate Secure Secrets (see instructions above in Cloudflare section)**
+## Rate limiting (Workers)
 
-### Deployment Steps
-
-1. Create `.env` file with generated secrets:
-   ```bash
-   JWT_SECRET=<your-generated-jwt-secret>
-   ADMIN_KEY=<your-generated-admin-key>
-   ENVIRONMENT=production
-   ```
-
-2. Start: `docker-compose up -d`
-
-3. Database is persisted in Docker volume `db-data`
-
-4. Access: `http://localhost:3000`
-
-**IMPORTANT:** The server will refuse to start if JWT_SECRET or ADMIN_KEY are not set or are using insecure default values.
+- Cloudflare Rate Limiting bindings configured in `wrangler.toml`.
+- Limits are per-location and enforced at the edge.
+- Rate-limit keys are hashed with `JWT_SECRET` to avoid PII in keys.
 
 ## API Endpoints
 
@@ -90,13 +51,6 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 Security controls (validation, CSRF, rate limits, audit logging, headers) are documented in:
 **[SECURITY.md](SECURITY.md)**.
-
-## Rate Limiting (Node + Workers)
-
-- Node uses `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
-- Workers use Cloudflare Rate Limiting bindings configured in `wrangler.toml`.
-- Workers limits are per-location; see `SECURITY.md` for Node vs Workers windows.
-- Rate limit keys are hashed with `JWT_SECRET` to avoid PII in keys.
 
 ### Auth
 - `POST /auth/register` - Create account
@@ -124,7 +78,6 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 
 The backend automatically logs all security-relevant events:
 
-**Logged Events:**
 - Login attempts (success and failure)
 - User registration
 - Device registration/removal
@@ -132,31 +85,11 @@ The backend automatically logs all security-relevant events:
 - Settings changes
 - Admin actions
 
-**Log Details:**
-- Timestamp
-- Event type
-- User ID (when applicable)
-- IP address
-- User agent
-- Device ID (for device events)
-- Sanitized event details (no passwords, tokens, or sensitive data)
-
-**Log Retention:**
-- Logs are automatically rotated after 90 days
-- Old logs are permanently deleted
-- Administrators can query logs for security review
-
-**Privacy:**
-- No passwords, tokens, or encryption keys are ever logged
-- Only sanitized details are stored
-- IP addresses are logged for forensics but can be anonymized if needed
-
 ## Security Best Practices
 
-1. **Always use generated secrets** - Never use default values
-2. **Keep secrets secure** - Use secrets management (Docker Secrets, Vault, etc.)
-3. **Enable HTTPS** - Use TLS certificates in production
-4. **Monitor audit logs** - Regularly review security events
-5. **Rotate secrets periodically** - Change JWT_SECRET and ADMIN_KEY on a schedule
-6. **Keep dependencies updated** - Run `npm audit` and update packages
-7. **Use firewall rules** - Restrict admin endpoints to trusted IPs
+1. Always use generated secrets.
+2. Store secrets securely (Wrangler secrets or a secrets manager).
+3. Enable HTTPS in production.
+4. Monitor audit logs.
+5. Rotate secrets periodically.
+6. Keep dependencies updated (`npm audit`).

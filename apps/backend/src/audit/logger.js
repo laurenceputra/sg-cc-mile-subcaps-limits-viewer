@@ -84,7 +84,7 @@ function getClientIp(request) {
 export async function logAuditEvent(db, { eventType, request, userId = null, deviceId = null, details = {} }) {
   try {
     if (userId !== null) {
-      const exists = db.db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
+      const exists = await db.db.prepare('SELECT 1 FROM users WHERE id = ?').bind(userId).first();
       if (!exists) {
         userId = null;
       }
@@ -98,14 +98,14 @@ export async function logAuditEvent(db, { eventType, request, userId = null, dev
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     
-    stmt.run(
+    await stmt.bind(
       eventType,
       userId,
       ipAddress,
       userAgent,
       deviceId,
       JSON.stringify(sanitizedDetails)
-    );
+    ).run();
   } catch (error) {
     // Never throw from audit logging - log error but continue
     console.error('[Audit] Failed to log event:', error);
@@ -124,10 +124,11 @@ export async function rotateAuditLogs(db, retentionDays = 90) {
     const cutoffTimestamp = Math.floor(Date.now() / 1000) - (retentionDays * 24 * 60 * 60);
     
     const stmt = db.db.prepare('DELETE FROM audit_logs WHERE created_at < ?');
-    const result = stmt.run(cutoffTimestamp);
+    const result = await stmt.bind(cutoffTimestamp).run();
     
-    console.log(`[Audit] Rotated audit logs: ${result.changes} records deleted (retention: ${retentionDays} days)`);
-    return result.changes;
+    const changes = result?.meta?.changes ?? 0;
+    console.log(`[Audit] Rotated audit logs: ${changes} records deleted (retention: ${retentionDays} days)`);
+    return changes;
   } catch (error) {
     console.error('[Audit] Failed to rotate logs:', error);
     throw error;
@@ -150,8 +151,9 @@ export async function getUserAuditLogs(db, userId, limit = 100) {
     ORDER BY created_at DESC
     LIMIT ?
   `);
-  
-  return stmt.all(userId, limit);
+
+  const result = await stmt.bind(userId, limit).all();
+  return result?.results ?? [];
 }
 
 /**
@@ -171,6 +173,7 @@ export async function getRecentFailedLogins(db, minutes = 60) {
     GROUP BY ip_address
     ORDER BY attempt_count DESC
   `);
-  
-  return stmt.all(AuditEventType.LOGIN_FAILED, cutoffTimestamp);
+
+  const result = await stmt.bind(AuditEventType.LOGIN_FAILED, cutoffTimestamp).all();
+  return result?.results ?? [];
 }

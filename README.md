@@ -10,7 +10,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
   Installable build: [bank-cc-limits-subcap-calculator.user.js](bank-cc-limits-subcap-calculator.user.js) (generated; source of truth is `apps/userscripts/uob-lady-solitaire/src/index.user.js`)
 
 - **Sync backend** — `apps/backend/`  
-  Optional API for encrypted settings sync and shared mappings.  
+  Optional API for encrypted settings sync and shared mappings (Cloudflare Workers + D1).  
   Docs: [apps/backend/README.md](apps/backend/README.md)
 
 ## Architecture
