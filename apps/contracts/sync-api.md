@@ -1,7 +1,7 @@
 # Sync API Contract
 
 This directory documents the HTTP contract between:
-- `apps/userscripts/uob-lady-solitaire`
+- `apps/userscripts/uob-lady-solitaire/dist/bank-cc-limits-subcap-calculator.user.js`
 - `apps/backend`
 
 Coupling is contract-only (HTTP + JSON schema). There is no shared runtime package.

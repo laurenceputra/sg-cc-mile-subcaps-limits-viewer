@@ -4,10 +4,9 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 ## Projects
 
-- **Userscript (UOB Lady's Solitaire)** — `apps/userscripts/uob-lady-solitaire/`  
+- **Userscript (UOB Lady's Solitaire)** — `apps/userscripts/uob-lady-solitaire/dist/bank-cc-limits-subcap-calculator.user.js`  
   Tampermonkey userscript that summarizes spend and manages subcap categories.  
-  Docs: [apps/userscripts/uob-lady-solitaire/README.md](apps/userscripts/uob-lady-solitaire/README.md)  
-  Installable build: [bank-cc-limits-subcap-calculator.user.js](bank-cc-limits-subcap-calculator.user.js) (generated; source of truth is `apps/userscripts/uob-lady-solitaire/src/index.user.js`)
+  Installable build: [bank-cc-limits-subcap-calculator.user.js](bank-cc-limits-subcap-calculator.user.js) (prebuilt; canonical copy lives in `apps/userscripts/uob-lady-solitaire/dist/`)
 
 - **Sync backend** — `apps/backend/`  
   Optional API for encrypted settings sync and shared mappings (Cloudflare Workers + D1).  
@@ -16,7 +15,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 ## Architecture
 
 - Apps are isolated under `apps/`:
-  - `apps/userscripts/uob-lady-solitaire`
+  - `apps/userscripts/uob-lady-solitaire/dist` (prebuilt userscript artifact)
   - `apps/backend`
 - Integration is contract-only over HTTP.
 - Shared API contracts and JSON schemas live in `apps/contracts/`.
@@ -36,7 +35,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 **Technical References:**
 - Userscript technical reference: [TECHNICAL.md](TECHNICAL.md)
-- Sync integration notes: [apps/userscripts/uob-lady-solitaire/README.md](apps/userscripts/uob-lady-solitaire/README.md)
+- Sync integration notes: [apps/contracts/sync-api.md](apps/contracts/sync-api.md)
 - Backend deployment: [apps/backend/README.md](apps/backend/README.md)
 
 **Security & Development:**

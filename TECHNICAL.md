@@ -2,7 +2,7 @@
 
 ## Repo architecture
 
-- Userscript implementation is self-contained in `apps/userscripts/uob-lady-solitaire/`.
+- Userscript build artifact is stored in `apps/userscripts/uob-lady-solitaire/dist/` (source/build tooling removed from this repo; the userscript header still references the historical src path).
 - Backend implementation is self-contained in `apps/backend/` (Cloudflare Workers + D1 only).
 - Shared behavior between apps is defined by HTTP contracts in `apps/contracts/` (no shared runtime package).
 
@@ -15,7 +15,7 @@
 ## Installation details
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension.
-2. Create a new userscript and paste the contents of `bank-cc-limits-subcap-calculator.user.js` (generated build artifact; source of truth is `apps/userscripts/uob-lady-solitaire/src/index.user.js`).
+2. Create a new userscript and paste the contents of `bank-cc-limits-subcap-calculator.user.js` (prebuilt artifact; canonical copy is in `apps/userscripts/uob-lady-solitaire/dist/`).
 3. Save the script and visit the supported UOB PIB card transaction page.
 4. Click **Subcap Tools** to open the UI.
 

@@ -4,7 +4,6 @@
   "private": true,
   "description": "Credit card subcap calculator with optional sync",
   "workspaces": [
-    "apps/userscripts/*",
     "apps/backend"
   ],
   "scripts": {
