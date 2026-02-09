@@ -5,8 +5,7 @@
   "description": "Credit card subcap calculator with optional sync",
   "workspaces": [
     "apps/userscripts/*",
-    "apps/backend",
-    "packages/*"
+    "apps/backend"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
