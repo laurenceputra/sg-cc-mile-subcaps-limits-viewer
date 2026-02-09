@@ -1416,10 +1416,11 @@
           return cardSettings.merchantMap[merchantName];
         }
         
-        // Then try case-insensitive exact matching for non-wildcard keys
+        // Then try case-insensitive exact matching
         const normalizedName = merchantName.toUpperCase();
+        const hasLiteralAsterisk = merchantName.includes('*');
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-          if (!hasUnescapedWildcard(pattern) && pattern.toUpperCase() === normalizedName) {
+          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && pattern.toUpperCase() === normalizedName) {
             return category;
           }
         }
@@ -1978,6 +1979,13 @@
         merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
       });
       const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
+      const knownMerchants = new Set(merchantCounts.keys());
+      Object.values(cardSettings.transactions || {}).forEach((entry) => {
+        const merchant = entry?.merchant_detail || '';
+        if (merchant) {
+          knownMerchants.add(merchant);
+        }
+      });
 
       const uncategorized = Array.from(merchantCounts.entries())
         .filter(([merchant]) => !mappedMerchants.has(merchant))
@@ -2113,7 +2121,7 @@
       
       // Show existing wildcard patterns
       const wildcardPatterns = Object.entries(cardSettings.merchantMap || {})
-        .filter(([pattern]) => hasUnescapedWildcard(pattern))
+        .filter(([pattern]) => hasUnescapedWildcard(pattern) && !knownMerchants.has(pattern))
         .sort((a, b) => a[0].localeCompare(b[0]));
       
       if (wildcardPatterns.length > 0) {
