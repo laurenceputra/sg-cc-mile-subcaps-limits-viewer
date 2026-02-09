@@ -25,7 +25,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@bank-cc/shared": "*",
     "@hono/node-server": "^1.19.9",
     "hono": "^4.0.0",
     "ioredis": "^5.9.2",
