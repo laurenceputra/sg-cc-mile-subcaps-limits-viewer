@@ -3,8 +3,6 @@ import { ApiClient } from './api-client.js';
 import { SyncEngine } from './sync-engine.js';
 import { CryptoManager } from './crypto-manager.js';
 
-export { StorageAdapter, ApiClient, SyncEngine, CryptoManager };
-
 export class SyncClient {
   constructor(config) {
     this.config = config;
@@ -21,25 +19,25 @@ export class SyncClient {
   }
 
   async login(email, passwordHash) {
-    return await this.api.login(email, passwordHash);
+    return this.api.login(email, passwordHash);
   }
 
   async register(email, passwordHash, tier = 'free') {
-    return await this.api.register(email, passwordHash, tier);
+    return this.api.register(email, passwordHash, tier);
   }
 
   async sync(localData, currentVersion, deviceId) {
     if (!this.syncEngine) {
       throw new Error('SyncClient not initialized. Call init() first.');
     }
-    return await this.syncEngine.sync(localData, currentVersion, deviceId);
+    return this.syncEngine.sync(localData, currentVersion, deviceId);
   }
 
   async getSharedMappings(cardType) {
-    return await this.api.getSharedMappings(cardType);
+    return this.api.getSharedMappings(cardType);
   }
 
   async contributeMappings(mappings) {
-    return await this.api.contributeMappings(mappings);
+    return this.api.contributeMappings(mappings);
   }
 }

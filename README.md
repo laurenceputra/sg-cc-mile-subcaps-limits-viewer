@@ -13,8 +13,13 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
   Optional API for encrypted settings sync and shared mappings.  
   Docs: [apps/backend/README.md](apps/backend/README.md)
 
-- **Shared packages** — `packages/`  
-  `shared`, `crypto`, and `sync-client` libraries used by the apps.
+## Architecture
+
+- Apps are isolated under `apps/`:
+  - `apps/userscripts/uob-lady-solitaire`
+  - `apps/backend`
+- Integration is contract-only over HTTP.
+- Shared API contracts and JSON schemas live in `apps/contracts/`.
 
 ## Quick userscript install
 

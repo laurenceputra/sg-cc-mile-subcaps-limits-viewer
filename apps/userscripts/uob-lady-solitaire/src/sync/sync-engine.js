@@ -1,4 +1,4 @@
-import { validateSyncPayload } from '@bank-cc/shared';
+import { validateSyncPayload } from './validation.js';
 
 export class SyncEngine {
   constructor(apiClient, cryptoManager, storage) {
@@ -10,7 +10,7 @@ export class SyncEngine {
   async pull() {
     try {
       const response = await this.api.getSyncData();
-      
+
       if (!response || !response.encryptedData) {
         return { success: true, data: null, version: 0 };
       }
@@ -41,13 +41,12 @@ export class SyncEngine {
     try {
       const payload = {
         version: version + 1,
-        deviceId: deviceId,
+        deviceId,
         timestamp: Date.now(),
-        data: data
+        data
       };
 
       const encrypted = await this.crypto.encrypt(payload);
-
       const response = await this.api.putSyncData(encrypted, payload.version);
 
       return {
@@ -66,16 +65,13 @@ export class SyncEngine {
 
     const merged = { ...local };
 
-    // Merge merchant maps (union, newer wins on conflicts)
     merged.merchantMap = { ...local.merchantMap };
     for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
       merged.merchantMap[merchant] = category;
     }
 
-    // Merge monthly totals
     merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
 
-    // For selectedCategories and defaultCategory, use remote if present
     if (remote.selectedCategories) {
       merged.selectedCategories = remote.selectedCategories;
     }
@@ -88,7 +84,7 @@ export class SyncEngine {
 
   async sync(localData, currentVersion, deviceId) {
     const pullResult = await this.pull();
-    
+
     if (!pullResult.success) {
       return pullResult;
     }
@@ -96,7 +92,6 @@ export class SyncEngine {
     let dataToSync = localData;
 
     if (pullResult.data) {
-      // Merge remote changes into local
       const mergedCards = {};
       const allCardNames = new Set([
         ...Object.keys(localData.cards || {}),

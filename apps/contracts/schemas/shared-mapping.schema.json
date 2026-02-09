@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "apps/contracts/schemas/shared-mapping.schema.json",
+  "title": "SharedMapping",
+  "type": "object",
+  "required": ["merchant", "suggestedCategory", "cardType"],
+  "properties": {
+    "merchant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "merchantRaw": {
+      "type": "string"
+    },
+    "merchantNormalized": {
+      "type": "string"
+    },
+    "suggestedCategory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contributionCount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "lastUpdated": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "cardType": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": true
+}

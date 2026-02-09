@@ -16,7 +16,7 @@ export class ApiClient {
     };
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      headers.Authorization = `Bearer ${this.token}`;
     }
 
     const config = {
@@ -26,7 +26,7 @@ export class ApiClient {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({ message: response.statusText }));
         throw new Error(error.message || `HTTP ${response.status}`);
@@ -58,29 +58,29 @@ export class ApiClient {
   }
 
   async getSyncData() {
-    return await this.request('/sync/data');
+    return this.request('/sync/data');
   }
 
   async putSyncData(encryptedData, version) {
-    return await this.request('/sync/data', {
+    return this.request('/sync/data', {
       method: 'PUT',
       body: JSON.stringify({ encryptedData, version })
     });
   }
 
   async getSharedMappings(cardType) {
-    return await this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
+    return this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
   }
 
   async contributeMappings(mappings) {
-    return await this.request('/shared/mappings/contribute', {
+    return this.request('/shared/mappings/contribute', {
       method: 'POST',
       body: JSON.stringify({ mappings })
     });
   }
 
   async deleteUserData() {
-    return await this.request('/user/data', {
+    return this.request('/user/data', {
       method: 'DELETE'
     });
   }

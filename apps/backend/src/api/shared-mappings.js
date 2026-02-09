@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { normalizeMerchant } from '@bank-cc/shared';
+import { normalizeMerchant } from '../lib/merchant-normalization.js';
 import { validateFields, validateInput } from '../middleware/validation.js';
 
 const sharedMappings = new Hono();

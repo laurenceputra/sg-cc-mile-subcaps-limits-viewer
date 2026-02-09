@@ -1,5 +1,5 @@
-import { deriveKey, encrypt, decrypt, generateSalt } from '@bank-cc/crypto';
-import { arrayBufferToBase64, base64ToArrayBuffer } from '@bank-cc/shared/utils';
+import { deriveKey, encrypt, decrypt, generateSalt } from './crypto.js';
+import { arrayBufferToBase64, base64ToArrayBuffer } from './utils.js';
 
 export class CryptoManager {
   constructor(passphrase, salt = null) {
@@ -27,6 +27,6 @@ export class CryptoManager {
       this.salt = base64ToArrayBuffer(saltBase64);
     }
     if (!this.key) await this.init();
-    return await decrypt(this.key, ciphertext, iv);
+    return decrypt(this.key, ciphertext, iv);
   }
 }
