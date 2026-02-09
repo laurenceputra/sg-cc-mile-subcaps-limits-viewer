@@ -1,19 +1,8 @@
 import { rateLimitConfig } from './rate-limit-config.js';
 import {
-  createRateLimiter as createNodeRateLimiter,
-  progressiveDelayMiddleware as nodeProgressiveDelay,
-  resetNodeLimiters,
-  resetRateLimit
-} from './rate-limiter-node.js';
-import {
-  createRateLimiter as createWorkerRateLimiter,
-  progressiveDelayMiddleware as workerProgressiveDelay
+  createRateLimiter,
+  progressiveDelayMiddleware
 } from './rate-limiter-worker.js';
-
-const isNodeRuntime = () => typeof process !== 'undefined' && !!process?.versions?.node;
-
-const createRateLimiter = isNodeRuntime() ? createNodeRateLimiter : createWorkerRateLimiter;
-const progressiveDelayMiddleware = isNodeRuntime() ? nodeProgressiveDelay : workerProgressiveDelay;
 
 export function payloadSizeLimitMiddleware() {
   return async (c, next) => {
@@ -34,7 +23,7 @@ export function payloadSizeLimitMiddleware() {
   };
 }
 
-export { progressiveDelayMiddleware, resetNodeLimiters, resetRateLimit };
+export { progressiveDelayMiddleware };
 
 export const loginRateLimiter = createRateLimiter('login', rateLimitConfig.login);
 export const registerRateLimiter = createRateLimiter('register', rateLimitConfig.register);

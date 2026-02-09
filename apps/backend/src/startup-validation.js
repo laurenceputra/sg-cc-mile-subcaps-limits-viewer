@@ -130,8 +130,7 @@ Then set the environment variables:
    export JWT_SECRET="your-generated-secret-here"
    export ADMIN_KEY="your-generated-admin-key-here"
 
-For Docker/production, use secrets management:
-   - Docker Secrets
+For production, use secrets management:
    - Kubernetes Secrets
    - AWS Secrets Manager
    - HashiCorp Vault

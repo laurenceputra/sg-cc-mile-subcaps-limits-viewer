@@ -5,9 +5,7 @@
 Use this checklist before deploying changes to production.
 
 ### ✅ Unit & Integration Tests
-- [ ] Run `npm test` - All critical tests pass
-- [ ] Run `npm run test:integration` - API endpoints validated
-- [ ] Run `npm run test:security` - Security features verified
+- [ ] Run `npm --prefix apps/backend test` - Workers-only tests pass
 - [ ] No regressions in existing functionality
 
 ### ✅ Security Validation
@@ -43,7 +41,7 @@ Use this checklist before deploying changes to production.
 - [ ] Atomic version checking prevents lost updates
 - [ ] Concurrent writes handled correctly
 - [ ] No race conditions in sync operations
-- [ ] Database transactions complete successfully
+- [ ] D1 writes complete successfully
 
 ### ✅ Compliance
 - [ ] GDPR data deletion complete and irreversible
@@ -127,25 +125,12 @@ Use this checklist before deploying changes to production.
 
 ### Before Every Commit
 ```bash
-npm test
+npm --prefix apps/backend test
 ```
 
 ### Before Pull Request
 ```bash
-npm run test:coverage
-npm run test:security
-```
-
-### Before Staging Deployment
-```bash
-npm run test:integration
-npm run test:e2e
-```
-
-### Before Production Deployment
-```bash
-npm test -- --runInBand  # All tests sequentially
-npm run test:load  # Performance validation
+npm --prefix apps/backend run test:workers
 ```
 
 ## Staging Environment Tests

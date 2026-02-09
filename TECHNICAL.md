@@ -3,7 +3,7 @@
 ## Repo architecture
 
 - Userscript implementation is self-contained in `apps/userscripts/uob-lady-solitaire/`.
-- Backend implementation is self-contained in `apps/backend/`.
+- Backend implementation is self-contained in `apps/backend/` (Cloudflare Workers + D1 only).
 - Shared behavior between apps is defined by HTTP contracts in `apps/contracts/` (no shared runtime package).
 
 ## Supported scope

@@ -22,7 +22,6 @@ JWT_SECRET=<secure-random-secret>
 ADMIN_KEY=<secure-random-secret>
 ALLOWED_ORIGINS=https://pib.uob.com.sg,https://your-domain.com
 ENVIRONMENT=production   # or development
-NODE_ENV=production      # or development
 ```
 
 Notes:
@@ -74,21 +73,19 @@ Notes:
 
 ## Rate Limiting
 
-| Endpoint Type | Limit | Node Window | Workers Window | Block |
-| --- | --- | --- | --- | --- |
-| Login | 5 attempts | 15 minutes | 1 minute | 1 hour |
-| Registration | 3 attempts | 1 hour | 1 minute | 24 hours |
-| Sync | 100 requests | 1 hour | 1 minute | - |
-| Shared mappings | 20 requests | 1 minute | 1 minute | - |
-| Admin | 10 requests | 1 minute | 1 minute | - |
-| Payload size | 1MB | - | - | - |
+| Endpoint Type | Limit | Window | Block |
+| --- | --- | --- | --- |
+| Login | 5 attempts | 1 minute | 1 hour |
+| Registration | 3 attempts | 1 minute | 24 hours |
+| Sync | 100 requests | 1 minute | - |
+| Shared mappings | 20 requests | 1 minute | - |
+| Admin | 10 requests | 1 minute | - |
+| Payload size | 1MB | - | - |
 
 Login attempts include progressive delay (exponential backoff).
 
-### Runtime differences
-- **Node:** `rate-limiter-flexible` (memory by default, Redis if `REDIS_URL` is set).
-- **Workers:** Cloudflare Rate Limiting bindings in `wrangler.toml` (periods are 10 or 60 seconds, per-location).
-- **Accepted divergence:** Workers limits are per-location and eventually consistent; Node limits are per-instance (or Redis-backed) with longer windows.
+### Runtime notes
+- Cloudflare Rate Limiting bindings in `wrangler.toml` are per-location and enforced at the edge.
 
 ### Rate limit keys
 - Raw identifiers (email/IP/user agent/path) are hashed with `JWT_SECRET` before use to avoid PII in storage.
@@ -119,7 +116,5 @@ Responses include:
 ## Testing
 
 ```bash
-cd apps/backend
-./scripts/test-security.sh
-./scripts/test-rate-limiting-integration.sh
+npm --prefix apps/backend test
 ```

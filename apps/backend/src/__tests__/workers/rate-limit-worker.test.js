@@ -1,6 +1,7 @@
-import { describe, test, expect } from '@jest/globals';
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { createRateLimiter } from '../../middleware/rate-limiter-worker.js';
-import { createTestEnv } from '../test-setup.js';
+import { createTestEnv } from './test-utils.js';
 
 function createMockContext({ limitResult }) {
   const env = createTestEnv({ JWT_SECRET: 'test-secret' });
@@ -34,7 +35,7 @@ describe('Workers rate limiter adapter', () => {
     const c = createMockContext({ limitResult: { success: true, remaining: 4 } });
     const res = await limiter(c, async () => ({ ok: true }));
 
-    expect(res).toBeUndefined();
+    assert.equal(res, undefined);
   });
 
   test('returns 429 when limiter blocks', async () => {
@@ -46,7 +47,7 @@ describe('Workers rate limiter adapter', () => {
     const c = createMockContext({ limitResult: { success: false, remaining: 0 } });
     const res = await limiter(c, async () => ({ ok: true }));
 
-    expect(res.status).toBe(429);
-    expect(res.payload.error).toContain('Too many');
+    assert.equal(res.status, 429);
+    assert.ok(res.payload.error.includes('Too many'));
   });
 });
