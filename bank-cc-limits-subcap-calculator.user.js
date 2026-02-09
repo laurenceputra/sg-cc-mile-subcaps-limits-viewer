@@ -77,7 +77,7 @@
       };
 
       if (this.token) {
-        headers['Authorization'] = `Bearer ${this.token}`;
+        headers.Authorization = `Bearer ${this.token}`;
       }
 
       const config = {
@@ -87,7 +87,7 @@
 
       try {
         const response = await fetch(url, config);
-        
+
         if (!response.ok) {
           const error = await response.json().catch(() => ({ message: response.statusText }));
           throw new Error(error.message || `HTTP ${response.status}`);
@@ -119,66 +119,32 @@
     }
 
     async getSyncData() {
-      return await this.request('/sync/data');
+      return this.request('/sync/data');
     }
 
     async putSyncData(encryptedData, version) {
-      return await this.request('/sync/data', {
+      return this.request('/sync/data', {
         method: 'PUT',
         body: JSON.stringify({ encryptedData, version })
       });
     }
 
     async getSharedMappings(cardType) {
-      return await this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
+      return this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
     }
 
     async contributeMappings(mappings) {
-      return await this.request('/shared/mappings/contribute', {
+      return this.request('/shared/mappings/contribute', {
         method: 'POST',
         body: JSON.stringify({ mappings })
       });
     }
 
     async deleteUserData() {
-      return await this.request('/user/data', {
+      return this.request('/user/data', {
         method: 'DELETE'
       });
     }
-  }
-
-  function generateDeviceId() {
-    const randomBytes = crypto.getRandomValues(new Uint8Array(16));
-    const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
-    return `device-${Date.now()}-${randomPart}`;
-  }
-
-  /**
-   * Convert ArrayBuffer to Base64
-   * @param {ArrayBuffer} buffer - Buffer to convert
-   * @returns {string} - Base64 string
-   */
-  function arrayBufferToBase64(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  /**
-   * Convert Base64 to ArrayBuffer
-   * @param {string} base64 - Base64 string
-   * @returns {ArrayBuffer} - Array buffer
-   */
-  function base64ToArrayBuffer(base64) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
   }
 
   function validateSyncPayload(payload) {
@@ -195,16 +161,14 @@
     if (!url || typeof url !== 'string') {
       throw new Error('Server URL is required');
     }
-    
+
     let parsed;
     try {
       parsed = new URL(url);
     } catch (error) {
-      // URL constructor failed - invalid URL format
       throw new Error('Invalid URL format');
     }
-    
-    // Check protocol separately after successful parsing
+
     const allowedProtocols = ['http:', 'https:'];
     if (!allowedProtocols.includes(parsed.protocol)) {
       throw new Error('Server URL must use HTTP or HTTPS protocol');
@@ -221,7 +185,7 @@
     async pull() {
       try {
         const response = await this.api.getSyncData();
-        
+
         if (!response || !response.encryptedData) {
           return { success: true, data: null, version: 0 };
         }
@@ -252,13 +216,12 @@
       try {
         const payload = {
           version: version + 1,
-          deviceId: deviceId,
+          deviceId,
           timestamp: Date.now(),
-          data: data
+          data
         };
 
         const encrypted = await this.crypto.encrypt(payload);
-
         const response = await this.api.putSyncData(encrypted, payload.version);
 
         return {
@@ -277,16 +240,13 @@
 
       const merged = { ...local };
 
-      // Merge merchant maps (union, newer wins on conflicts)
       merged.merchantMap = { ...local.merchantMap };
       for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
         merged.merchantMap[merchant] = category;
       }
 
-      // Merge monthly totals
       merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
 
-      // For selectedCategories and defaultCategory, use remote if present
       if (remote.selectedCategories) {
         merged.selectedCategories = remote.selectedCategories;
       }
@@ -299,7 +259,7 @@
 
     async sync(localData, currentVersion, deviceId) {
       const pullResult = await this.pull();
-      
+
       if (!pullResult.success) {
         return pullResult;
       }
@@ -307,7 +267,6 @@
       let dataToSync = localData;
 
       if (pullResult.data) {
-        // Merge remote changes into local
         const mergedCards = {};
         const allCardNames = new Set([
           ...Object.keys(localData.cards || {}),
@@ -338,16 +297,30 @@
     }
   }
 
-  /**
-   * Derive encryption key from passphrase
-   * SECURITY: Uses PBKDF2 with 310,000 iterations (OWASP 2023 recommendation)
-   * to protect against brute-force attacks on encrypted data at rest.
-   * 
-   * @param {string} passphrase - User passphrase
-   * @param {Uint8Array} salt - Salt for key derivation (must be 16 bytes minimum)
-   * @param {number} iterations - PBKDF2 iterations (default: 310000)
-   * @returns {Promise<CryptoKey>} - Derived AES-256-GCM key
-   */
+  function generateDeviceId() {
+    const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+    const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `device-${Date.now()}-${randomPart}`;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   async function deriveKey(passphrase, salt, iterations = 310000) {
     const enc = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
@@ -361,8 +334,8 @@
     return crypto.subtle.deriveKey(
       {
         name: 'PBKDF2',
-        salt: salt,
-        iterations: iterations,
+        salt,
+        iterations,
         hash: 'SHA-256'
       },
       keyMaterial,
@@ -372,22 +345,13 @@
     );
   }
 
-  /**
-   * Encrypt data with AES-GCM
-   * SECURITY: AES-GCM provides authenticated encryption, protecting against
-   * both confidentiality and integrity attacks. Uses 96-bit random IV per encryption.
-   * 
-   * @param {CryptoKey} key - Encryption key
-   * @param {any} data - Data to encrypt (will be JSON stringified)
-   * @returns {Promise<{ciphertext: string, iv: string}>} - Encrypted data with IV
-   */
   async function encrypt(key, data) {
     const enc = new TextEncoder();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const plaintext = enc.encode(JSON.stringify(data));
 
     const ciphertext = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: iv },
+      { name: 'AES-GCM', iv },
       key,
       plaintext
     );
@@ -398,17 +362,6 @@
     };
   }
 
-  /**
-   * Decrypt data with AES-GCM
-   * SECURITY: AES-GCM automatically verifies authentication tag, throwing on tampering.
-   * Timing of decryption failure is constant regardless of where tampering occurred.
-   * 
-   * @param {CryptoKey} key - Decryption key
-   * @param {string} ciphertext - Base64 encoded ciphertext
-   * @param {string} iv - Base64 encoded IV
-   * @returns {Promise<any>} - Decrypted data (JSON parsed)
-   * @throws {Error} - On authentication failure or decryption error
-   */
   async function decrypt(key, ciphertext, iv) {
     const dec = new TextDecoder();
     const ciphertextBuffer = base64ToArrayBuffer(ciphertext);
@@ -423,13 +376,6 @@
     return JSON.parse(dec.decode(plaintext));
   }
 
-  /**
-   * Generate cryptographically random salt
-   * SECURITY: Uses crypto.getRandomValues for CSPRNG output.
-   * 16 bytes (128 bits) is sufficient for PBKDF2 salt uniqueness.
-   * 
-   * @returns {Uint8Array} - 16-byte random salt
-   */
   function generateSalt() {
     return crypto.getRandomValues(new Uint8Array(16));
   }
@@ -460,7 +406,7 @@
         this.salt = base64ToArrayBuffer(saltBase64);
       }
       if (!this.key) await this.init();
-      return await decrypt(this.key, ciphertext, iv);
+      return decrypt(this.key, ciphertext, iv);
     }
   }
 
@@ -480,26 +426,26 @@
     }
 
     async login(email, passwordHash) {
-      return await this.api.login(email, passwordHash);
+      return this.api.login(email, passwordHash);
     }
 
     async register(email, passwordHash, tier = 'free') {
-      return await this.api.register(email, passwordHash, tier);
+      return this.api.register(email, passwordHash, tier);
     }
 
     async sync(localData, currentVersion, deviceId) {
       if (!this.syncEngine) {
         throw new Error('SyncClient not initialized. Call init() first.');
       }
-      return await this.syncEngine.sync(localData, currentVersion, deviceId);
+      return this.syncEngine.sync(localData, currentVersion, deviceId);
     }
 
     async getSharedMappings(cardType) {
-      return await this.api.getSharedMappings(cardType);
+      return this.api.getSharedMappings(cardType);
     }
 
     async contributeMappings(mappings) {
-      return await this.api.contributeMappings(mappings);
+      return this.api.contributeMappings(mappings);
     }
   }
 

@@ -1,5 +1,5 @@
 import { SYNC_CONFIG } from './config.js';
-import { validateServerUrl } from '@bank-cc/shared';
+import { validateServerUrl } from './sync/validation.js';
 
 export function createSyncTab(syncManager, settings, THEME) {
   const container = document.createElement('div');

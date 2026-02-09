@@ -1,5 +1,6 @@
-import { SyncClient } from '@bank-cc/sync-client';
-import { generateDeviceId, validateServerUrl } from '@bank-cc/shared';
+import { SyncClient } from './sync/client.js';
+import { generateDeviceId } from './sync/utils.js';
+import { validateServerUrl } from './sync/validation.js';
 import { SYNC_CONFIG } from './config.js';
 
 export class SyncManager {
