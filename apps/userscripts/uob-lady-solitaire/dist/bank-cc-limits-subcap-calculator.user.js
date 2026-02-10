@@ -637,44 +637,126 @@
         .join('');
     }
 
-    disableSync() {
-      this.saveSyncConfig({});
-      this.enabled = false;
-      this.syncClient = null;
+  disableSync() {
+    this.saveSyncConfig({});
+    this.enabled = false;
+    this.syncClient = null;
+  }
+}
+
+  const UI_CLASSES = {
+    stack: 'cc-subcap-stack',
+    stackTight: 'cc-subcap-stack-tight',
+    stackLoose: 'cc-subcap-stack-loose',
+    tab: 'cc-subcap-tab',
+    section: 'cc-subcap-section',
+    sectionAccent: 'cc-subcap-section-accent',
+    sectionPanel: 'cc-subcap-section-panel',
+    card: 'cc-subcap-card',
+    divider: 'cc-subcap-divider',
+    notice: 'cc-subcap-notice',
+    modal: 'cc-subcap-modal',
+    buttonRow: 'cc-subcap-button-row',
+    status: 'cc-subcap-status'
+  };
+
+  function ensureUiStyles(theme) {
+    if (document.getElementById('cc-subcap-styles')) {
+      return;
     }
+    const style = document.createElement('style');
+    style.id = 'cc-subcap-styles';
+    style.textContent = `
+    .${UI_CLASSES.stack},
+    .${UI_CLASSES.stackTight},
+    .${UI_CLASSES.stackLoose} {
+      display: flex;
+      flex-direction: column;
+    }
+    .${UI_CLASSES.stack} { gap: 12px; }
+    .${UI_CLASSES.stackTight} { gap: 8px; }
+    .${UI_CLASSES.stackLoose} { gap: 16px; }
+    .${UI_CLASSES.tab} { padding: 16px; }
+    .${UI_CLASSES.section} {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid ${theme.border};
+      background: ${theme.surface};
+    }
+    .${UI_CLASSES.sectionAccent} { background: ${theme.accentSoft}; }
+    .${UI_CLASSES.sectionPanel} { background: ${theme.panel}; }
+    .${UI_CLASSES.card} {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid ${theme.border};
+      background: ${theme.surface};
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+    }
+    .${UI_CLASSES.divider} {
+      border-top: 1px solid ${theme.border};
+      margin: 0;
+    }
+    .${UI_CLASSES.notice} {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid ${theme.warning};
+      background: ${theme.warningSoft};
+      font-size: 12px;
+      color: ${theme.warning};
+    }
+    .${UI_CLASSES.modal} {
+      padding: 24px;
+      border-radius: 16px;
+      background: ${theme.surface};
+    }
+    .${UI_CLASSES.buttonRow} {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .${UI_CLASSES.status} {
+      padding: 12px;
+      border-radius: 8px;
+    }
+    `;
+    document.head.appendChild(style);
   }
 
   function createSyncTab(syncManager, settings, THEME) {
+    ensureUiStyles(THEME);
     const container = document.createElement('div');
     container.id = 'cc-subcap-sync';
-    container.style.cssText = 'display: none; padding: 24px;';
+    container.style.display = 'none';
+    container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
 
     const isEnabled = syncManager.isEnabled();
     const config = syncManager.config;
 
     if (!isEnabled) {
       container.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
-      <p style="color: ${THEME.muted}; margin-bottom: 16px;">
-        Enable sync to access your settings across devices.
-      </p>
-      <div style="background: ${THEME.accentSoft}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-        <strong style="color: ${THEME.accentText}">Privacy First:</strong>
-        <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
-          <li>Settings are encrypted before leaving your browser</li>
-          <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
-          <li>Raw transactions stay local</li>
-        </ul>
+      <div class="${UI_CLASSES.stack}">
+        <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
+        <p style="color: ${THEME.muted}; margin: 0;">
+          Enable sync to access your settings across devices.
+        </p>
+        <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionAccent}">
+          <strong style="color: ${THEME.accentText}">Privacy First:</strong>
+          <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
+            <li>Settings are encrypted before leaving your browser</li>
+            <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
+            <li>Raw transactions stay local</li>
+          </ul>
+        </div>
+        <button id="setup-sync-btn" style="
+          padding: 12px 24px;
+          background: ${THEME.accent};
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-weight: 500;
+          cursor: pointer;
+        ">Setup Sync</button>
       </div>
-      <button id="setup-sync-btn" style="
-        padding: 12px 24px;
-        background: ${THEME.accent};
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 500;
-        cursor: pointer;
-      ">Setup Sync</button>
     `;
 
       const setupBtn = container.querySelector('#setup-sync-btn');
@@ -686,34 +768,39 @@
       const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
 
       container.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; color: ${THEME.text}">Sync Settings</h3>
-      <div style="background: ${THEME.panel}; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
-        <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
-        <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
-        <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
-        <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+      <div class="${UI_CLASSES.stack}">
+        <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
+        <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel}">
+          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
+          <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
+          <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+        </div>
+        <div class="${UI_CLASSES.stackTight}">
+          <div class="${UI_CLASSES.buttonRow}">
+            <button id="sync-now-btn" style="
+              padding: 12px 24px;
+              background: ${THEME.accent};
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-weight: 500;
+              cursor: pointer;
+            ">Sync Now</button>
+            <button id="disable-sync-btn" style="
+              padding: 12px 24px;
+              background: ${THEME.warning};
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-weight: 500;
+              cursor: pointer;
+            ">Disable Sync</button>
+          </div>
+          <div id="sync-status" class="${UI_CLASSES.status}" style="display: none;"></div>
+        </div>
       </div>
-      <button id="sync-now-btn" style="
-        padding: 12px 24px;
-        background: ${THEME.accent};
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 500;
-        cursor: pointer;
-        margin-right: 8px;
-      ">Sync Now</button>
-      <button id="disable-sync-btn" style="
-        padding: 12px 24px;
-        background: ${THEME.warning};
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 500;
-        cursor: pointer;
-      ">Disable Sync</button>
-      <div id="sync-status" style="margin-top: 16px; padding: 12px; border-radius: 8px; display: none;"></div>
     `;
 
       container.querySelector('#sync-now-btn').addEventListener('click', async () => {
@@ -749,6 +836,7 @@
   }
 
   function showSyncSetupDialog(syncManager, THEME) {
+    ensureUiStyles(THEME);
     const overlay = document.createElement('div');
     overlay.style.cssText = `
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -757,32 +845,39 @@
   `;
 
     overlay.innerHTML = `
-    <div style="
-      background: white; padding: 32px; border-radius: 16px;
+    <div class="${UI_CLASSES.modal} ${UI_CLASSES.stack}" style="
       max-width: 500px; width: 90%; box-shadow: ${THEME.shadow};
     ">
-      <h3 style="margin: 0 0 16px 0;">Setup Sync</h3>
-      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Server URL</label>
-      <input id="sync-server-url" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" style="
-        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
-      "/>
-      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
-      <input id="sync-email" type="email" placeholder="your@email.com" style="
-        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
-      "/>
-      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Passphrase</label>
-      <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
-        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-        border-radius: 8px; margin-bottom: 16px; box-sizing: border-box;
-      "/>
-      <label style="display: block; margin-bottom: 8px; font-weight: 500;">Device Name</label>
-      <input id="sync-device" type="text" placeholder="My Laptop" style="
-        width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-        border-radius: 8px; margin-bottom: 24px; box-sizing: border-box;
-      "/>
-      <div style="display: flex; gap: 8px;">
+      <h3 style="margin: 0;">Setup Sync</h3>
+      <div class="${UI_CLASSES.stackTight}">
+        <label style="display: block; font-weight: 500;">Server URL</label>
+        <input id="sync-server-url" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" style="
+          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+          border-radius: 8px; box-sizing: border-box;
+        "/>
+      </div>
+      <div class="${UI_CLASSES.stackTight}">
+        <label style="display: block; font-weight: 500;">Email</label>
+        <input id="sync-email" type="email" placeholder="your@email.com" style="
+          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+          border-radius: 8px; box-sizing: border-box;
+        "/>
+      </div>
+      <div class="${UI_CLASSES.stackTight}">
+        <label style="display: block; font-weight: 500;">Passphrase</label>
+        <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
+          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+          border-radius: 8px; box-sizing: border-box;
+        "/>
+      </div>
+      <div class="${UI_CLASSES.stackTight}">
+        <label style="display: block; font-weight: 500;">Device Name</label>
+        <input id="sync-device" type="text" placeholder="My Laptop" style="
+          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+          border-radius: 8px; box-sizing: border-box;
+        "/>
+      </div>
+      <div class="${UI_CLASSES.buttonRow}">
         <button id="sync-setup-save" style="
           flex: 1; padding: 12px; background: ${THEME.accent}; color: white;
           border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
@@ -792,7 +887,7 @@
           border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
         ">Cancel</button>
       </div>
-      <div id="sync-setup-status" style="margin-top: 16px; display: none;"></div>
+      <div id="sync-setup-status" class="${UI_CLASSES.status}" style="display: none;"></div>
     </div>
   `;
 
@@ -813,8 +908,6 @@
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
-        statusDiv.style.padding = '12px';
-        statusDiv.style.borderRadius = '8px';
         statusDiv.textContent = 'All fields are required';
         return;
       }
@@ -826,8 +919,6 @@
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
-        statusDiv.style.padding = '12px';
-        statusDiv.style.borderRadius = '8px';
         statusDiv.textContent = error.message;
         return;
       }
@@ -835,8 +926,6 @@
       statusDiv.style.display = 'block';
       statusDiv.style.background = THEME.accentSoft;
       statusDiv.style.color = THEME.accentText;
-      statusDiv.style.padding = '12px';
-      statusDiv.style.borderRadius = '8px';
       statusDiv.textContent = 'Setting up sync...';
 
       const result = await syncManager.setupSync(email, passphrase, deviceName, serverUrl);
@@ -918,6 +1007,7 @@
       shadow: '0 18px 40px rgba(15, 23, 42, 0.15)'
     };
 
+
     const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen the panel through the button.';
 
     // Helper constants for warnings
@@ -929,6 +1019,7 @@
         element.style[key] = value;
       });
     }
+
 
     function getWarningSeverity(value) {
       if (value >= CATEGORY_THRESHOLDS.critical) return 'critical';
@@ -2000,20 +2091,18 @@
 
       // Add manual wildcard pattern section
       const wildcardSection = document.createElement('div');
-      wildcardSection.style.marginBottom = '12px';
+      wildcardSection.classList.add(UI_CLASSES.stack);
       
       const wildcardTitle = document.createElement('div');
       wildcardTitle.textContent = 'Add Wildcard Pattern';
       wildcardTitle.style.fontWeight = '600';
       wildcardTitle.style.color = THEME.accent;
-      wildcardTitle.style.marginBottom = '8px';
       wildcardSection.appendChild(wildcardTitle);
 
       const wildcardHelp = document.createElement('div');
       wildcardHelp.textContent = 'Use * to match any characters except literal *. Use \\* to match an asterisk (e.g., KrisPay\\*Paradise*).';
       wildcardHelp.style.fontSize = '12px';
       wildcardHelp.style.color = THEME.muted;
-      wildcardHelp.style.marginBottom = '8px';
       wildcardSection.appendChild(wildcardHelp);
 
       const wildcardForm = document.createElement('div');
@@ -2129,8 +2218,6 @@
         existingTitle.textContent = 'Existing Wildcard Patterns';
         existingTitle.style.fontWeight = '600';
         existingTitle.style.color = THEME.accent;
-        existingTitle.style.marginTop = '12px';
-        existingTitle.style.marginBottom = '8px';
         wildcardSection.appendChild(existingTitle);
         
         const patternList = document.createElement('div');
@@ -2191,8 +2278,7 @@
       container.appendChild(wildcardSection);
 
       const wildcardDivider = document.createElement('div');
-      wildcardDivider.style.borderTop = `1px solid ${THEME.border}`;
-      wildcardDivider.style.margin = '20px 0';
+      wildcardDivider.classList.add(UI_CLASSES.divider);
       container.appendChild(wildcardDivider);
 
       // Add title and mass categorization button
@@ -2200,7 +2286,6 @@
       uncategorizedHeader.style.display = 'flex';
       uncategorizedHeader.style.justifyContent = 'space-between';
       uncategorizedHeader.style.alignItems = 'center';
-      uncategorizedHeader.style.marginBottom = '8px';
       
       const uncategorizedTitle = document.createElement('div');
       uncategorizedTitle.textContent = 'Transactions to categorize';
@@ -2290,8 +2375,7 @@
       container.appendChild(uncategorizedSection);
 
       const divider = document.createElement('div');
-      divider.style.borderTop = `1px solid ${THEME.border}`;
-      divider.style.margin = '20px 0';
+      divider.classList.add(UI_CLASSES.divider);
       container.appendChild(divider);
 
       renderMerchantSection(
@@ -2305,44 +2389,26 @@
 
     function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
       container.innerHTML = '';
-      container.style.display = 'flex';
-      container.style.flexDirection = 'column';
-      container.style.gap = '12px';
+      container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
 
       const notice = document.createElement('div');
-      notice.style.background = THEME.warningSoft;
-      notice.style.border = `1px solid ${THEME.warning}`;
-      notice.style.borderRadius = '8px';
-      notice.style.padding = '12px';
-      notice.style.fontSize = '12px';
-      notice.style.color = THEME.warning;
+      notice.classList.add(UI_CLASSES.notice);
       notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       const selectorsSection = document.createElement('div');
-      selectorsSection.style.display = 'flex';
-      selectorsSection.style.flexDirection = 'column';
-      selectorsSection.style.gap = '12px';
+      selectorsSection.classList.add(UI_CLASSES.stack);
 
       renderCategorySelectors(selectorsSection, cardSettings, cardConfig, onChange);
       renderDefaultCategory(selectorsSection, cardSettings, onChange);
 
       const summarySection = document.createElement('div');
       summarySection.id = UI_IDS.summaryContent;
-      summarySection.style.background = THEME.surface;
-      summarySection.style.border = `1px solid ${THEME.border}`;
-      summarySection.style.borderRadius = '10px';
-      summarySection.style.padding = '12px';
+      summarySection.classList.add(UI_CLASSES.section);
 
       renderSummary(summarySection, data, cardSettings);
 
       const mappingSection = document.createElement('div');
-      mappingSection.style.display = 'flex';
-      mappingSection.style.flexDirection = 'column';
-      mappingSection.style.gap = '12px';
-      mappingSection.style.background = THEME.surface;
-      mappingSection.style.border = `1px solid ${THEME.border}`;
-      mappingSection.style.borderRadius = '10px';
-      mappingSection.style.padding = '12px';
+      mappingSection.classList.add(UI_CLASSES.section, UI_CLASSES.stack);
 
       renderMerchantMapping(
         mappingSection,
@@ -2359,9 +2425,7 @@
 
     function renderSpendingView(container, storedTransactions, cardSettings) {
       container.innerHTML = '';
-      container.style.display = 'flex';
-      container.style.flexDirection = 'column';
-      container.style.gap = '12px';
+      container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
 
       const title = document.createElement('div');
       title.textContent = 'Spend Totals (Last 3 Calendar Months)';
@@ -2373,13 +2437,7 @@
       subtitle.style.fontSize = '12px';
 
       const notice = document.createElement('div');
-      notice.style.background = THEME.warningSoft;
-      notice.style.border = `1px solid ${THEME.warning}`;
-      notice.style.borderRadius = '8px';
-      notice.style.padding = '12px';
-      notice.style.fontSize = '12px';
-      notice.style.color = THEME.warning;
-      notice.style.marginTop = '8px';
+      notice.classList.add(UI_CLASSES.notice);
       notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       container.appendChild(title);
@@ -2432,11 +2490,7 @@
         const categoryOrder = baseCategories.concat(extraCategories);
 
         const card = document.createElement('div');
-        card.style.border = `1px solid ${THEME.border}`;
-        card.style.borderRadius = '12px';
-        card.style.background = THEME.surface;
-        card.style.boxShadow = '0 8px 20px rgba(15, 23, 42, 0.06)';
-        card.style.padding = '12px';
+        card.classList.add(UI_CLASSES.card, UI_CLASSES.stack);
 
         const header = document.createElement('button');
         header.type = 'button';
@@ -2507,11 +2561,7 @@
 
         const details = document.createElement('div');
         details.style.display = 'none';
-        details.style.marginTop = '12px';
-        details.style.padding = '12px';
-        details.style.background = THEME.accentSoft;
-        details.style.border = `1px solid ${THEME.border}`;
-        details.style.borderRadius = '10px';
+        details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent);
 
         categoryOrder.forEach((category) => {
           const group = grouped[category];
@@ -2601,7 +2651,6 @@
         // Add warning banner if there are any warnings
         if (warnings.length > 0) {
           const warningBanner = document.createElement('div');
-          warningBanner.style.marginTop = '8px';
           warningBanner.style.padding = '10px 12px';
           warningBanner.style.borderRadius = '8px';
           warningBanner.style.fontSize = '13px';
@@ -2673,9 +2722,9 @@
       const isManage = tab === 'manage';
       const isSpend = tab === 'spend';
       const isSync = tab === 'sync';
-      manageContent.style.display = isManage ? 'block' : 'none';
-      spendContent.style.display = isSpend ? 'block' : 'none';
-      syncContent.style.display = isSync ? 'block' : 'none';
+      manageContent.style.display = isManage ? 'flex' : 'none';
+      spendContent.style.display = isSpend ? 'flex' : 'none';
+      syncContent.style.display = isSync ? 'flex' : 'none';
 
       const setTabState = (tabElement, isActive) => {
         tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
@@ -2690,6 +2739,7 @@
     }
 
     function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
+      ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
       let manageContent;
       let spendContent;
@@ -2720,9 +2770,7 @@
         panel.style.borderRadius = '12px';
         panel.style.padding = '16px';
         panel.style.boxShadow = THEME.shadow;
-        panel.style.display = 'flex';
-        panel.style.flexDirection = 'column';
-        panel.style.gap = '12px';
+        panel.classList.add(UI_CLASSES.stackLoose);
 
         const header = document.createElement('div');
         header.style.display = 'flex';
@@ -2802,7 +2850,6 @@
           'No remote logging. Stored transactions cover the last 3 calendar months.';
         privacyNotice.style.fontSize = '12px';
         privacyNotice.style.color = THEME.muted;
-        privacyNotice.style.marginTop = '4px';
 
         manageContent = document.createElement('div');
         manageContent.id = UI_IDS.manageContent;
