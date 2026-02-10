@@ -722,7 +722,7 @@
     document.head.appendChild(style);
   }
 
-  function createSyncTab(syncManager, settings, THEME) {
+  function createSyncTab(syncManager, settings, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
     container.id = 'cc-subcap-sync';
@@ -761,7 +761,7 @@
 
       const setupBtn = container.querySelector('#setup-sync-btn');
       setupBtn.addEventListener('click', () => {
-        showSyncSetupDialog(syncManager, THEME);
+        showSyncSetupDialog(syncManager, THEME, onSyncStateChanged);
       });
     } else {
       const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
@@ -827,7 +827,7 @@
       container.querySelector('#disable-sync-btn').addEventListener('click', () => {
         if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
           syncManager.disableSync();
-          location.reload();
+          onSyncStateChanged();
         }
       });
     }
@@ -835,7 +835,7 @@
     return container;
   }
 
-  function showSyncSetupDialog(syncManager, THEME) {
+  function showSyncSetupDialog(syncManager, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const overlay = document.createElement('div');
     overlay.style.cssText = `
@@ -933,8 +933,11 @@
       if (result.success) {
         statusDiv.style.background = '#d1fae5';
         statusDiv.style.color = '#065f46';
-        statusDiv.textContent = '✓ Sync setup complete! Reloading...';
-        setTimeout(() => location.reload(), 1500);
+        statusDiv.textContent = '✓ Sync setup complete!';
+        setTimeout(() => {
+          overlay.remove();
+          onSyncStateChanged();
+        }, 500);
       } else {
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
@@ -2738,11 +2741,20 @@
       setTabState(tabSync, isSync);
     }
 
-    function createOverlay(data, storedTransactions, cardSettings, cardConfig, onChange, shouldShow = false) {
+    function createOverlay(
+      data,
+      storedTransactions,
+      cardSettings,
+      cardConfig,
+      onChange,
+      onSyncStateChanged = () => {},
+      shouldShow = false
+    ) {
       ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
       let manageContent;
       let spendContent;
+      let syncContent;
       const wasVisible = overlay && overlay.style.display === 'flex';
 
       if (!overlay) {
@@ -2861,7 +2873,7 @@
         spendContent.style.display = 'none';
         spendContent.style.overflow = 'auto';
 
-        const syncContent = createSyncTab(syncManager, cardSettings, THEME);
+        syncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
         syncContent.id = UI_IDS.syncContent;
         syncContent.style.display = 'none';
         syncContent.style.overflow = 'auto';
@@ -2877,6 +2889,7 @@
       } else {
         manageContent = document.getElementById(UI_IDS.manageContent);
         spendContent = document.getElementById(UI_IDS.spendContent);
+        syncContent = document.getElementById(UI_IDS.syncContent);
       }
 
       if (manageContent) {
@@ -2891,6 +2904,13 @@
       }
       if (spendContent) {
         renderSpendingView(spendContent, storedTransactions, cardSettings);
+      }
+      if (syncContent) {
+        const nextSyncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
+        nextSyncContent.id = UI_IDS.syncContent;
+        nextSyncContent.style.display = syncContent.style.display || 'none';
+        nextSyncContent.style.overflow = 'auto';
+        syncContent.replaceWith(nextSyncContent);
       }
 
       if (shouldShow || wasVisible) {
@@ -2959,13 +2979,23 @@
           updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           saveSettings(settings);
           const storedTransactions = getStoredTransactions(cardSettings);
-          createOverlay(data, storedTransactions, cardSettings, cardConfig, (updateFn) => {
-            const nextSettings = loadSettings();
-            const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
-            updateFn(nextCardSettings);
-            saveSettings(nextSettings);
-            refreshOverlay();
-          }, shouldShow);
+          createOverlay(
+            data,
+            storedTransactions,
+            cardSettings,
+            cardConfig,
+            (updateFn) => {
+              const nextSettings = loadSettings();
+              const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+              updateFn(nextCardSettings);
+              saveSettings(nextSettings);
+              refreshOverlay();
+            },
+            () => {
+              refreshOverlay();
+            },
+            shouldShow
+          );
         } finally {
           refreshInProgress = false;
           if (refreshPending) {
