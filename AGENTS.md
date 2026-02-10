@@ -11,8 +11,11 @@ Security review is **mandatory** at key phases—not optional. Every agent is re
 ## Skills Overview
 
 Skills are stored in `.agents/skills/`. Each skill has a `SKILL.md` that defines its workflow, outputs, and usage guidance. Use this directory as the canonical reference when selecting skills for a task.
+Use the index below to quickly discover available skills and jump to their detailed guides.
 
 ## Skills Directory
+
+Keep this table in sync with `.agents/skills/` so it remains the single source of truth for available skills.
 
 | Skill | Summary | Link |
 | --- | --- | --- |
