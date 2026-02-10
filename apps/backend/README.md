@@ -11,6 +11,23 @@ Optional sync backend for encrypted settings and shared mappings. Runs on **Clou
 
 For full deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
+## GitHub Actions Deployments
+
+Backend deployments run through GitHub Actions for preview and production. The preview environment is shared (latest PR deploy wins) and production requires environment approval.
+
+### Preview vs Production Environments
+
+- **Preview:** `backend-preview.yml` deploys Worker Versions to a shared preview D1 (`bank_cc_sync_preview`).
+- **Production:** `backend-prod.yml` deploys via `wrangler deploy` to `bank_cc_sync_prod`.
+
+### D1 schema application policy
+
+Both workflows apply `apps/backend/src/storage/schema.sql` on every deploy to keep preview and production schemas in sync.
+
+### Rollback process
+
+Re-run the workflow on a previous commit or use `wrangler versions deploy` with the prior version ID. See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full runbook.
+
 ## Quick start (Cloudflare Workers)
 
 1. Install dependencies:
