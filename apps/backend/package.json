@@ -7,6 +7,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "tail:preview": "wrangler tail --env preview",
+    "tail:production": "wrangler tail --env production",
     "test": "node --test src/__tests__/workers/*.test.js",
     "test:workers": "node --test src/__tests__/workers/*.test.js"
   },
@@ -22,6 +27,6 @@
   },
   "devDependencies": {
     "miniflare": "^3.20250718.3",
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.0.0"
   }
 }

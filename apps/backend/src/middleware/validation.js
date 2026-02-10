@@ -102,6 +102,17 @@ export const schemas = {
       return null;
     }
   },
+
+  password: {
+    maxLength: 1024,
+    validate: (value) => {
+      if (typeof value !== 'string') return 'Password must be a string';
+      if (value.length === 0) return 'Password cannot be empty';
+      if (value.length > 1024) return 'Password exceeds maximum length';
+      if (CONTROL_CHARS_REGEX.test(value)) return 'Password contains invalid characters';
+      return null;
+    }
+  },
   
   merchantName: {
     maxLength: 200,

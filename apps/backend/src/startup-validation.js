@@ -7,10 +7,11 @@
 
 const INSECURE_DEFAULTS = {
   JWT_SECRET: ['dev-secret', 'test-secret', 'change-me', 'secret', ''],
-  ADMIN_KEY: ['admin-dev-key', 'test-admin', 'admin', 'change-me', '']
+  ADMIN_LOGIN_PASSWORD_HASH: ['admin-dev-hash', 'test-admin-hash', 'change-me', ''],
+  ADMIN_LOGIN_PEPPER: ['admin-dev-pepper', 'test-admin-pepper', 'change-me', '']
 };
 
-const REQUIRED_ENV_VARS = ['JWT_SECRET', 'ADMIN_KEY'];
+const REQUIRED_ENV_VARS = ['JWT_SECRET', 'ADMIN_LOGIN_PASSWORD_HASH', 'ADMIN_LOGIN_PEPPER'];
 
 /**
  * Validate that a secret is set and not using an insecure default
@@ -128,7 +129,8 @@ Use one of these methods to generate strong secrets:
 
 Then set the environment variables:
    export JWT_SECRET="your-generated-secret-here"
-   export ADMIN_KEY="your-generated-admin-key-here"
+   export ADMIN_LOGIN_PEPPER="your-admin-pepper"
+   export ADMIN_LOGIN_PASSWORD_HASH="$(node -e \"const crypto=require('crypto');const password='your-admin-password';const pepper=process.env.ADMIN_LOGIN_PEPPER||'your-admin-pepper';console.log(crypto.createHash('sha256').update(password + ':' + pepper).digest('hex'))\")"
 
 For production, use secrets management:
    - Kubernetes Secrets

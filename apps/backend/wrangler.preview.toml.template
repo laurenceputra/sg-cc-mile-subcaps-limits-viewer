@@ -1,6 +1,8 @@
 name = "bank-cc-sync"
 main = "src/cloudflare-worker.js"
 compatibility_date = "2024-01-01"
+workers_dev = true
+preview_urls = true
 
 [observability]
 enabled = true
@@ -10,31 +12,16 @@ enabled = true
 [triggers]
 crons = ["0 2 * * *"]
 
-[env.preview]
-vars = { ENVIRONMENT = "preview", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg" }
+[vars]
+ENVIRONMENT = "preview"
+NODE_ENV = "production"
+ALLOWED_ORIGINS = "https://pib.uob.com.sg"
 
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "bank_cc_sync_prod"
-database_id = "YOUR_D1_PROD_DATABASE_ID"
-
-[env.production]
-vars = { ENVIRONMENT = "production", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg" }
-
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "bank_cc_sync_prod"
-database_id = "YOUR_D1_PROD_DATABASE_ID"
-
-# Local development database binding (used by wrangler dev)
+# Preview deployment database binding (shared production database by design)
 [[d1_databases]]
 binding = "DB"
-database_name = "bank_cc_sync"
-database_id = "YOUR_D1_DATABASE_ID"
-
-[vars]
-ENVIRONMENT = "development"
-NODE_ENV = "development"
+database_name = "bank_cc_sync_prod"
+database_id = "YOUR_D1_PROD_DATABASE_ID"
 
 # Set secrets with: wrangler secret put JWT_SECRET
 # Set secrets with: wrangler secret put ADMIN_LOGIN_PASSWORD_HASH

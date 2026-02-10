@@ -29,17 +29,21 @@ export function constantTimeEqual(a, b) {
   return result === 0 && !lengthMismatch;
 }
 
-export async function generateToken(userId, secret) {
+export async function generateToken(userId, secret, options = {}) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
+  const { ttlSeconds = 7 * 24 * 60 * 60, role } = options;
   const randomBytes = crypto.getRandomValues(new Uint8Array(16));
   const randomPart = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
   const payload = {
     userId,
     jti: `${userId}_${now}_${randomPart}`, // Unique token ID
     iat: now,
-    exp: now + (7 * 24 * 60 * 60) // 7 days
+    exp: now + ttlSeconds
   };
+  if (role) {
+    payload.role = role;
+  }
 
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));

@@ -1,0 +1,174 @@
+name: Backend Preview Deployment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "apps/backend/**"
+      - "apps/contracts/**"
+      - ".github/workflows/backend-preview.yml"
+      - ".github/workflows/backend-prod.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-preview-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    environment: backend-preview
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup backend dependencies
+        uses: ./.github/actions/setup-backend-workers
+
+      - name: Run backend tests
+        run: npm --prefix apps/backend test
+
+      - name: Render Wrangler preview config
+        env:
+          D1_PRODUCTION_DATABASE_ID: ${{ secrets.D1_PRODUCTION_DATABASE_ID }}
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          if [ -z "$D1_PRODUCTION_DATABASE_ID" ]; then
+            echo "Missing D1_PRODUCTION_DATABASE_ID secret" >&2
+            exit 1
+          fi
+          sed "s/YOUR_D1_PROD_DATABASE_ID/${D1_PRODUCTION_DATABASE_ID}/" wrangler.preview.toml.template > wrangler.ci.toml
+
+      - name: Resolve preview alias
+        id: alias
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const crypto = require('crypto');
+
+          const prNumber = (process.env.PR_NUMBER || '').trim();
+          const headRef = (process.env.HEAD_REF || '').trim();
+          const refName = (process.env.REF_NAME || '').trim();
+          const fallbackBranch = headRef || refName || 'manual';
+          const raw = prNumber ? `pr-${prNumber}` : `branch-${fallbackBranch}`;
+
+          const normalize = (value) => value
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+
+          let alias = normalize(raw) || 'preview';
+          const maxLength = 63;
+
+          if (alias.length > maxLength) {
+            const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 8);
+            const base = prNumber ? `pr-${prNumber}-${hash}` : `branch-${hash}`;
+            alias = normalize(base).slice(0, maxLength) || `preview-${hash}`;
+          }
+
+          process.stdout.write(`Resolved preview alias: ${alias}\n`);
+          require('fs').appendFileSync(process.env.GITHUB_OUTPUT, `alias=${alias}\n`);
+          NODE
+
+      - name: Apply preview schema
+        working-directory: apps/backend
+        run: npx wrangler@4 d1 execute bank_cc_sync_prod --file src/storage/schema.sql --config wrangler.ci.toml
+
+      - name: Upload preview version
+        id: upload
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-preview-output.jsonl
+          PREVIEW_ALIAS: ${{ steps.alias.outputs.alias }}
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::8}"
+          VERSION_TAG="preview-${PREVIEW_ALIAS}-${SHORT_SHA}"
+          upload_cmd="npx wrangler@4 versions upload --preview-alias \"$PREVIEW_ALIAS\" --tag \"$VERSION_TAG\" --message \"Preview ${PREVIEW_ALIAS} @ ${GITHUB_SHA}\" --config wrangler.ci.toml"
+          upload_log="$(mktemp)"
+
+          set +e
+          sh -c "$upload_cmd" >"$upload_log" 2>&1
+          upload_status=$?
+          set -e
+          cat "$upload_log"
+
+          if [ "$upload_status" -ne 0 ]; then
+            if grep -q "code: 10007" "$upload_log"; then
+              echo "Base Worker bank-cc-sync not found. Bootstrapping with one deploy and retrying preview upload..."
+              npx wrangler@4 deploy --config wrangler.ci.toml
+              sh -c "$upload_cmd"
+            else
+              exit "$upload_status"
+            fi
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
+          const lines = fs.readFileSync(outputPath, 'utf8').trim().split('\n');
+          const entries = lines.map((line) => JSON.parse(line));
+          const entry = entries.reverse().find((item) => item.type === 'version-upload');
+          if (!entry) throw new Error('Missing version-upload output from Wrangler.');
+          if (!entry.version_id) throw new Error('Missing version_id in Wrangler output.');
+          const previewUrl = entry.preview_url || '';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version_id=${entry.version_id}\npreview_url=${previewUrl}\n`);
+          NODE
+
+      - name: Comment preview details
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- backend-preview-deploy -->';
+            const workerScript = 'bank-cc-sync';
+            const versionId = '${{ steps.upload.outputs.version_id }}';
+            const previewUrlRaw = '${{ steps.upload.outputs.preview_url }}';
+            const alias = '${{ steps.alias.outputs.alias }}';
+            const workersSubdomain = '${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}';
+            const sha = '${{ github.sha }}';
+            const trimmedSubdomain = workersSubdomain.trim();
+            const wranglerPreviewUrl = previewUrlRaw.trim();
+            const previewLines = [];
+            if (trimmedSubdomain) {
+              previewLines.push(`- Preview URL: https://${alias}-${workerScript}.${trimmedSubdomain}.workers.dev`);
+            } else if (wranglerPreviewUrl) {
+              previewLines.push(`- Preview URL: ${wranglerPreviewUrl}`);
+              previewLines.push('- Action: set `CLOUDFLARE_WORKERS_SUBDOMAIN` repository secret for deterministic preview URLs in PR comments.');
+            } else {
+              previewLines.push('- Preview URL: (unavailable)');
+              previewLines.push('- Action required: set `CLOUDFLARE_WORKERS_SUBDOMAIN` repository secret for deterministic preview URLs in PR comments.');
+            }
+            const body = [
+              marker,
+              '### Backend preview deployed',
+              `- Commit: \`${sha}\``,
+              `- Version ID: \`${versionId}\``,
+              `- Preview alias: \`${alias}\``,
+              ...previewLines
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

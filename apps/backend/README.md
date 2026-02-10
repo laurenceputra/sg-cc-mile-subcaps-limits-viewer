@@ -11,6 +11,27 @@ Optional sync backend for encrypted settings and shared mappings. Runs on **Clou
 
 For full deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
+## GitHub Actions Deployments
+
+Backend deployments run through GitHub Actions for preview and production. Preview deployments are isolated per PR via Cloudflare preview aliases, and production requires environment approval.
+
+Preview deployments use Cloudflare preview aliases on the base Worker script `bank-cc-sync` (not separate long-lived preview workers).
+Deterministic PR comment URLs require repository secret `CLOUDFLARE_WORKERS_SUBDOMAIN` and follow:
+`https://<alias>-bank-cc-sync.<subdomain>.workers.dev`
+
+### Preview vs Production Environments
+
+- **Preview:** `backend-preview.yml` deploys Worker Versions using the production D1 (`bank_cc_sync_prod`).
+- **Production:** `backend-prod.yml` deploys via `wrangler deploy` to `bank_cc_sync_prod`.
+
+### D1 schema application policy
+
+Both workflows apply `apps/backend/src/storage/schema.sql` on every deploy to keep preview and production schemas in sync.
+
+### Rollback process
+
+Re-run the workflow on a previous commit or use `wrangler versions deploy` with the prior version ID. See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full runbook.
+
 ## Quick start (Cloudflare Workers)
 
 1. Install dependencies:
@@ -27,7 +48,8 @@ For full deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 6. Set secrets:
    ```bash
    wrangler secret put JWT_SECRET
-   wrangler secret put ADMIN_KEY
+   wrangler secret put ADMIN_LOGIN_PEPPER
+   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
    ```
 7. Start locally: `npm --prefix apps/backend run dev`
 8. Deploy: `npm --prefix apps/backend run deploy`
@@ -70,7 +92,8 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `GET /user/export` - Export user data
 - `PATCH /user/settings` - Update user settings
 
-### Admin (requires X-Admin-Key header)
+### Admin (requires admin JWT)
+- `POST /admin/auth/login` - Get admin JWT
 - `GET /admin/mappings/pending` - Get pending contributions
 - `POST /admin/mappings/approve` - Approve mapping
 

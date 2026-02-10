@@ -52,7 +52,8 @@ Use this checklist before deploying changes to production.
 ### ✅ Configuration
 - [ ] Environment variables set correctly
 - [ ] JWT_SECRET is strong and secret
-- [ ] ADMIN_KEY is strong and secret
+- [ ] ADMIN_LOGIN_PASSWORD_HASH is set and secure
+- [ ] ADMIN_LOGIN_PEPPER is strong and secret
 - [ ] ALLOWED_ORIGINS configured
 - [ ] Rate limit values appropriate
 
@@ -133,10 +134,10 @@ npm --prefix apps/backend test
 npm --prefix apps/backend run test:workers
 ```
 
-## Staging Environment Tests
+## Pre-Production Tests
 
 ### Integration Testing
-1. Deploy to staging
+1. Deploy preview build
 2. Run smoke tests
 3. Test with real Cloudflare D1
 4. Test with real rate limiting (KV)
@@ -159,7 +160,7 @@ npm --prefix apps/backend run test:workers
 ## Production Deployment Checklist
 
 ### Pre-Deployment
-- [ ] All staging tests passed
+- [ ] All pre-production tests passed
 - [ ] Security audit completed
 - [ ] Performance acceptable
 - [ ] Rollback plan prepared

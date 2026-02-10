@@ -5,6 +5,7 @@ import { validateJsonMiddleware } from './middleware/validation.js';
 import { securityHeadersMiddleware } from './middleware/security-headers.js';
 import { errorHandler } from './middleware/error-handler.js';
 import createAuthRoutes from './api/auth.js';
+import createAdminAuthRoutes from './api/admin-auth.js';
 import sync from './api/sync.js';
 import sharedMappings from './api/shared-mappings.js';
 import admin from './api/admin.js';
@@ -78,6 +79,7 @@ export function createApp(rateLimiters) {
 
   // Admin routes (separate auth + strict rate limiting)
   app.use('/admin/*', rateLimiters.adminRateLimiter);
+  app.route('/admin/auth', createAdminAuthRoutes(rateLimiters));
   app.route('/admin', admin);
 
   return app;
