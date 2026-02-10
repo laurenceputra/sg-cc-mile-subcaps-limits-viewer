@@ -82,24 +82,45 @@ Notes:
 
 ```bash
 npm --prefix apps/backend run deploy
+npm --prefix apps/backend run deploy:preview
+npm --prefix apps/backend run deploy:staging
+npm --prefix apps/backend run deploy:production
 ```
 
 For production-specific settings, use `wrangler.toml` environments (e.g., `[env.production]`).
+
+### Staging Lane
+
+Use staging for pre-production validation:
+
+```bash
+npm --prefix apps/backend run deploy:staging
+npm --prefix apps/backend run tail:staging
+```
 
 ## GitHub Actions Deployments
 
 Backend CI/CD uses GitHub Actions:
 
-- **Preview:** `.github/workflows/backend-preview.yml` runs on PR updates, uploads a Worker Version, deploys it, and comments with the version ID and preview URL.
+- **Preview:** `.github/workflows/backend-preview.yml` runs on PR updates, uploads a Worker Version with a preview alias, and comments with the version ID and preview URL.
 - **Production:** `.github/workflows/backend-prod.yml` runs on `main` and requires GitHub Environment approval before deploying.
 
-Preview deployments are shared and the most recent PR deploy wins.
+Preview deployments are isolated per PR using Worker preview aliases. Draft PRs and forks skip deployment, and `ready_for_review` or `workflow_dispatch` can trigger a preview run for same-repo branches.
+
+Preview alias uploads require the base Worker to exist. If previews fail with missing worker errors, deploy once to preview or production to bootstrap the Worker, then retry the preview workflow.
+
+If `CLOUDFLARE_WORKERS_SUBDOMAIN` is set, preview URLs follow:
+
+`https://<alias>.<subdomain>.workers.dev`
 
 Workflows generate a `wrangler.ci.toml` at runtime using the D1 database IDs from GitHub Environment secrets.
+
+Preview configs are rendered from `wrangler.preview.toml.template`, production from `wrangler.production.toml.template`.
 
 ### Preview vs Production Environments
 
 - **Preview:** GitHub Environment `backend-preview`, Wrangler env `preview`, D1 `bank_cc_sync_preview`.
+- **Staging:** GitHub Environment `backend-staging` (optional), Wrangler env `staging`, D1 `bank_cc_sync_staging`.
 - **Production:** GitHub Environment `backend-production`, Wrangler env `production`, D1 `bank_cc_sync_prod`.
 
 ### D1 schema application policy
@@ -116,7 +137,12 @@ Both workflows apply `apps/backend/src/storage/schema.sql` on each deploy to kee
 Create the GitHub Environments with these secrets:
 
 - `backend-preview`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PREVIEW_DATABASE_ID`
+- `backend-staging` (optional): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_STAGING_DATABASE_ID`
 - `backend-production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PRODUCTION_DATABASE_ID`
+
+Optional repository secret:
+
+- `CLOUDFLARE_WORKERS_SUBDOMAIN` for deterministic preview URLs in PR comments.
 
 JWT/admin secrets live only in Cloudflare Worker secrets (not GitHub).
 
