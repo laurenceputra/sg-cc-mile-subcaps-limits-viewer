@@ -1,25 +1,12 @@
 import { Hono } from 'hono';
-import { constantTimeEqual } from '../auth/jwt.js';
 import { validateFields } from '../middleware/validation.js';
+import { adminAuthMiddleware } from '../middleware/auth.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 import { getCleanupHealth } from '../auth/cleanup.js';
 
 const admin = new Hono();
 
-// Simple admin auth middleware (extend with proper admin role check)
-admin.use('/*', async (c, next) => {
-  const adminKey = c.req.header('X-Admin-Key');
-  const paddedKey = adminKey || '';
-  const configuredKey = c.env.ADMIN_KEY || '';
-  
-  // SECURITY: Use constant-time comparison for admin key to prevent timing attacks
-  // that could allow attackers to guess the admin key character by character
-  if (!adminKey || !constantTimeEqual(paddedKey, configuredKey)) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  
-  await next();
-});
+admin.use('/*', adminAuthMiddleware);
 
 // Health check for cleanup jobs
 admin.get('/health/cleanup', async (c) => {

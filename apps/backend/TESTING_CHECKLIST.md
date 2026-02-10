@@ -52,7 +52,8 @@ Use this checklist before deploying changes to production.
 ### ✅ Configuration
 - [ ] Environment variables set correctly
 - [ ] JWT_SECRET is strong and secret
-- [ ] ADMIN_KEY is strong and secret
+- [ ] ADMIN_LOGIN_PASSWORD_HASH is set and secure
+- [ ] ADMIN_LOGIN_PEPPER is strong and secret
 - [ ] ALLOWED_ORIGINS configured
 - [ ] Rate limit values appropriate
 

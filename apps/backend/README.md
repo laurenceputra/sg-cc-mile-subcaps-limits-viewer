@@ -44,7 +44,8 @@ Re-run the workflow on a previous commit or use `wrangler versions deploy` with 
 6. Set secrets:
    ```bash
    wrangler secret put JWT_SECRET
-   wrangler secret put ADMIN_KEY
+   wrangler secret put ADMIN_LOGIN_PEPPER
+   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
    ```
 7. Start locally: `npm --prefix apps/backend run dev`
 8. Deploy: `npm --prefix apps/backend run deploy`
@@ -87,7 +88,8 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `GET /user/export` - Export user data
 - `PATCH /user/settings` - Update user settings
 
-### Admin (requires X-Admin-Key header)
+### Admin (requires admin JWT)
+- `POST /admin/auth/login` - Get admin JWT
 - `GET /admin/mappings/pending` - Get pending contributions
 - `POST /admin/mappings/approve` - Approve mapping
 

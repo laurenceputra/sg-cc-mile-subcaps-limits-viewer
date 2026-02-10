@@ -18,6 +18,9 @@ export const AuditEventType = {
   DATA_EXPORT: 'data_export',
   DATA_DELETE: 'data_delete',
   SETTINGS_CHANGE: 'settings_change',
+  ADMIN_LOGIN_SUCCESS: 'admin_login_success',
+  ADMIN_LOGIN_FAILED: 'admin_login_failed',
+  ADMIN_TOKEN_REJECTED: 'admin_token_rejected',
   ADMIN_MAPPING_APPROVE: 'admin_mapping_approve',
   ADMIN_VIEW_PENDING: 'admin_view_pending',
   ADMIN_HEALTH_CHECK: 'admin_health_check'

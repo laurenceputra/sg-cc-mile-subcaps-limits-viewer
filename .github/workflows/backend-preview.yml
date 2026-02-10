@@ -38,19 +38,22 @@ jobs:
       - name: Run backend tests
         run: npm --prefix apps/backend test
 
-      - name: Ensure preview secrets
+      - name: Generate Wrangler CI config
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          D1_PREVIEW_DATABASE_ID: ${{ secrets.D1_PREVIEW_DATABASE_ID }}
         working-directory: apps/backend
         run: |
           set -euo pipefail
-          echo "$JWT_SECRET" | npx wrangler secret put JWT_SECRET --env preview
-          echo "$ADMIN_KEY" | npx wrangler secret put ADMIN_KEY --env preview
+          if [ -z "$D1_PREVIEW_DATABASE_ID" ]; then
+            echo "Missing D1_PREVIEW_DATABASE_ID secret" >&2
+            exit 1
+          fi
+          cp wrangler.toml wrangler.ci.toml
+          sed -i "s/YOUR_D1_PREVIEW_DATABASE_ID/${D1_PREVIEW_DATABASE_ID}/" wrangler.ci.toml
 
       - name: Apply preview schema
         working-directory: apps/backend
-        run: npx wrangler d1 execute bank_cc_sync_preview --env preview --file src/storage/schema.sql
+        run: npx wrangler d1 execute bank_cc_sync_preview --env preview --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Upload preview version
         id: upload
@@ -61,7 +64,7 @@ jobs:
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::8}"
           VERSION_TAG="pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
-          npx wrangler versions upload --env preview --tag "$VERSION_TAG" --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}"
+          npx wrangler versions upload --env preview --tag "$VERSION_TAG" --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}" --config wrangler.ci.toml
           node <<'NODE'
           const fs = require('fs');
           const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
@@ -80,7 +83,7 @@ jobs:
         working-directory: apps/backend
         run: |
           set -euo pipefail
-          npx wrangler versions deploy --env preview --version-id "$VERSION_ID" --percentage 100 --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}" --yes
+          npx wrangler versions deploy --env preview --version-id "$VERSION_ID" --percentage 100 --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}" --yes --config wrangler.ci.toml
 
       - name: Comment preview details
         uses: actions/github-script@v7

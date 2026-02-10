@@ -191,7 +191,7 @@ export function configureCors(options = {}) {
       }
       
       c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Key');
+      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       c.header('Access-Control-Max-Age', '86400'); // 24 hours
     }
     

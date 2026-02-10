@@ -19,7 +19,8 @@ Set secrets and environment variables before running the server:
 
 ```bash
 JWT_SECRET=<secure-random-secret>
-ADMIN_KEY=<secure-random-secret>
+ADMIN_LOGIN_PASSWORD_HASH=<sha256(password:pepper)>
+ADMIN_LOGIN_PEPPER=<secure-random-secret>
 ALLOWED_ORIGINS=https://pib.uob.com.sg,https://your-domain.com
 ENVIRONMENT=production   # or development
 ```
@@ -35,7 +36,7 @@ Notes:
 - **Payload size:** Maximum 1MB JSON payload.
 - **JSON depth:** Max nesting depth is 10.
 - **Auth:** Bearer token required for `/sync`, `/shared`, `/user`.
-- **Admin:** `X-Admin-Key` header required for `/admin`.
+- **Admin:** Bearer token with `role=admin` required for `/admin` (issued by `POST /admin/auth/login`).
 
 ## Input Validation Summary
 
@@ -98,6 +99,8 @@ Audit logs capture security-relevant events:
 - Device registration/removal
 - Data export/delete
 - Settings changes
+- Admin login success/failure
+- Admin token rejected
 - Admin actions
 
 Retention: **90 days**, with sensitive fields removed (passwords, tokens, secrets).
