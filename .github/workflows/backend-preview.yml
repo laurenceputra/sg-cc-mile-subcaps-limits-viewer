@@ -1,0 +1,113 @@
+name: Backend Preview Deployment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "apps/backend/**"
+      - "apps/contracts/**"
+      - ".github/workflows/backend-preview.yml"
+      - ".github/workflows/backend-prod.yml"
+
+concurrency:
+  group: backend-preview-single
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    environment: backend-preview
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend tests
+        run: npm --prefix apps/backend test
+
+      - name: Ensure preview secrets
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          echo "$JWT_SECRET" | npx wrangler secret put JWT_SECRET --env preview
+          echo "$ADMIN_KEY" | npx wrangler secret put ADMIN_KEY --env preview
+
+      - name: Apply preview schema
+        working-directory: apps/backend
+        run: npx wrangler d1 execute bank_cc_sync_preview --env preview --file src/storage/schema.sql
+
+      - name: Upload preview version
+        id: upload
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-preview-output.jsonl
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::8}"
+          VERSION_TAG="pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          npx wrangler versions upload --env preview --tag "$VERSION_TAG" --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}"
+          node <<'NODE'
+          const fs = require('fs');
+          const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
+          const lines = fs.readFileSync(outputPath, 'utf8').trim().split('\n');
+          const entries = lines.map((line) => JSON.parse(line));
+          const entry = entries.reverse().find((item) => item.type === 'version-upload');
+          if (!entry) throw new Error('Missing version-upload output from Wrangler.');
+          if (!entry.version_id) throw new Error('Missing version_id in Wrangler output.');
+          if (!entry.preview_url) throw new Error('Missing preview_url in Wrangler output.');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version_id=${entry.version_id}\npreview_url=${entry.preview_url}\n`);
+          NODE
+
+      - name: Deploy preview version
+        env:
+          VERSION_ID: ${{ steps.upload.outputs.version_id }}
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          npx wrangler versions deploy --env preview --version-id "$VERSION_ID" --percentage 100 --message "PR #${{ github.event.pull_request.number }} @ ${GITHUB_SHA}" --yes
+
+      - name: Comment preview details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- backend-preview-deploy -->';
+            const versionId = '${{ steps.upload.outputs.version_id }}';
+            const previewUrl = '${{ steps.upload.outputs.preview_url }}';
+            const sha = '${{ github.sha }}';
+            const body = [
+              marker,
+              '### Backend preview deployed',
+              `- Commit: \`${sha}\``,
+              `- Version ID: \`${versionId}\``,
+              `- Preview URL: ${previewUrl}`
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
