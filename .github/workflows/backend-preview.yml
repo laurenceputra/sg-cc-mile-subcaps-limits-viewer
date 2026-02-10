@@ -96,7 +96,24 @@ jobs:
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::8}"
           VERSION_TAG="preview-${PREVIEW_ALIAS}-${SHORT_SHA}"
-          npx wrangler@4 versions upload --preview-alias "$PREVIEW_ALIAS" --tag "$VERSION_TAG" --message "Preview ${PREVIEW_ALIAS} @ ${GITHUB_SHA}" --config wrangler.ci.toml
+          upload_cmd="npx wrangler@4 versions upload --preview-alias \"$PREVIEW_ALIAS\" --tag \"$VERSION_TAG\" --message \"Preview ${PREVIEW_ALIAS} @ ${GITHUB_SHA}\" --config wrangler.ci.toml"
+          upload_log="$(mktemp)"
+
+          set +e
+          sh -c "$upload_cmd" >"$upload_log" 2>&1
+          upload_status=$?
+          set -e
+          cat "$upload_log"
+
+          if [ "$upload_status" -ne 0 ]; then
+            if grep -q "code: 10007" "$upload_log"; then
+              echo "Base Worker bank-cc-sync not found. Bootstrapping with one deploy and retrying preview upload..."
+              npx wrangler@4 deploy --config wrangler.ci.toml
+              sh -c "$upload_cmd"
+            else
+              exit "$upload_status"
+            fi
+          fi
           node <<'NODE'
           const fs = require('fs');
           const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
