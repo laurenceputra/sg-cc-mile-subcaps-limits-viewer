@@ -1331,9 +1331,62 @@
       return options;
     }
 
+    function hasUnescapedWildcard(pattern) {
+      if (typeof pattern !== 'string') {
+        return false;
+      }
+      let escapeNext = false;
+      for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        if (char === '*') {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function escapeRegexChar(char) {
+      return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
+    }
+
+    function buildWildcardRegex(pattern) {
+      let regexSource = '';
+      let escapeNext = false;
+      for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escapeNext) {
+          regexSource += escapeRegexChar(char);
+          escapeNext = false;
+          continue;
+        }
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        if (char === '*') {
+          regexSource += '[^*]*';
+          continue;
+        }
+        regexSource += escapeRegexChar(char);
+      }
+      if (escapeNext) {
+        regexSource += '\\\\';
+      }
+      return new RegExp(`^${regexSource}$`, 'i');
+    }
+
     /**
      * Checks if a merchant name matches a pattern with wildcard support.
-     * Supports '*' as a wildcard character that matches any sequence of characters.
+     * Supports '*' as a wildcard character that matches any sequence of characters except literal '*'.
+     * Use '\\*' to match a literal asterisk.
      * @param {string} merchantName - The merchant name to match
      * @param {string} pattern - The pattern to match against (may contain wildcards)
      * @returns {boolean} True if the merchant name matches the pattern
@@ -1343,19 +1396,12 @@
       if (typeof merchantName !== 'string' || typeof pattern !== 'string') {
         return false;
       }
-      
-      // If no wildcard, do case-insensitive exact match
-      if (!pattern.includes('*')) {
-        return merchantName.toUpperCase() === pattern.toUpperCase();
+
+      if (!hasUnescapedWildcard(pattern)) {
+        return false;
       }
-      
-      // Convert wildcard pattern to regex
-      // Escape special regex characters except *
-      const escapedPattern = pattern
-        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*');
-      
-      const regex = new RegExp('^' + escapedPattern + '$', 'i'); // case-insensitive
+
+      const regex = buildWildcardRegex(pattern);
       return regex.test(merchantName);
     }
 
@@ -1370,10 +1416,11 @@
           return cardSettings.merchantMap[merchantName];
         }
         
-        // Then try case-insensitive exact matching for non-wildcard keys
+        // Then try case-insensitive exact matching
         const normalizedName = merchantName.toUpperCase();
+        const hasLiteralAsterisk = merchantName.includes('*');
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-          if (!pattern.includes('*') && pattern.toUpperCase() === normalizedName) {
+          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && pattern.toUpperCase() === normalizedName) {
             return category;
           }
         }
@@ -1383,7 +1430,7 @@
         // The first matching pattern in that order wins, so define merchantMap entries
         // in priority order when using overlapping wildcard patterns.
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-          if (pattern.includes('*') && matchesWildcard(merchantName, pattern)) {
+          if (hasUnescapedWildcard(pattern) && matchesWildcard(merchantName, pattern)) {
             return category; // Return immediately on first match in insertion order
           }
         }
@@ -1932,6 +1979,13 @@
         merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
       });
       const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
+      const knownMerchants = new Set(merchantCounts.keys());
+      Object.values(cardSettings.transactions || {}).forEach((entry) => {
+        const merchant = entry?.merchant_detail || '';
+        if (merchant) {
+          knownMerchants.add(merchant);
+        }
+      });
 
       const uncategorized = Array.from(merchantCounts.entries())
         .filter(([merchant]) => !mappedMerchants.has(merchant))
@@ -1956,7 +2010,7 @@
       wildcardSection.appendChild(wildcardTitle);
 
       const wildcardHelp = document.createElement('div');
-      wildcardHelp.textContent = 'Use * to match any characters. Example: STARBUCKS* matches all Starbucks merchants.';
+      wildcardHelp.textContent = 'Use * to match any characters except literal *. Use \\* to match an asterisk (e.g., KrisPay\\*Paradise*).';
       wildcardHelp.style.fontSize = '12px';
       wildcardHelp.style.color = THEME.muted;
       wildcardHelp.style.marginBottom = '8px';
@@ -2067,7 +2121,7 @@
       
       // Show existing wildcard patterns
       const wildcardPatterns = Object.entries(cardSettings.merchantMap || {})
-        .filter(([pattern]) => pattern.includes('*'))
+        .filter(([pattern]) => hasUnescapedWildcard(pattern) && !knownMerchants.has(pattern))
         .sort((a, b) => a[0].localeCompare(b[0]));
       
       if (wildcardPatterns.length > 0) {

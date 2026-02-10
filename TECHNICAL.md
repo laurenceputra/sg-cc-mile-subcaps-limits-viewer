@@ -56,7 +56,8 @@ The script allows you to assign merchants to categories manually. As of version 
 
 ### Pattern syntax
 
-- Use `*` as a wildcard character to match any sequence of characters
+- Use `*` as a wildcard character to match any sequence of characters except literal `*`
+- Escape literal asterisks with `\*` (e.g., `KrisPay\*Paradise*`)
 - Wildcards can appear at the beginning, middle, or end of a pattern
 - Matching is **case-insensitive**
 
@@ -68,6 +69,7 @@ The script allows you to assign merchants to categories manually. As of version 
 | `*STARBUCKS` | SINGAPORE STARBUCKS, THE STARBUCKS | STARBUCKS DOWNTOWN |
 | `STARBUCKS*CAFE` | STARBUCKS SINGAPORE CAFE | STARBUCKS SINGAPORE |
 | `*GRAB*` | GRAB SINGAPORE, GRABTAXI, THE GRAB APP, MY GRAB RIDE | UBER, GOJEK |
+| `KrisPay\*Paradise*` | KrisPay*Paradise C Singapore SG | KrisPay Paradise C Singapore SG |
 
 ### Matching priority
 
