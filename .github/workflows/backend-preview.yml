@@ -84,7 +84,7 @@ jobs:
 
       - name: Apply preview schema
         working-directory: apps/backend
-        run: npx wrangler@4 d1 execute bank_cc_sync_preview --env preview --file src/storage/schema.sql --config wrangler.ci.toml
+        run: npx wrangler@4 d1 execute bank_cc_sync_preview --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Upload preview version
         id: upload
@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::8}"
           VERSION_TAG="preview-${PREVIEW_ALIAS}-${SHORT_SHA}"
-          npx wrangler@4 versions upload --env preview --preview-alias "$PREVIEW_ALIAS" --tag "$VERSION_TAG" --message "Preview ${PREVIEW_ALIAS} @ ${GITHUB_SHA}" --config wrangler.ci.toml
+          npx wrangler@4 versions upload --preview-alias "$PREVIEW_ALIAS" --tag "$VERSION_TAG" --message "Preview ${PREVIEW_ALIAS} @ ${GITHUB_SHA}" --config wrangler.ci.toml
           node <<'NODE'
           const fs = require('fs');
           const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
@@ -115,24 +115,31 @@ jobs:
         with:
           script: |
             const marker = '<!-- backend-preview-deploy -->';
+            const workerScript = 'bank-cc-sync';
             const versionId = '${{ steps.upload.outputs.version_id }}';
             const previewUrlRaw = '${{ steps.upload.outputs.preview_url }}';
             const alias = '${{ steps.alias.outputs.alias }}';
             const workersSubdomain = '${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}';
             const sha = '${{ github.sha }}';
-            const previewUrl = workersSubdomain
-              ? `https://${alias}.${workersSubdomain}.workers.dev`
-              : previewUrlRaw;
-            const previewLine = previewUrl
-              ? `- Preview URL: ${previewUrl}`
-              : '- Preview URL: (unavailable - set CLOUDFLARE_WORKERS_SUBDOMAIN for deterministic URLs)';
+            const trimmedSubdomain = workersSubdomain.trim();
+            const wranglerPreviewUrl = previewUrlRaw.trim();
+            const previewLines = [];
+            if (trimmedSubdomain) {
+              previewLines.push(`- Preview URL: https://${alias}-${workerScript}.${trimmedSubdomain}.workers.dev`);
+            } else if (wranglerPreviewUrl) {
+              previewLines.push(`- Preview URL: ${wranglerPreviewUrl}`);
+              previewLines.push('- Action: set `CLOUDFLARE_WORKERS_SUBDOMAIN` repository secret for deterministic preview URLs in PR comments.');
+            } else {
+              previewLines.push('- Preview URL: (unavailable)');
+              previewLines.push('- Action required: set `CLOUDFLARE_WORKERS_SUBDOMAIN` repository secret for deterministic preview URLs in PR comments.');
+            }
             const body = [
               marker,
               '### Backend preview deployed',
               `- Commit: \`${sha}\``,
               `- Version ID: \`${versionId}\``,
               `- Preview alias: \`${alias}\``,
-              previewLine
+              ...previewLines
             ].join('\n');
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;

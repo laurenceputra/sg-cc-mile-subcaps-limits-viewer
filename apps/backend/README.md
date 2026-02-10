@@ -13,7 +13,11 @@ For full deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
 ## GitHub Actions Deployments
 
-Backend deployments run through GitHub Actions for preview and production. The preview environment is shared (latest PR deploy wins) and production requires environment approval.
+Backend deployments run through GitHub Actions for preview and production. Preview deployments are isolated per PR via Cloudflare preview aliases, and production requires environment approval.
+
+Preview deployments use Cloudflare preview aliases on the base Worker script `bank-cc-sync` (not separate long-lived preview workers).
+Deterministic PR comment URLs require repository secret `CLOUDFLARE_WORKERS_SUBDOMAIN` and follow:
+`https://<alias>-bank-cc-sync.<subdomain>.workers.dev`
 
 ### Preview vs Production Environments
 
