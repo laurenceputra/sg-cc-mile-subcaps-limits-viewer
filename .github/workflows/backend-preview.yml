@@ -37,15 +37,15 @@ jobs:
 
       - name: Render Wrangler preview config
         env:
-          D1_PREVIEW_DATABASE_ID: ${{ secrets.D1_PREVIEW_DATABASE_ID }}
+          D1_PRODUCTION_DATABASE_ID: ${{ secrets.D1_PRODUCTION_DATABASE_ID }}
         working-directory: apps/backend
         run: |
           set -euo pipefail
-          if [ -z "$D1_PREVIEW_DATABASE_ID" ]; then
-            echo "Missing D1_PREVIEW_DATABASE_ID secret" >&2
+          if [ -z "$D1_PRODUCTION_DATABASE_ID" ]; then
+            echo "Missing D1_PRODUCTION_DATABASE_ID secret" >&2
             exit 1
           fi
-          sed "s/YOUR_D1_PREVIEW_DATABASE_ID/${D1_PREVIEW_DATABASE_ID}/" wrangler.preview.toml.template > wrangler.ci.toml
+          sed "s/YOUR_D1_PROD_DATABASE_ID/${D1_PRODUCTION_DATABASE_ID}/" wrangler.preview.toml.template > wrangler.ci.toml
 
       - name: Resolve preview alias
         id: alias
@@ -84,7 +84,7 @@ jobs:
 
       - name: Apply preview schema
         working-directory: apps/backend
-        run: npx wrangler@4 d1 execute bank_cc_sync_preview --file src/storage/schema.sql --config wrangler.ci.toml
+        run: npx wrangler@4 d1 execute bank_cc_sync_prod --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Upload preview version
         id: upload

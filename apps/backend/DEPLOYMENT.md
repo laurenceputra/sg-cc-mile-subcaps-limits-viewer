@@ -119,7 +119,7 @@ Preview configs are rendered from `wrangler.preview.toml.template`, production f
 
 ### Preview vs Production Environments
 
-- **Preview:** GitHub Environment `backend-preview`, Wrangler top-level preview template (base script `bank-cc-sync` + preview alias), D1 `bank_cc_sync_preview`.
+- **Preview:** GitHub Environment `backend-preview`, Wrangler top-level preview template (base script `bank-cc-sync` + preview alias), D1 `bank_cc_sync_prod` (shared with production).
 - **Staging:** GitHub Environment `backend-staging` (optional), Wrangler env `staging`, D1 `bank_cc_sync_staging`.
 - **Production:** GitHub Environment `backend-production`, Wrangler env `production`, D1 `bank_cc_sync_prod`.
 
@@ -136,7 +136,7 @@ Both workflows apply `apps/backend/src/storage/schema.sql` on each deploy to kee
 
 Create the GitHub Environments with these secrets:
 
-- `backend-preview`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PREVIEW_DATABASE_ID`
+- `backend-preview`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PRODUCTION_DATABASE_ID`
 - `backend-staging` (optional): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_STAGING_DATABASE_ID`
 - `backend-production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PRODUCTION_DATABASE_ID`
 

@@ -21,7 +21,7 @@ Deterministic PR comment URLs require repository secret `CLOUDFLARE_WORKERS_SUBD
 
 ### Preview vs Production Environments
 
-- **Preview:** `backend-preview.yml` deploys Worker Versions to a shared preview D1 (`bank_cc_sync_preview`).
+- **Preview:** `backend-preview.yml` deploys Worker Versions using the production D1 (`bank_cc_sync_prod`).
 - **Production:** `backend-prod.yml` deploys via `wrangler deploy` to `bank_cc_sync_prod`.
 
 ### D1 schema application policy
