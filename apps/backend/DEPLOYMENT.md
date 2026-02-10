@@ -83,20 +83,10 @@ Notes:
 ```bash
 npm --prefix apps/backend run deploy
 npm --prefix apps/backend run deploy:preview
-npm --prefix apps/backend run deploy:staging
 npm --prefix apps/backend run deploy:production
 ```
 
 For production-specific settings, use `wrangler.toml` environments (e.g., `[env.production]`).
-
-### Staging Lane
-
-Use staging for pre-production validation:
-
-```bash
-npm --prefix apps/backend run deploy:staging
-npm --prefix apps/backend run tail:staging
-```
 
 ## GitHub Actions Deployments
 
@@ -120,7 +110,6 @@ Preview configs are rendered from `wrangler.preview.toml.template`, production f
 ### Preview vs Production Environments
 
 - **Preview:** GitHub Environment `backend-preview`, Wrangler top-level preview template (base script `bank-cc-sync` + preview alias), D1 `bank_cc_sync_prod` (shared with production).
-- **Staging:** GitHub Environment `backend-staging` (optional), Wrangler env `staging`, D1 `bank_cc_sync_staging`.
 - **Production:** GitHub Environment `backend-production`, Wrangler env `production`, D1 `bank_cc_sync_prod`.
 
 ### D1 schema application policy
@@ -137,7 +126,6 @@ Both workflows apply `apps/backend/src/storage/schema.sql` on each deploy to kee
 Create the GitHub Environments with these secrets:
 
 - `backend-preview`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PRODUCTION_DATABASE_ID`
-- `backend-staging` (optional): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_STAGING_DATABASE_ID`
 - `backend-production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `D1_PRODUCTION_DATABASE_ID`
 
 Required repository secret (for deterministic preview URLs in PR comments):

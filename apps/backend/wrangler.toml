@@ -26,14 +26,6 @@ binding = "DB"
 database_name = "bank_cc_sync_prod"
 database_id = "YOUR_D1_PROD_DATABASE_ID"
 
-[env.staging]
-vars = { ENVIRONMENT = "staging", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg" }
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "bank_cc_sync_staging"
-database_id = "YOUR_D1_STAGING_DATABASE_ID"
-
 # Local development database binding (used by wrangler dev)
 [[d1_databases]]
 binding = "DB"
