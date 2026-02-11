@@ -208,6 +208,15 @@
       if (!isObjectRecord(payload.data)) {
         return invalid('invalid_data_object');
       }
+      if (!Object.prototype.hasOwnProperty.call(payload.data, 'cards') && Object.keys(payload.data).length === 0) {
+        return {
+          ok: true,
+          format: 'legacy-empty-data-root',
+          reason: null,
+          normalizedData: { cards: {} },
+          timestamp: payload.timestamp
+        };
+      }
       if (!isObjectRecord(payload.data.cards)) {
         return invalid('invalid_cards_object');
       }
@@ -970,7 +979,12 @@
         statusDiv.style.color = THEME.accentText;
         statusDiv.textContent = 'Syncing...';
 
-        const result = await syncManager.sync({ cards: settings.cards });
+        const syncCards = isObjectRecord(settings?.cards) ? settings.cards : {};
+        if (!isObjectRecord(settings?.cards)) {
+          console.warn('[SyncTab] Missing settings.cards. Sync will proceed with empty remote baseline merge.');
+        }
+
+        const result = await syncManager.sync({ cards: syncCards });
 
         if (result.success) {
           statusDiv.style.background = '#d1fae5';
@@ -2903,6 +2917,7 @@
 
     function createOverlay(
       data,
+      settings,
       storedTransactions,
       cardSettings,
       cardConfig,
@@ -3033,7 +3048,7 @@
         spendContent.style.display = 'none';
         spendContent.style.overflow = 'auto';
 
-        syncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
+        syncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
         syncContent.id = UI_IDS.syncContent;
         syncContent.style.display = 'none';
         syncContent.style.overflow = 'auto';
@@ -3066,7 +3081,7 @@
         renderSpendingView(spendContent, storedTransactions, cardSettings);
       }
       if (syncContent) {
-        const nextSyncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
+        const nextSyncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
         nextSyncContent.id = UI_IDS.syncContent;
         nextSyncContent.style.display = syncContent.style.display || 'none';
         nextSyncContent.style.overflow = 'auto';
@@ -3141,6 +3156,7 @@
           const storedTransactions = getStoredTransactions(cardSettings);
           createOverlay(
             data,
+            settings,
             storedTransactions,
             cardSettings,
             cardConfig,
