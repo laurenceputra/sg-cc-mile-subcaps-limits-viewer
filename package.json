@@ -12,6 +12,6 @@
     "dev": "npm run dev --workspaces --if-present"
   },
   "keywords": ["tampermonkey", "credit-card", "subcap", "sync"],
-  "author": "",
+  "author": "laurenceputra",
   "license": "MIT"
 }

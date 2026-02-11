@@ -20,7 +20,7 @@
     "cloudflare-workers",
     "sync"
   ],
-  "author": "",
+  "author": "laurenceputra",
   "license": "MIT",
   "dependencies": {
     "hono": "^4.0.0"
