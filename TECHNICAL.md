@@ -33,6 +33,7 @@
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
+- After page reload/login, sync can remain configured as enabled but runtime crypto stays locked until passphrase is re-entered for that browser session.
 - Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
 - Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
 
@@ -105,6 +106,7 @@ Use this section to understand why totals might look off.
 - **Script doesn’t appear**: Ensure the current page URL matches the UOB PIB pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
+- **`Sync is locked...`**: Enter your sync passphrase in the Sync tab to unlock the session after reload/relogin.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
 
 ## Extending to new cards

@@ -631,8 +631,11 @@
     constructor(storage) {
       this.storage = storage;
       this.syncClient = null;
-      this.enabled = false;
       this.config = this.loadSyncConfig();
+      this.enabled = this.config.enabled === true;
+      if (this.enabled) {
+        this.initializeClientFromConfig();
+      }
     }
 
     loadSyncConfig() {
@@ -649,8 +652,62 @@
       this.config = config;
     }
 
+    initializeClientFromConfig() {
+      const serverUrl = this.config.serverUrl || SYNC_CONFIG.serverUrl;
+      try {
+        validateServerUrl(serverUrl);
+      } catch (error) {
+        console.error('[SyncManager] Invalid saved server URL:', error);
+        return false;
+      }
+
+      this.syncClient = new SyncClient({ serverUrl });
+      if (this.config.token) {
+        this.syncClient.api.setToken(this.config.token);
+      }
+      return true;
+    }
+
     isEnabled() {
       return this.config.enabled === true;
+    }
+
+    isUnlocked() {
+      return Boolean(this.syncClient && this.syncClient.syncEngine);
+    }
+
+    async unlockSync(passphrase) {
+      if (!this.isEnabled()) {
+        return { success: false, error: 'Sync not enabled' };
+      }
+
+      if (!passphrase || typeof passphrase !== 'string') {
+        return { success: false, error: 'Passphrase is required to unlock sync' };
+      }
+
+      try {
+        if (!this.syncClient && !this.initializeClientFromConfig()) {
+          return { success: false, error: 'Invalid sync configuration. Please setup sync again.' };
+        }
+
+        await this.syncClient.init(passphrase);
+
+        if (this.config.email) {
+          const hashedPassphrase = await this.hashPassphrase(passphrase);
+          const authResult = await this.syncClient.login(this.config.email, hashedPassphrase);
+          this.syncClient.api.setToken(authResult.token);
+          this.saveSyncConfig({
+            ...this.config,
+            token: authResult.token,
+            tier: authResult.tier
+          });
+        }
+
+        return { success: true };
+      } catch (error) {
+        console.error('[SyncManager] Unlock failed:', error);
+        return { success: false, error: error.message };
+      }
     }
 
     async setupSync(email, passphrase, deviceName, serverUrl) {
@@ -706,8 +763,16 @@
     }
 
     async sync(localData) {
-      if (!this.isEnabled() || !this.syncClient) {
+      if (!this.isEnabled()) {
         return { success: false, error: 'Sync not enabled' };
+      }
+
+      if (!this.syncClient && !this.initializeClientFromConfig()) {
+        return { success: false, error: 'Invalid sync configuration. Please setup sync again.' };
+      }
+
+      if (!this.isUnlocked()) {
+        return { success: false, error: 'Sync is locked. Enter your passphrase to unlock sync.' };
       }
 
       try {
@@ -933,19 +998,39 @@
         showSyncSetupDialog(syncManager, THEME, onSyncStateChanged);
       });
     } else {
+      const isUnlocked = syncManager.isUnlocked();
       const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
       const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
+      const lockStateText = isUnlocked ? 'Unlocked' : 'Locked (passphrase required)';
 
       container.innerHTML = `
       <div class="${UI_CLASSES.stack}">
         <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
         <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel}">
-          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
+          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled (${lockStateText})</p>
           <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
           <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
           <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
           <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
         </div>
+        ${isUnlocked ? '' : `
+        <div class="${UI_CLASSES.stackTight}">
+          <label style="display: block; font-weight: 500;">Passphrase (unlock for this session)</label>
+          <input id="sync-unlock-passphrase" type="password" placeholder="Enter sync passphrase" style="
+            width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+            border-radius: 8px; box-sizing: border-box;
+          "/>
+          <button id="unlock-sync-btn" style="
+            padding: 12px 24px;
+            background: ${THEME.panel};
+            color: ${THEME.text};
+            border: 1px solid ${THEME.border};
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+          ">Unlock Sync</button>
+        </div>
+        `}
         <div class="${UI_CLASSES.stackTight}">
           <div class="${UI_CLASSES.buttonRow}">
             <button id="sync-now-btn" style="
@@ -972,12 +1057,67 @@
       </div>
     `;
 
+      const unlockButton = container.querySelector('#unlock-sync-btn');
+      if (unlockButton) {
+        unlockButton.addEventListener('click', async () => {
+          const statusDiv = container.querySelector('#sync-status');
+          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+          const passphrase = passphraseInput?.value || '';
+
+          if (!passphrase) {
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = 'Passphrase is required to unlock sync.';
+            return;
+          }
+
+          statusDiv.style.display = 'block';
+          statusDiv.style.background = THEME.accentSoft;
+          statusDiv.style.color = THEME.accentText;
+          statusDiv.textContent = 'Unlocking sync...';
+
+          const unlockResult = await syncManager.unlockSync(passphrase);
+          if (!unlockResult.success) {
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
+            return;
+          }
+
+          statusDiv.style.background = '#d1fae5';
+          statusDiv.style.color = '#065f46';
+          statusDiv.textContent = '✓ Sync unlocked';
+          onSyncStateChanged();
+        });
+      }
+
       container.querySelector('#sync-now-btn').addEventListener('click', async () => {
         const statusDiv = container.querySelector('#sync-status');
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.accentSoft;
         statusDiv.style.color = THEME.accentText;
         statusDiv.textContent = 'Syncing...';
+
+        if (!syncManager.isUnlocked()) {
+          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+          const passphrase = passphraseInput?.value || '';
+
+          if (!passphrase) {
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = 'Sync is locked. Enter your passphrase to unlock sync first.';
+            return;
+          }
+
+          const unlockResult = await syncManager.unlockSync(passphrase);
+          if (!unlockResult.success) {
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
+            return;
+          }
+        }
 
         const syncCards = isObjectRecord(settings?.cards) ? settings.cards : {};
         if (!isObjectRecord(settings?.cards)) {
