@@ -3670,6 +3670,9 @@
           const data = buildData(latestTableBody, cardName, cardSettings);
           updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           saveSettings(settings);
+          if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
+            await syncManager.tryUnlockFromRememberedCache();
+          }
           const storedTransactions = getStoredTransactions(cardSettings);
           createOverlay(
             data,
