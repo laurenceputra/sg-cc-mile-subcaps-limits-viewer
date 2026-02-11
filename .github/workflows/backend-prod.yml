@@ -1,0 +1,101 @@
+name: Backend Production Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/backend/**"
+      - "apps/contracts/**"
+      - ".github/workflows/backend-preview.yml"
+      - ".github/workflows/backend-prod.yml"
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: backend-production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup backend dependencies
+        uses: ./.github/actions/setup-backend-workers
+
+      - name: Run backend tests
+        run: npm --prefix apps/backend test
+
+      - name: Render Wrangler production config
+        env:
+          D1_PRODUCTION_DATABASE_ID: ${{ secrets.D1_PRODUCTION_DATABASE_ID }}
+        working-directory: apps/backend
+        run: |
+          set -euo pipefail
+          if [ -z "$D1_PRODUCTION_DATABASE_ID" ]; then
+            echo "Missing D1_PRODUCTION_DATABASE_ID secret" >&2
+            exit 1
+          fi
+          sed "s/YOUR_D1_PROD_DATABASE_ID/${D1_PRODUCTION_DATABASE_ID}/" wrangler.production.toml.template > wrangler.ci.toml
+
+      - name: Apply production schema
+        working-directory: apps/backend
+        run: npx wrangler@4 d1 execute bank_cc_sync_prod --env production --file src/storage/schema.sql --config wrangler.ci.toml
+
+      - name: Deploy production worker
+        id: deploy
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-prod-output.jsonl
+        working-directory: apps/backend
+        run: npx wrangler@4 deploy --env production --config wrangler.ci.toml
+
+      - name: Capture deployment target
+        id: target
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-prod-output.jsonl
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH;
+          const lines = fs.readFileSync(outputPath, 'utf8').trim().split('\n');
+          const entries = lines.map((line) => JSON.parse(line));
+          const entry = entries.reverse().find((item) => item.type === 'deploy');
+          if (!entry) throw new Error('Missing deploy output from Wrangler.');
+          const targets = Array.isArray(entry.targets) ? entry.targets : [];
+          const url = targets.find((target) => typeof target === 'string' && target.startsWith('http'));
+          if (!url) throw new Error('Missing deployment URL in Wrangler output targets.');
+          const versionId = entry.version_id || '';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `deploy_url=${url}\nversion_id=${versionId}\n`);
+          NODE
+
+      - name: Smoke check
+        env:
+          DEPLOY_URL: ${{ steps.target.outputs.deploy_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "Missing deploy URL" >&2
+            exit 1
+          fi
+          status=$(curl -sS -o response.json -w "%{http_code}" "$DEPLOY_URL/")
+          if [ "$status" != "200" ]; then
+            cat response.json || true
+            echo "Unexpected status: $status" >&2
+            exit 1
+          fi
+          node -e "const fs=require('fs');const body=JSON.parse(fs.readFileSync('response.json','utf8'));if(body.status!=='ok'){console.error('Unexpected body', body);process.exit(1);}"
+
+      - name: Deployment summary
+        run: |
+          echo "### Backend production deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version ID: \`${{ steps.target.outputs.version_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- URL: ${{ steps.target.outputs.deploy_url }}" >> "$GITHUB_STEP_SUMMARY"

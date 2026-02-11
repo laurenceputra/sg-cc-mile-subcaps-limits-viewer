@@ -1,0 +1,32 @@
+{
+  "name": "@bank-cc/backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sync backend for bank CC calculator (Cloudflare Workers + D1)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "tail:preview": "wrangler tail --env preview",
+    "tail:production": "wrangler tail --env production",
+    "test": "node --test src/__tests__/workers/*.test.js",
+    "test:workers": "node --test src/__tests__/workers/*.test.js"
+  },
+  "keywords": [
+    "hono",
+    "cloudflare-workers",
+    "sync"
+  ],
+  "author": "laurenceputra",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "miniflare": "^3.20250718.3",
+    "wrangler": "^4.0.0"
+  }
+}
