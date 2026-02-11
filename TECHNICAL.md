@@ -38,6 +38,12 @@
 - Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
 - Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
 
+## Web dashboard
+
+- `GET /login` serves a login page that accepts the same sync credentials as the userscript (`username` == `email`).
+- `GET /dashboard` shows current-month totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
+- Dashboard data is fetched from `GET /sync/data` and decrypted client-side in the browser; the backend never receives plaintext.
+
 ## Data extraction details
 
 - **Card name XPath** (must match `TARGET_CARD_NAME`):

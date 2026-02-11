@@ -79,6 +79,10 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `POST /auth/login` - Login and get JWT
 - `POST /auth/device/register` - Register device
 
+### Web Pages
+- `GET /login` - Login page (email + password) for sync credentials
+- `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing current monthly totals for `LADY'S SOLITAIRE CARD`
+
 ### Sync (requires auth)
 - `GET /sync/data` - Get encrypted sync data
 - `PUT /sync/data` - Update encrypted sync data
