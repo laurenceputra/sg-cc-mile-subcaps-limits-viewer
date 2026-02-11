@@ -8,7 +8,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
-// @connect      bank-cc-sync.your-domain.workers.dev
+// @connect      bank-cc-sync.laurenceputra.workers.dev
 // @connect      localhost
 // ==/UserScript==
 // GENERATED FILE - DO NOT EDIT.
@@ -452,7 +452,7 @@
   // Build-time configuration for sync server
   const SYNC_CONFIG = {
     // Change this URL if self-hosting
-    serverUrl: 'https://bank-cc-sync.your-domain.workers.dev',
+    serverUrl: 'https://bank-cc-sync.laurenceputra.workers.dev',
     
     // For self-hosters: Update to your own server URL before building
     // Example: 'https://sync.example.com' or 'http://localhost:3000'
