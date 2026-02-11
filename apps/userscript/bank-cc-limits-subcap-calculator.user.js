@@ -3,6 +3,9 @@
 // @namespace    local
 // @version      0.6.0
 // @description  Extract credit card transactions and manage subcap categories with optional sync
+// @author       laurenceputra
+// @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
+// @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
 // @run-at       document-idle
 // @grant        GM_getValue
@@ -11,8 +14,6 @@
 // @connect      bank-cc-sync.laurenceputra.workers.dev
 // @connect      localhost
 // ==/UserScript==
-// GENERATED FILE - DO NOT EDIT.
-// Source: apps/userscripts/uob-lady-solitaire/src/index.user.js
 
 (function () {
   'use strict';

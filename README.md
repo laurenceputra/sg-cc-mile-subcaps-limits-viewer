@@ -4,9 +4,9 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 ## Projects
 
-- **Userscript (UOB Lady's Solitaire)** — `apps/userscripts/uob-lady-solitaire/dist/bank-cc-limits-subcap-calculator.user.js`  
+- **Userscript (UOB Lady's Solitaire)** — `apps/userscript/bank-cc-limits-subcap-calculator.user.js`  
   Tampermonkey userscript that summarizes spend and manages subcap categories.  
-  Installable build: [bank-cc-limits-subcap-calculator.user.js](bank-cc-limits-subcap-calculator.user.js) (prebuilt; canonical copy lives in `apps/userscripts/uob-lady-solitaire/dist/`)
+  Installable build: [apps/userscript/bank-cc-limits-subcap-calculator.user.js](apps/userscript/bank-cc-limits-subcap-calculator.user.js) (canonical copy)
 
 - **Sync backend** — `apps/backend/`  
   Optional API for encrypted settings sync and shared mappings (Cloudflare Workers + D1).  
@@ -15,7 +15,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 ## Architecture
 
 - Apps are isolated under `apps/`:
-  - `apps/userscripts/uob-lady-solitaire/dist` (prebuilt userscript artifact)
+  - `apps/userscript` (userscript artifact)
   - `apps/backend`
 - Integration is contract-only over HTTP.
 - Shared API contracts and JSON schemas live in `apps/contracts/`.
@@ -23,7 +23,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 ## Quick userscript install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/).
-2. Add the script from `bank-cc-limits-subcap-calculator.user.js` (generated artifact; do not edit by hand).
+2. Add the script from `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
 3. Open your UOB PIB credit card transaction page.
 4. Click **Subcap Tools** to view totals and manage categories.
 
