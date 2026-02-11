@@ -46,14 +46,14 @@ jobs:
 
       - name: Apply production schema
         working-directory: apps/backend
-        run: npx wrangler@4 d1 execute bank_cc_sync_prod --env production --file src/storage/schema.sql --config wrangler.ci.toml
+        run: npx wrangler@4 d1 execute bank_cc_sync_prod --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Deploy production worker
         id: deploy
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-prod-output.jsonl
         working-directory: apps/backend
-        run: npx wrangler@4 deploy --env production --config wrangler.ci.toml
+        run: npx wrangler@4 deploy --config wrangler.ci.toml
 
       - name: Capture deployment target
         id: target
