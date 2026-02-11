@@ -22,6 +22,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 | code-review | Expert code reviewer with best-practice guidance for correctness, security, performance, and maintainability. | [.agents/skills/code-review/SKILL.md](.agents/skills/code-review/SKILL.md) |
 | debugging-assistant | Debugging methodologies for root-cause analysis, reproduction, and prevention. | [.agents/skills/debugging-assistant/SKILL.md](.agents/skills/debugging-assistant/SKILL.md) |
 | documentation | Technical writing guidance for clear, complete documentation. | [.agents/skills/documentation/SKILL.md](.agents/skills/documentation/SKILL.md) |
+| implementation-engineer | Production implementation workflow for this repo with security-first defaults, minimal diffs, and validation discipline. | [.agents/skills/implementation-engineer/SKILL.md](.agents/skills/implementation-engineer/SKILL.md) |
 | network-resilience | Reliability improvements for network calls, retries, and offline handling. | [.agents/skills/network-resilience/SKILL.md](.agents/skills/network-resilience/SKILL.md) |
 | performance-optimization | Performance analysis and optimization best practices. | [.agents/skills/performance-optimization/SKILL.md](.agents/skills/performance-optimization/SKILL.md) |
 | qa-testing | Test planning for happy paths, edge cases, and regressions. | [.agents/skills/qa-testing/SKILL.md](.agents/skills/qa-testing/SKILL.md) |
@@ -79,7 +80,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 ## Phase ↔ Skills Mapping
 
 - **Phase 0: Requirements & Safety Gate** → `requirements-researcher`, `security-risk`
-- **Phase 1: Implementation** → `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
+- **Phase 1: Implementation** → `implementation-engineer` (primary), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
 - **Phase 2: Code Review** → `code-review`, `security-risk`
 - **Phase 3: Quality Validation** → `qa-testing`, `performance-optimization`, `ux-accessibility`
 - **Phase 4: Security Testing** → `security-risk`
