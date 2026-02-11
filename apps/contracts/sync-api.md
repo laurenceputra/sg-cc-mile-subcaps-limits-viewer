@@ -85,7 +85,11 @@ Behavior notes:
 ## Required normalization and validation behavior
 
 - Merchant normalization: lowercase, collapse internal whitespace to single spaces, trim, then remove characters not matching `[A-Za-z0-9_\s-]`.
-- Sync payload structure must validate against `schemas/sync-payload.schema.json` after decryption.
+- Canonical sync payload structure is defined by `schemas/sync-payload.schema.json` after decryption.
+- Clients should remain backward compatible with known legacy decrypted payload layouts:
+  - `{ cards: { ... } }`
+  - `{ "<CARD_NAME>": { selectedCategories, defaultCategory, merchantMap, ... } }`
+- On successful sync using a legacy payload, clients should write back canonical envelope format on the next `PUT /sync/data` to migrate stored blobs.
 - Shared mapping structure must validate against `schemas/shared-mapping.schema.json` for API-level interchange.
 - Sync clients must derive decrypt keys using the payload `salt` field before AES-GCM decryption.
 

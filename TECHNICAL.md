@@ -33,6 +33,10 @@
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
+- After page reload/login, sync can remain configured as enabled but runtime crypto stays locked until password is re-entered for that browser session.
+- Users can opt in to "Remember sync on this device": the local unlock cache stays available until JWT token expiry or explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
+- Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
+- Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
 
 ## Data extraction details
 
@@ -103,6 +107,9 @@ Use this section to understand why totals might look off.
 - **Script doesn’t appear**: Ensure the current page URL matches the UOB PIB pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
+- **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
+- **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or your JWT session may have expired. Re-enter password and re-enable remembered sync.
+- **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
 
 ## Extending to new cards
 

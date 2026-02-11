@@ -148,14 +148,131 @@
     }
   }
 
-  function validateSyncPayload(payload) {
-    if (!payload || typeof payload !== 'object') return false;
-    if (typeof payload.version !== 'number' || payload.version < 0) return false;
-    if (typeof payload.deviceId !== 'string' || !payload.deviceId) return false;
-    if (typeof payload.timestamp !== 'number' || payload.timestamp <= 0) return false;
-    if (!payload.data || typeof payload.data !== 'object') return false;
-    if (!payload.data.cards || typeof payload.data.cards !== 'object') return false;
-    return true;
+  function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function hasValidTimestamp(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  }
+
+  function looksLikeCardSettings(value) {
+    if (!isObjectRecord(value)) return false;
+    return (
+      Array.isArray(value.selectedCategories) ||
+      typeof value.defaultCategory === 'string' ||
+      isObjectRecord(value.merchantMap) ||
+      isObjectRecord(value.transactions) ||
+      isObjectRecord(value.monthlyTotals)
+    );
+  }
+
+  function getPayloadTopLevelKeys(payload, maxKeys = 8) {
+    if (!isObjectRecord(payload)) return [];
+    return Object.keys(payload).slice(0, maxKeys);
+  }
+
+  function parseSyncPayload(payload) {
+    const invalid = (reason) => ({
+      ok: false,
+      format: 'invalid',
+      reason,
+      normalizedData: null,
+      timestamp: 0
+    });
+
+    if (!isObjectRecord(payload)) {
+      return invalid('payload_not_object');
+    }
+
+    const hasVersionField = Object.prototype.hasOwnProperty.call(payload, 'version');
+    const hasDeviceIdField = Object.prototype.hasOwnProperty.call(payload, 'deviceId');
+    const hasTimestampField = Object.prototype.hasOwnProperty.call(payload, 'timestamp');
+    const hasDataField = Object.prototype.hasOwnProperty.call(payload, 'data');
+    const hasCanonicalEnvelopeFields =
+      hasVersionField &&
+      hasDeviceIdField &&
+      hasTimestampField &&
+      hasDataField;
+
+    if (hasCanonicalEnvelopeFields) {
+      if (typeof payload.version !== 'number' || !Number.isFinite(payload.version) || payload.version < 0) {
+        return invalid('invalid_version');
+      }
+      if (typeof payload.deviceId !== 'string' || !payload.deviceId) {
+        return invalid('invalid_device_id');
+      }
+      if (!hasValidTimestamp(payload.timestamp)) {
+        return invalid('invalid_timestamp');
+      }
+      if (!isObjectRecord(payload.data)) {
+        return invalid('invalid_data_object');
+      }
+      if (!Object.prototype.hasOwnProperty.call(payload.data, 'cards') && Object.keys(payload.data).length === 0) {
+        return {
+          ok: true,
+          format: 'legacy-empty-data-root',
+          reason: null,
+          normalizedData: { cards: {} },
+          timestamp: payload.timestamp
+        };
+      }
+      if (!isObjectRecord(payload.data.cards)) {
+        return invalid('invalid_cards_object');
+      }
+
+      return {
+        ok: true,
+        format: 'canonical',
+        reason: null,
+        normalizedData: { cards: payload.data.cards },
+        timestamp: payload.timestamp
+      };
+    }
+
+    if (isObjectRecord(payload.cards)) {
+      return {
+        ok: true,
+        format: 'legacy-cards-root',
+        reason: null,
+        normalizedData: { cards: payload.cards },
+        timestamp: hasValidTimestamp(payload.timestamp) ? payload.timestamp : Date.now()
+      };
+    }
+
+    if (isObjectRecord(payload.data) && isObjectRecord(payload.data.cards)) {
+      return {
+        ok: true,
+        format: 'legacy-data-root',
+        reason: null,
+        normalizedData: { cards: payload.data.cards },
+        timestamp: hasValidTimestamp(payload.timestamp) ? payload.timestamp : Date.now()
+      };
+    }
+
+    const entries = Object.entries(payload);
+    if (entries.length === 0) {
+      return invalid('empty_payload');
+    }
+
+    const allEntriesAreObjects = entries.every(([, value]) => isObjectRecord(value));
+    const hasCardSettingsShape = entries.some(([, value]) => looksLikeCardSettings(value));
+
+    if (allEntriesAreObjects && hasCardSettingsShape) {
+      return {
+        ok: true,
+        format: 'legacy-card-map-root',
+        reason: null,
+        normalizedData: { cards: payload },
+        timestamp: Date.now()
+      };
+    }
+
+    if (hasVersionField || hasDeviceIdField) {
+      return invalid('partial_canonical_envelope');
+    }
+
+    return invalid('unrecognized_payload_shape');
   }
 
   function validateServerUrl(url) {
@@ -178,13 +295,20 @@
 
   function toSyncErrorMessage(error, fallback = 'Unknown sync error') {
     const message = typeof error?.message === 'string' ? error.message : '';
+    const isPayloadStructureError =
+      error?.name === 'SyncPayloadError' ||
+      /invalid sync payload structure/i.test(message);
     const isCryptoOperationError =
       error?.name === 'OperationError' ||
       /operation-specific reason/i.test(message) ||
       /operation failed/i.test(message);
 
+    if (isPayloadStructureError) {
+      return 'Remote sync data format is unsupported or corrupted. Reconnect sync if this persists.';
+    }
+
     if (isCryptoOperationError) {
-      return 'Unable to decrypt synced data. Verify your passphrase and reconnect sync if needed.';
+      return 'Unable to decrypt synced data. Verify your password and reconnect sync if needed.';
     }
 
     return message || fallback;
@@ -211,15 +335,28 @@
           response.encryptedData.salt
         );
 
-        if (!validateSyncPayload(decrypted)) {
-          throw new Error('Invalid sync payload structure');
+        const parsedPayload = parseSyncPayload(decrypted);
+
+        if (!parsedPayload.ok) {
+          console.warn('[SyncEngine] Invalid sync payload metadata:', {
+            format: parsedPayload.format,
+            reason: parsedPayload.reason,
+            keys: getPayloadTopLevelKeys(decrypted)
+          });
+          const payloadError = new Error(`Invalid sync payload structure (${parsedPayload.reason})`);
+          payloadError.name = 'SyncPayloadError';
+          throw payloadError;
+        }
+
+        if (parsedPayload.format !== 'canonical') {
+          console.info('[SyncEngine] Migrating legacy sync payload format:', parsedPayload.format);
         }
 
         return {
           success: true,
-          data: decrypted.data,
+          data: parsedPayload.normalizedData,
           version: response.version,
-          timestamp: decrypted.timestamp
+          timestamp: parsedPayload.timestamp
         };
       } catch (error) {
         console.error('[SyncEngine] Pull failed:', error);
@@ -481,6 +618,132 @@
     }
   }
 
+  function isCryptoKey(value) {
+    return typeof CryptoKey !== 'undefined' && value instanceof CryptoKey;
+  }
+
+  class SyncSecretVault {
+    constructor() {
+      this.dbName = 'ccSubcapSyncVault';
+      this.storeName = 'secrets';
+      this.deviceKeyId = 'device-key-v1';
+    }
+
+    isAvailable() {
+      return typeof indexedDB !== 'undefined' && Boolean(crypto?.subtle);
+    }
+
+    async openDb() {
+      if (!this.isAvailable()) {
+        throw new Error('Secure local vault is not available in this browser');
+      }
+
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.dbName, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(this.storeName)) {
+            db.createObjectStore(this.storeName);
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('Failed to open secure local vault'));
+      });
+    }
+
+    async getRecord(id) {
+      const db = await this.openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const request = store.get(id);
+        request.onsuccess = () => resolve(request.result ?? null);
+        request.onerror = () => reject(request.error || new Error('Failed to read secure local vault record'));
+      });
+    }
+
+    async setRecord(id, value) {
+      const db = await this.openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        store.put(value, id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('Failed to write secure local vault record'));
+      });
+    }
+
+    async deleteRecord(id) {
+      const db = await this.openDb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        store.delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('Failed to delete secure local vault record'));
+      });
+    }
+
+    async getDeviceKey() {
+      const record = await this.getRecord(this.deviceKeyId);
+      return isCryptoKey(record) ? record : null;
+    }
+
+    async getOrCreateDeviceKey() {
+      const existing = await this.getDeviceKey();
+      if (existing) {
+        return existing;
+      }
+
+      const key = await crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+      await this.setRecord(this.deviceKeyId, key);
+      return key;
+    }
+
+    async deleteDeviceKey() {
+      await this.deleteRecord(this.deviceKeyId);
+    }
+
+    async encryptText(plaintext) {
+      const key = await this.getOrCreateDeviceKey();
+      const enc = new TextEncoder();
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        enc.encode(plaintext)
+      );
+
+      return {
+        ciphertext: arrayBufferToBase64(ciphertext),
+        iv: arrayBufferToBase64(iv)
+      };
+    }
+
+    async decryptText(payload) {
+      if (!payload || typeof payload.ciphertext !== 'string' || typeof payload.iv !== 'string') {
+        throw new Error('Invalid encrypted local secret payload');
+      }
+
+      const key = await this.getDeviceKey();
+      if (!key) {
+        throw new Error('Secure local unlock key is missing');
+      }
+
+      const dec = new TextDecoder();
+      const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: base64ToArrayBuffer(payload.iv) },
+        key,
+        base64ToArrayBuffer(payload.ciphertext)
+      );
+      return dec.decode(plaintext);
+    }
+  }
+
   // Build-time configuration for sync server
   const SYNC_CONFIG = {
     // Change this URL if self-hosting
@@ -490,12 +753,44 @@
     // Example: 'https://sync.example.com' or 'http://localhost:3000'
   };
 
+  const SYNC_UNLOCK_CACHE_KEY = 'ccSubcapSyncUnlockCache';
+
+  function getJwtTokenExpiryMs(token) {
+    if (!token || typeof token !== 'string') {
+      return null;
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    try {
+      const payloadBase64Url = parts[1];
+      const payloadBase64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const padding = payloadBase64.length % 4;
+      const normalized = padding ? payloadBase64 + '='.repeat(4 - padding) : payloadBase64;
+      const payload = JSON.parse(atob(normalized));
+      if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+        return null;
+      }
+      return payload.exp * 1000;
+    } catch (error) {
+      return null;
+    }
+  }
+
   class SyncManager {
     constructor(storage) {
       this.storage = storage;
       this.syncClient = null;
-      this.enabled = false;
+      this.secretVault = new SyncSecretVault();
       this.config = this.loadSyncConfig();
+      this.enabled = this.config.enabled === true;
+      this.unlockInProgress = null;
+      if (this.enabled) {
+        this.initializeClientFromConfig();
+      }
     }
 
     loadSyncConfig() {
@@ -512,11 +807,215 @@
       this.config = config;
     }
 
+    clearStorageKey(key) {
+      if (typeof this.storage.remove === 'function') {
+        this.storage.remove(key);
+      } else {
+        this.storage.set(key, '');
+      }
+    }
+
+    loadRememberedUnlockCache() {
+      const raw = this.storage.get(SYNC_UNLOCK_CACHE_KEY, '');
+      if (!raw) {
+        return null;
+      }
+
+      try {
+        const cache = JSON.parse(raw);
+        if (!cache || typeof cache !== 'object') {
+          return null;
+        }
+        if (typeof cache.expiresAt !== 'number' || cache.expiresAt <= Date.now()) {
+          this.clearRememberedUnlockCache(true);
+          return null;
+        }
+        if (!cache.encrypted || typeof cache.encrypted !== 'object') {
+          return null;
+        }
+        if (typeof cache.encrypted.ciphertext !== 'string' || typeof cache.encrypted.iv !== 'string') {
+          return null;
+        }
+        return cache;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    hasRememberedUnlockCache() {
+      return Boolean(this.loadRememberedUnlockCache());
+    }
+
+    clearRememberedUnlockCache(updateConfig = false) {
+      this.clearStorageKey(SYNC_UNLOCK_CACHE_KEY);
+      if (updateConfig && this.config?.rememberUnlock) {
+        this.saveSyncConfig({
+          ...this.config,
+          rememberUnlock: false
+        });
+      }
+    }
+
+    async rememberUnlockPassphrase(passphrase, token = null) {
+      if (!this.secretVault.isAvailable()) {
+        throw new Error('Secure local unlock cache is unavailable in this browser');
+      }
+
+      const sourceToken = token || this.config.token;
+      const tokenExpiresAt = getJwtTokenExpiryMs(sourceToken);
+      if (!tokenExpiresAt || tokenExpiresAt <= Date.now()) {
+        throw new Error('Cannot remember unlock because session token is missing or expired');
+      }
+
+      const encrypted = await this.secretVault.encryptText(passphrase);
+      const cache = {
+        version: 1,
+        email: this.config.email || '',
+        serverUrl: this.config.serverUrl || SYNC_CONFIG.serverUrl,
+        createdAt: Date.now(),
+        expiresAt: tokenExpiresAt,
+        encrypted
+      };
+
+      this.storage.set(SYNC_UNLOCK_CACHE_KEY, JSON.stringify(cache));
+    }
+
+    async forgetRememberedUnlock() {
+      this.clearRememberedUnlockCache(true);
+      try {
+        await this.secretVault.deleteDeviceKey();
+      } catch (error) {
+        // Ignore vault deletion failures; clearing encrypted cache is sufficient.
+      }
+      this.saveSyncConfig({
+        ...this.config,
+        rememberUnlock: false
+      });
+      return { success: true };
+    }
+
+    initializeClientFromConfig() {
+      const serverUrl = this.config.serverUrl || SYNC_CONFIG.serverUrl;
+      try {
+        validateServerUrl(serverUrl);
+      } catch (error) {
+        console.error('[SyncManager] Invalid saved server URL:', error);
+        return false;
+      }
+
+      this.syncClient = new SyncClient({ serverUrl });
+      if (this.config.token) {
+        this.syncClient.api.setToken(this.config.token);
+      }
+      return true;
+    }
+
     isEnabled() {
       return this.config.enabled === true;
     }
 
-    async setupSync(email, passphrase, deviceName, serverUrl) {
+    isUnlocked() {
+      return Boolean(this.syncClient && this.syncClient.syncEngine);
+    }
+
+    async tryUnlockFromRememberedCache() {
+      const cache = this.loadRememberedUnlockCache();
+      if (!cache) {
+        return false;
+      }
+
+      if (cache.email && this.config.email && cache.email !== this.config.email) {
+        this.clearRememberedUnlockCache(true);
+        return false;
+      }
+
+      if (cache.serverUrl && this.config.serverUrl && cache.serverUrl !== this.config.serverUrl) {
+        this.clearRememberedUnlockCache(true);
+        return false;
+      }
+
+      try {
+        const passphrase = await this.secretVault.decryptText(cache.encrypted);
+        const result = await this.unlockSync(passphrase, {
+          remember: true,
+          fromRememberedCache: true
+        });
+        if (!result.success) {
+          this.clearRememberedUnlockCache(true);
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.warn('[SyncManager] Remembered unlock cache is unusable:', error);
+        this.clearRememberedUnlockCache(true);
+        return false;
+      }
+    }
+
+    async unlockSync(passphrase, options = {}) {
+      if (!this.isEnabled()) {
+        return { success: false, error: 'Sync not enabled' };
+      }
+
+      if (!passphrase || typeof passphrase !== 'string') {
+        return { success: false, error: 'Password is required to unlock sync' };
+      }
+
+      if (this.unlockInProgress) {
+        return this.unlockInProgress;
+      }
+
+      const remember = options.remember === true;
+      const fromRememberedCache = options.fromRememberedCache === true;
+
+      try {
+        this.unlockInProgress = (async () => {
+          if (!this.syncClient && !this.initializeClientFromConfig()) {
+            return { success: false, error: 'Invalid sync configuration. Please setup sync again.' };
+          }
+
+          await this.syncClient.init(passphrase);
+
+          if (this.config.email) {
+            const hashedPassphrase = await this.hashPassphrase(passphrase);
+            const authResult = await this.syncClient.login(this.config.email, hashedPassphrase);
+            this.syncClient.api.setToken(authResult.token);
+            this.saveSyncConfig({
+              ...this.config,
+              token: authResult.token,
+              tokenExpiresAt: getJwtTokenExpiryMs(authResult.token) || 0,
+              tier: authResult.tier
+            });
+          }
+
+          if (remember) {
+            try {
+              await this.rememberUnlockPassphrase(passphrase, this.config.token);
+              this.saveSyncConfig({
+                ...this.config,
+                rememberUnlock: true
+              });
+            } catch (error) {
+              console.warn('[SyncManager] Failed to persist remembered unlock cache:', error);
+              return { success: true, warning: 'Sync unlocked, but failed to remember on this device.' };
+            }
+          } else if (!fromRememberedCache) {
+            this.clearRememberedUnlockCache(true);
+          }
+
+          return { success: true };
+        })();
+
+        return await this.unlockInProgress;
+      } catch (error) {
+        console.error('[SyncManager] Unlock failed:', error);
+        return { success: false, error: error.message };
+      } finally {
+        this.unlockInProgress = null;
+      }
+    }
+
+    async setupSync(email, passphrase, serverUrl, rememberUnlock = false) {
       try {
         const deviceId = generateDeviceId();
         
@@ -549,14 +1048,28 @@
         this.saveSyncConfig({
           enabled: true,
           deviceId,
-          deviceName,
           email,
           token: authResult.token,
+          tokenExpiresAt: getJwtTokenExpiryMs(authResult.token) || 0,
           tier: authResult.tier,
           shareMappings: authResult.tier === 'free', // Free users share by default
           lastSync: 0,
-          serverUrl: actualServerUrl // Store custom server URL
+          serverUrl: actualServerUrl, // Store custom server URL
+          rememberUnlock: false
         });
+        this.clearRememberedUnlockCache();
+
+        if (rememberUnlock) {
+          try {
+            await this.rememberUnlockPassphrase(passphrase, authResult.token);
+            this.saveSyncConfig({
+              ...this.config,
+              rememberUnlock: true
+            });
+          } catch (error) {
+            console.warn('[SyncManager] Failed to persist remembered unlock cache during setup:', error);
+          }
+        }
 
         this.syncClient.api.setToken(authResult.token);
         this.enabled = true;
@@ -569,8 +1082,19 @@
     }
 
     async sync(localData) {
-      if (!this.isEnabled() || !this.syncClient) {
+      if (!this.isEnabled()) {
         return { success: false, error: 'Sync not enabled' };
+      }
+
+      if (!this.syncClient && !this.initializeClientFromConfig()) {
+        return { success: false, error: 'Invalid sync configuration. Please setup sync again.' };
+      }
+
+      if (!this.isUnlocked()) {
+        const unlockedFromCache = await this.tryUnlockFromRememberedCache();
+        if (!unlockedFromCache) {
+          return { success: false, error: 'Sync is locked. Enter your password to unlock sync.' };
+        }
       }
 
       try {
@@ -670,6 +1194,8 @@
     }
 
   disableSync() {
+    this.clearRememberedUnlockCache();
+    this.secretVault.deleteDeviceKey().catch(() => {});
     this.saveSyncConfig({});
     this.enabled = false;
     this.syncClient = null;
@@ -796,19 +1322,48 @@
         showSyncSetupDialog(syncManager, THEME, onSyncStateChanged);
       });
     } else {
+      const isUnlocked = syncManager.isUnlocked();
+      const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
       const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
       const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
+      const lockStateText = isUnlocked
+        ? 'Unlocked'
+        : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
+      const rememberChecked = config.rememberUnlock === true || hasRememberedUnlock;
 
       container.innerHTML = `
       <div class="${UI_CLASSES.stack}">
         <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
         <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel}">
-          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled</p>
-          <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled (${lockStateText})</p>
+          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${config.email || '-'}</p>
           <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
           <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
-          <p style="margin: 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
+          <p style="margin: 0;"><strong>Remembered Unlock:</strong> ${hasRememberedUnlock ? 'Yes (this device)' : 'No'}</p>
         </div>
+        ${isUnlocked ? '' : `
+        <div class="${UI_CLASSES.stackTight}">
+          <label style="display: block; font-weight: 500;">Password (unlock for this session)</label>
+          <input id="sync-unlock-passphrase" type="password" placeholder="Enter sync password" style="
+            width: 100%; padding: 12px; border: 1px solid ${THEME.border};
+            border-radius: 8px; box-sizing: border-box;
+          "/>
+          <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
+            <input id="sync-remember-unlock" type="checkbox" ${rememberChecked ? 'checked' : ''}/>
+            Remember sync on this device until session token expiry or logout
+          </label>
+          <button id="unlock-sync-btn" style="
+            padding: 12px 24px;
+            background: ${THEME.panel};
+            color: ${THEME.text};
+            border: 1px solid ${THEME.border};
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+          ">Unlock Sync</button>
+        </div>
+        `}
         <div class="${UI_CLASSES.stackTight}">
           <div class="${UI_CLASSES.buttonRow}">
             <button id="sync-now-btn" style="
@@ -829,11 +1384,84 @@
               font-weight: 500;
               cursor: pointer;
             ">Disable Sync</button>
+            ${hasRememberedUnlock ? `
+            <button id="forget-sync-unlock-btn" style="
+              padding: 12px 24px;
+              background: ${THEME.panel};
+              color: ${THEME.text};
+              border: 1px solid ${THEME.border};
+              border-radius: 8px;
+              font-weight: 500;
+              cursor: pointer;
+            ">Forget Saved Unlock</button>
+            ` : ''}
           </div>
           <div id="sync-status" class="${UI_CLASSES.status}" style="display: none;"></div>
         </div>
       </div>
     `;
+
+      const getRememberPreference = () => {
+        const rememberInput = container.querySelector('#sync-remember-unlock');
+        return Boolean(rememberInput?.checked);
+      };
+
+      const unlockButton = container.querySelector('#unlock-sync-btn');
+      if (unlockButton) {
+        unlockButton.addEventListener('click', async () => {
+          const statusDiv = container.querySelector('#sync-status');
+          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+          const passphrase = passphraseInput?.value || '';
+
+          if (!passphrase) {
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = 'Password is required to unlock sync.';
+            return;
+          }
+
+          statusDiv.style.display = 'block';
+          statusDiv.style.background = THEME.accentSoft;
+          statusDiv.style.color = THEME.accentText;
+          statusDiv.textContent = 'Unlocking sync...';
+
+          const unlockResult = await syncManager.unlockSync(passphrase, {
+            remember: getRememberPreference()
+          });
+          if (!unlockResult.success) {
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
+            return;
+          }
+
+          statusDiv.style.background = '#d1fae5';
+          statusDiv.style.color = '#065f46';
+          statusDiv.textContent = unlockResult.warning
+            ? `✓ Sync unlocked (${unlockResult.warning})`
+            : '✓ Sync unlocked';
+          onSyncStateChanged();
+        });
+      }
+
+      const forgetButton = container.querySelector('#forget-sync-unlock-btn');
+      if (forgetButton) {
+        forgetButton.addEventListener('click', async () => {
+          const statusDiv = container.querySelector('#sync-status');
+          statusDiv.style.display = 'block';
+          statusDiv.style.background = THEME.accentSoft;
+          statusDiv.style.color = THEME.accentText;
+          statusDiv.textContent = 'Forgetting saved unlock...';
+
+          await syncManager.forgetRememberedUnlock();
+
+          statusDiv.style.background = '#d1fae5';
+          statusDiv.style.color = '#065f46';
+          statusDiv.textContent = '✓ Saved unlock removed for this device';
+          onSyncStateChanged();
+        });
+      }
 
       container.querySelector('#sync-now-btn').addEventListener('click', async () => {
         const statusDiv = container.querySelector('#sync-status');
@@ -842,7 +1470,41 @@
         statusDiv.style.color = THEME.accentText;
         statusDiv.textContent = 'Syncing...';
 
-        const result = await syncManager.sync({ cards: settings.cards });
+        if (!syncManager.isUnlocked()) {
+          const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          if (unlockedFromCache) {
+            onSyncStateChanged();
+          }
+
+          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+          const passphrase = passphraseInput?.value || '';
+
+          if (!syncManager.isUnlocked() && !passphrase) {
+            statusDiv.style.background = THEME.warningSoft;
+            statusDiv.style.color = THEME.warning;
+            statusDiv.textContent = 'Sync is locked. Enter your password to unlock sync first.';
+            return;
+          }
+
+          if (!syncManager.isUnlocked()) {
+            const unlockResult = await syncManager.unlockSync(passphrase, {
+              remember: getRememberPreference()
+            });
+            if (!unlockResult.success) {
+              statusDiv.style.background = THEME.warningSoft;
+              statusDiv.style.color = THEME.warning;
+              statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
+              return;
+            }
+          }
+        }
+
+        const syncCards = isObjectRecord(settings?.cards) ? settings.cards : {};
+        if (!isObjectRecord(settings?.cards)) {
+          console.warn('[SyncTab] Missing settings.cards. Sync will proceed with empty remote baseline merge.');
+        }
+
+        const result = await syncManager.sync({ cards: syncCards });
 
         if (result.success) {
           statusDiv.style.background = '#d1fae5';
@@ -896,19 +1558,16 @@
         "/>
       </div>
       <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Passphrase</label>
-        <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
+        <label style="display: block; font-weight: 500;">Password</label>
+        <input id="sync-passphrase" type="password" placeholder="Enter sync password" style="
           width: 100%; padding: 12px; border: 1px solid ${THEME.border};
           border-radius: 8px; box-sizing: border-box;
         "/>
       </div>
-      <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Device Name</label>
-        <input id="sync-device" type="text" placeholder="My Laptop" style="
-          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-          border-radius: 8px; box-sizing: border-box;
-        "/>
-      </div>
+      <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
+        <input id="sync-remember-unlock-setup" type="checkbox"/>
+        Remember sync on this device until session token expiry or logout
+      </label>
       <div class="${UI_CLASSES.buttonRow}">
         <button id="sync-setup-save" style="
           flex: 1; padding: 12px; background: ${THEME.accent}; color: white;
@@ -933,10 +1592,10 @@
       const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
       const email = overlay.querySelector('#sync-email').value;
       const passphrase = overlay.querySelector('#sync-passphrase').value;
-      const deviceName = overlay.querySelector('#sync-device').value;
+      const rememberUnlock = overlay.querySelector('#sync-remember-unlock-setup')?.checked === true;
       const statusDiv = overlay.querySelector('#sync-setup-status');
 
-      if (!serverUrl || !email || !passphrase || !deviceName) {
+      if (!serverUrl || !email || !passphrase) {
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
@@ -960,7 +1619,7 @@
       statusDiv.style.color = THEME.accentText;
       statusDiv.textContent = 'Setting up sync...';
 
-      const result = await syncManager.setupSync(email, passphrase, deviceName, serverUrl);
+      const result = await syncManager.setupSync(email, passphrase, serverUrl, rememberUnlock);
 
       if (result.success) {
         statusDiv.style.background = '#d1fae5';
@@ -2775,6 +3434,7 @@
 
     function createOverlay(
       data,
+      settings,
       storedTransactions,
       cardSettings,
       cardConfig,
@@ -2905,7 +3565,7 @@
         spendContent.style.display = 'none';
         spendContent.style.overflow = 'auto';
 
-        syncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
+        syncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
         syncContent.id = UI_IDS.syncContent;
         syncContent.style.display = 'none';
         syncContent.style.overflow = 'auto';
@@ -2938,7 +3598,7 @@
         renderSpendingView(spendContent, storedTransactions, cardSettings);
       }
       if (syncContent) {
-        const nextSyncContent = createSyncTab(syncManager, cardSettings, THEME, onSyncStateChanged);
+        const nextSyncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
         nextSyncContent.id = UI_IDS.syncContent;
         nextSyncContent.style.display = syncContent.style.display || 'none';
         nextSyncContent.style.overflow = 'auto';
@@ -3010,9 +3670,13 @@
           const data = buildData(latestTableBody, cardName, cardSettings);
           updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           saveSettings(settings);
+          if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
+            await syncManager.tryUnlockFromRememberedCache();
+          }
           const storedTransactions = getStoredTransactions(cardSettings);
           createOverlay(
             data,
+            settings,
             storedTransactions,
             cardSettings,
             cardConfig,
