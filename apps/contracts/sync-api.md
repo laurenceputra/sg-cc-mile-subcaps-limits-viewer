@@ -54,6 +54,10 @@ Conflict response body (`409`):
 - `error` (`Version conflict`)
 - `currentVersion` (number)
 
+Behavior notes:
+- This endpoint only persists encrypted sync blobs (`sync_blobs`).
+- It does not create shared mapping contributions.
+
 ### `GET /shared/mappings/:cardType` (auth required)
 Path param:
 - `cardType` one of `ONE`, `LADY`, `PPV`, `SOLITAIRE`
@@ -74,11 +78,16 @@ Response body:
 - `success` (boolean)
 - `contributed` (number, optional)
 
+Behavior notes:
+- This is the only API path that writes user mapping contributions (`mapping_contributions`).
+- `shared_mappings` entries are created/updated via admin approval flows, not direct user sync.
+
 ## Required normalization and validation behavior
 
 - Merchant normalization: lowercase, collapse internal whitespace to single spaces, trim, then remove characters not matching `[A-Za-z0-9_\s-]`.
 - Sync payload structure must validate against `schemas/sync-payload.schema.json` after decryption.
 - Shared mapping structure must validate against `schemas/shared-mapping.schema.json` for API-level interchange.
+- Sync clients must derive decrypt keys using the payload `salt` field before AES-GCM decryption.
 
 ## Versioning
 

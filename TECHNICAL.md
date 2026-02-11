@@ -23,8 +23,16 @@
 
 - **Read-only**: The script only reads on-screen data. It does not submit forms or trigger transactions.
 - **Local-only storage**: Data is stored in Tampermonkey storage or `localStorage` on your device.
-- **No remote logging**: The script does not send data to any external service.
+- **No remote telemetry**: The script does not send analytics or logs to external services.
+- **Optional sync**: If the user explicitly enables sync, encrypted settings are sent to the configured sync backend.
 - **Retention**: Stored transactions are kept for the last 3 calendar months to support monthly summaries.
+
+## Sync behavior notes
+
+- `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
+- `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
+- Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
+- Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
 
 ## Data extraction details
 
