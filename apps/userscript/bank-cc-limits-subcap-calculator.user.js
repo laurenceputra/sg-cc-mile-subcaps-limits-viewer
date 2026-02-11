@@ -176,6 +176,20 @@
     }
   }
 
+  function toSyncErrorMessage(error, fallback = 'Unknown sync error') {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    const isCryptoOperationError =
+      error?.name === 'OperationError' ||
+      /operation-specific reason/i.test(message) ||
+      /operation failed/i.test(message);
+
+    if (isCryptoOperationError) {
+      return 'Unable to decrypt synced data. Verify your passphrase and reconnect sync if needed.';
+    }
+
+    return message || fallback;
+  }
+
   class SyncEngine {
     constructor(apiClient, cryptoManager, storage) {
       this.api = apiClient;
@@ -209,7 +223,7 @@
         };
       } catch (error) {
         console.error('[SyncEngine] Pull failed:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: toSyncErrorMessage(error, 'Failed to pull sync data') };
       }
     }
 
@@ -231,7 +245,7 @@
         };
       } catch (error) {
         console.error('[SyncEngine] Push failed:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: toSyncErrorMessage(error, 'Failed to push sync data') };
       }
     }
 
@@ -385,11 +399,28 @@
     constructor(passphrase, salt = null) {
       this.passphrase = passphrase;
       this.salt = salt || generateSalt();
+      this.saltBase64 = arrayBufferToBase64(this.salt);
       this.key = null;
     }
 
     async init() {
       this.key = await deriveKey(this.passphrase, this.salt);
+    }
+
+    async setSalt(saltBase64) {
+      if (!saltBase64 || saltBase64 === this.saltBase64) {
+        return;
+      }
+
+      try {
+        this.salt = base64ToArrayBuffer(saltBase64);
+      } catch (error) {
+        throw new Error('Invalid sync encryption salt');
+      }
+
+      this.saltBase64 = saltBase64;
+      this.key = null;
+      await this.init();
     }
 
     async encrypt(data) {
@@ -398,13 +429,13 @@
       return {
         ciphertext: encrypted.ciphertext,
         iv: encrypted.iv,
-        salt: arrayBufferToBase64(this.salt)
+        salt: this.saltBase64
       };
     }
 
     async decrypt(ciphertext, iv, saltBase64) {
       if (saltBase64) {
-        this.salt = base64ToArrayBuffer(saltBase64);
+        await this.setSalt(saltBase64);
       }
       if (!this.key) await this.init();
       return decrypt(this.key, ciphertext, iv);
