@@ -148,14 +148,122 @@
     }
   }
 
-  function validateSyncPayload(payload) {
-    if (!payload || typeof payload !== 'object') return false;
-    if (typeof payload.version !== 'number' || payload.version < 0) return false;
-    if (typeof payload.deviceId !== 'string' || !payload.deviceId) return false;
-    if (typeof payload.timestamp !== 'number' || payload.timestamp <= 0) return false;
-    if (!payload.data || typeof payload.data !== 'object') return false;
-    if (!payload.data.cards || typeof payload.data.cards !== 'object') return false;
-    return true;
+  function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function hasValidTimestamp(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  }
+
+  function looksLikeCardSettings(value) {
+    if (!isObjectRecord(value)) return false;
+    return (
+      Array.isArray(value.selectedCategories) ||
+      typeof value.defaultCategory === 'string' ||
+      isObjectRecord(value.merchantMap) ||
+      isObjectRecord(value.transactions) ||
+      isObjectRecord(value.monthlyTotals)
+    );
+  }
+
+  function getPayloadTopLevelKeys(payload, maxKeys = 8) {
+    if (!isObjectRecord(payload)) return [];
+    return Object.keys(payload).slice(0, maxKeys);
+  }
+
+  function parseSyncPayload(payload) {
+    const invalid = (reason) => ({
+      ok: false,
+      format: 'invalid',
+      reason,
+      normalizedData: null,
+      timestamp: 0
+    });
+
+    if (!isObjectRecord(payload)) {
+      return invalid('payload_not_object');
+    }
+
+    const hasVersionField = Object.prototype.hasOwnProperty.call(payload, 'version');
+    const hasDeviceIdField = Object.prototype.hasOwnProperty.call(payload, 'deviceId');
+    const hasTimestampField = Object.prototype.hasOwnProperty.call(payload, 'timestamp');
+    const hasDataField = Object.prototype.hasOwnProperty.call(payload, 'data');
+    const hasCanonicalEnvelopeFields =
+      hasVersionField &&
+      hasDeviceIdField &&
+      hasTimestampField &&
+      hasDataField;
+
+    if (hasCanonicalEnvelopeFields) {
+      if (typeof payload.version !== 'number' || !Number.isFinite(payload.version) || payload.version < 0) {
+        return invalid('invalid_version');
+      }
+      if (typeof payload.deviceId !== 'string' || !payload.deviceId) {
+        return invalid('invalid_device_id');
+      }
+      if (!hasValidTimestamp(payload.timestamp)) {
+        return invalid('invalid_timestamp');
+      }
+      if (!isObjectRecord(payload.data)) {
+        return invalid('invalid_data_object');
+      }
+      if (!isObjectRecord(payload.data.cards)) {
+        return invalid('invalid_cards_object');
+      }
+
+      return {
+        ok: true,
+        format: 'canonical',
+        reason: null,
+        normalizedData: { cards: payload.data.cards },
+        timestamp: payload.timestamp
+      };
+    }
+
+    if (isObjectRecord(payload.cards)) {
+      return {
+        ok: true,
+        format: 'legacy-cards-root',
+        reason: null,
+        normalizedData: { cards: payload.cards },
+        timestamp: hasValidTimestamp(payload.timestamp) ? payload.timestamp : Date.now()
+      };
+    }
+
+    if (isObjectRecord(payload.data) && isObjectRecord(payload.data.cards)) {
+      return {
+        ok: true,
+        format: 'legacy-data-root',
+        reason: null,
+        normalizedData: { cards: payload.data.cards },
+        timestamp: hasValidTimestamp(payload.timestamp) ? payload.timestamp : Date.now()
+      };
+    }
+
+    const entries = Object.entries(payload);
+    if (entries.length === 0) {
+      return invalid('empty_payload');
+    }
+
+    const allEntriesAreObjects = entries.every(([, value]) => isObjectRecord(value));
+    const hasCardSettingsShape = entries.some(([, value]) => looksLikeCardSettings(value));
+
+    if (allEntriesAreObjects && hasCardSettingsShape) {
+      return {
+        ok: true,
+        format: 'legacy-card-map-root',
+        reason: null,
+        normalizedData: { cards: payload },
+        timestamp: Date.now()
+      };
+    }
+
+    if (hasVersionField || hasDeviceIdField) {
+      return invalid('partial_canonical_envelope');
+    }
+
+    return invalid('unrecognized_payload_shape');
   }
 
   function validateServerUrl(url) {
@@ -178,10 +286,17 @@
 
   function toSyncErrorMessage(error, fallback = 'Unknown sync error') {
     const message = typeof error?.message === 'string' ? error.message : '';
+    const isPayloadStructureError =
+      error?.name === 'SyncPayloadError' ||
+      /invalid sync payload structure/i.test(message);
     const isCryptoOperationError =
       error?.name === 'OperationError' ||
       /operation-specific reason/i.test(message) ||
       /operation failed/i.test(message);
+
+    if (isPayloadStructureError) {
+      return 'Remote sync data format is unsupported or corrupted. Reconnect sync if this persists.';
+    }
 
     if (isCryptoOperationError) {
       return 'Unable to decrypt synced data. Verify your passphrase and reconnect sync if needed.';
@@ -211,15 +326,28 @@
           response.encryptedData.salt
         );
 
-        if (!validateSyncPayload(decrypted)) {
-          throw new Error('Invalid sync payload structure');
+        const parsedPayload = parseSyncPayload(decrypted);
+
+        if (!parsedPayload.ok) {
+          console.warn('[SyncEngine] Invalid sync payload metadata:', {
+            format: parsedPayload.format,
+            reason: parsedPayload.reason,
+            keys: getPayloadTopLevelKeys(decrypted)
+          });
+          const payloadError = new Error(`Invalid sync payload structure (${parsedPayload.reason})`);
+          payloadError.name = 'SyncPayloadError';
+          throw payloadError;
+        }
+
+        if (parsedPayload.format !== 'canonical') {
+          console.info('[SyncEngine] Migrating legacy sync payload format:', parsedPayload.format);
         }
 
         return {
           success: true,
-          data: decrypted.data,
+          data: parsedPayload.normalizedData,
           version: response.version,
-          timestamp: decrypted.timestamp
+          timestamp: parsedPayload.timestamp
         };
       } catch (error) {
         console.error('[SyncEngine] Pull failed:', error);
