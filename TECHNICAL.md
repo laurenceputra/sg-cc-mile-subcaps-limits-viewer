@@ -43,6 +43,7 @@
 - `GET /login` serves a login page that accepts the same sync credentials as the userscript (`username` == `email`).
 - `GET /dashboard` shows current-month totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
 - Dashboard data is fetched from `GET /sync/data` and decrypted client-side in the browser; the backend never receives plaintext.
+- Login state (token + passphrase) is stored in browser localStorage and expires 30 days after the last successful login.
 
 ## Data extraction details
 

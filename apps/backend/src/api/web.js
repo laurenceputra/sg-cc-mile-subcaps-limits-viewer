@@ -3,10 +3,12 @@ import { Hono } from 'hono';
 const web = new Hono();
 
 const CARD_NAME = "LADY'S SOLITAIRE CARD";
+const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const STORAGE_KEYS = {
   token: 'ccSubcapSyncToken',
   email: 'ccSubcapSyncEmail',
-  passphrase: 'ccSubcapSyncPassphrase'
+  passphrase: 'ccSubcapSyncPassphrase',
+  lastLoginAt: 'ccSubcapSyncLastLoginAt'
 };
 
 const BASE_STYLES = `
@@ -183,10 +185,39 @@ web.get('/login', (c) => {
   const script = `
     (function() {
       const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
-      const existingToken = sessionStorage.getItem(STORAGE_KEYS.token);
-      if (existingToken) {
+      const LOGIN_TTL_MS = ${LOGIN_TTL_MS};
+
+      function getStorage() {
+        try {
+          return window.localStorage;
+        } catch (error) {
+          return window.sessionStorage;
+        }
+      }
+
+      function readStoredAuth(storage) {
+        const token = storage.getItem(STORAGE_KEYS.token);
+        const lastLoginAtRaw = storage.getItem(STORAGE_KEYS.lastLoginAt);
+        const lastLoginAt = lastLoginAtRaw ? Number(lastLoginAtRaw) : 0;
+        return { token, lastLoginAt };
+      }
+
+      function isLoginFresh(lastLoginAt) {
+        return Number.isFinite(lastLoginAt) && Date.now() - lastLoginAt < LOGIN_TTL_MS;
+      }
+
+      function clearStoredAuth(storage) {
+        Object.values(STORAGE_KEYS).forEach((key) => storage.removeItem(key));
+      }
+
+      const storage = getStorage();
+      const { token, lastLoginAt } = readStoredAuth(storage);
+      if (token && isLoginFresh(lastLoginAt)) {
         window.location.assign('/dashboard');
         return;
+      }
+      if (token) {
+        clearStoredAuth(storage);
       }
 
       const form = document.getElementById('login-form');
@@ -270,9 +301,10 @@ web.get('/login', (c) => {
             return;
           }
 
-          sessionStorage.setItem(STORAGE_KEYS.token, data.token);
-          sessionStorage.setItem(STORAGE_KEYS.email, email);
-          sessionStorage.setItem(STORAGE_KEYS.passphrase, passphrase);
+          storage.setItem(STORAGE_KEYS.token, data.token);
+          storage.setItem(STORAGE_KEYS.email, email);
+          storage.setItem(STORAGE_KEYS.passphrase, passphrase);
+          storage.setItem(STORAGE_KEYS.lastLoginAt, String(Date.now()));
           window.location.assign('/dashboard');
         } catch (error) {
           setStatus('Login failed. Please retry.', 'error');
@@ -314,10 +346,36 @@ web.get('/dashboard', (c) => {
     (function() {
       const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
       const CARD_NAME = ${JSON.stringify(CARD_NAME)};
-      const token = sessionStorage.getItem(STORAGE_KEYS.token);
-      const passphrase = sessionStorage.getItem(STORAGE_KEYS.passphrase);
+      const LOGIN_TTL_MS = ${LOGIN_TTL_MS};
 
-      if (!token || !passphrase) {
+      function getStorage() {
+        try {
+          return window.localStorage;
+        } catch (error) {
+          return window.sessionStorage;
+        }
+      }
+
+      function readStoredAuth(storage) {
+        const token = storage.getItem(STORAGE_KEYS.token);
+        const passphrase = storage.getItem(STORAGE_KEYS.passphrase);
+        const lastLoginAtRaw = storage.getItem(STORAGE_KEYS.lastLoginAt);
+        const lastLoginAt = lastLoginAtRaw ? Number(lastLoginAtRaw) : 0;
+        return { token, passphrase, lastLoginAt };
+      }
+
+      function isLoginFresh(lastLoginAt) {
+        return Number.isFinite(lastLoginAt) && Date.now() - lastLoginAt < LOGIN_TTL_MS;
+      }
+
+      const storage = getStorage();
+      function clearStoredAuth() {
+        Object.values(STORAGE_KEYS).forEach((key) => storage.removeItem(key));
+      }
+
+      const { token, passphrase, lastLoginAt } = readStoredAuth(storage);
+      if (!token || !passphrase || !isLoginFresh(lastLoginAt)) {
+        clearStoredAuth();
         window.location.replace('/login');
         return;
       }
@@ -338,10 +396,6 @@ web.get('/dashboard', (c) => {
       function setLoading(isLoading) {
         refreshButton.disabled = isLoading;
         refreshButton.textContent = isLoading ? 'Refreshing...' : 'Refresh';
-      }
-
-      function clearSession() {
-        Object.values(STORAGE_KEYS).forEach((key) => sessionStorage.removeItem(key));
       }
 
       function base64ToArrayBuffer(base64) {
@@ -512,7 +566,7 @@ web.get('/dashboard', (c) => {
           });
 
           if (response.status === 401 || response.status === 403) {
-            clearSession();
+            clearStoredAuth();
             window.location.replace('/login');
             return;
           }
@@ -572,7 +626,7 @@ web.get('/dashboard', (c) => {
             return;
           }
 
-          clearSession();
+          clearStoredAuth();
           window.location.assign('/login');
         } catch (error) {
           setStatus('Logout failed. Please retry.', 'error');

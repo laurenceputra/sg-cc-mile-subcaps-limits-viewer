@@ -82,6 +82,7 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 ### Web Pages
 - `GET /login` - Login page (email + password) for sync credentials
 - `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing current monthly totals for `LADY'S SOLITAIRE CARD`
+- Login state is stored in browser localStorage and expires 30 days after the last successful login
 
 ### Sync (requires auth)
 - `GET /sync/data` - Get encrypted sync data
