@@ -56,15 +56,11 @@ ADMIN_LOGIN_PASSWORD_HASH="$(node -e 'const crypto=require("crypto");const passw
    ```bash
    wrangler d1 execute bank_cc_sync --file=apps/backend/src/storage/schema.sql
    ```
-6. Set Worker secrets (repeat per environment):
+6. Set Worker secrets on the base Worker script (`bank-cc-sync`):
    ```bash
-   wrangler secret put JWT_SECRET --env preview
-   wrangler secret put ADMIN_LOGIN_PEPPER --env preview
-   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH --env preview
-
-   wrangler secret put JWT_SECRET --env production
-   wrangler secret put ADMIN_LOGIN_PEPPER --env production
-   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH --env production
+   wrangler secret put JWT_SECRET
+   wrangler secret put ADMIN_LOGIN_PEPPER
+   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
    ```
 7. Confirm rate limiting bindings in `wrangler.toml` match your Cloudflare account.
 
@@ -86,7 +82,7 @@ npm --prefix apps/backend run deploy:preview
 npm --prefix apps/backend run deploy:production
 ```
 
-For production-specific settings, use `wrangler.toml` environments (e.g., `[env.production]`).
+For CI/CD, preview and production workflows both target the same base Worker script `bank-cc-sync` using top-level bindings in generated `wrangler.ci.toml`.
 
 ## GitHub Actions Deployments
 
@@ -110,7 +106,7 @@ Preview configs are rendered from `wrangler.preview.toml.template`, production f
 ### Preview vs Production Environments
 
 - **Preview:** GitHub Environment `backend-preview`, Wrangler top-level preview template (base script `bank-cc-sync` + preview alias), D1 `bank_cc_sync_prod` (shared with production).
-- **Production:** GitHub Environment `backend-production`, Wrangler env `production`, D1 `bank_cc_sync_prod`.
+- **Production:** GitHub Environment `backend-production`, Wrangler top-level production template (base script `bank-cc-sync`), D1 `bank_cc_sync_prod`.
 
 ### D1 schema application policy
 
@@ -119,7 +115,7 @@ Both workflows apply `apps/backend/src/storage/schema.sql` on each deploy to kee
 ### Rollback process
 
 - **Preview:** re-run the PR workflow or deploy a prior version with `wrangler versions deploy --version-id <id> --percentage 100 --config apps/backend/wrangler.ci.toml`.
-- **Production:** re-run the `backend-prod.yml` workflow from a prior commit or deploy a previous version with `wrangler versions deploy --env production --version-id <id> --percentage 100`.
+- **Production:** re-run the `backend-prod.yml` workflow from a prior commit or deploy a previous version with `wrangler versions deploy --version-id <id> --percentage 100 --config apps/backend/wrangler.ci.toml`.
 
 ### GitHub Environments and secrets
 
@@ -141,12 +137,9 @@ Enable required reviewers (and optional wait timers) on `backend-production`.
 Rotate secrets directly in Cloudflare and redeploy:
 
 ```bash
-wrangler secret put JWT_SECRET --env preview
-wrangler secret put JWT_SECRET --env production
-wrangler secret put ADMIN_LOGIN_PEPPER --env preview
-wrangler secret put ADMIN_LOGIN_PEPPER --env production
-wrangler secret put ADMIN_LOGIN_PASSWORD_HASH --env preview
-wrangler secret put ADMIN_LOGIN_PASSWORD_HASH --env production
+wrangler secret put JWT_SECRET
+wrangler secret put ADMIN_LOGIN_PEPPER
+wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
 ```
 
 Then re-run the preview or production deployment workflows.
