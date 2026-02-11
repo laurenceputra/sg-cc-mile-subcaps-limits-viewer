@@ -308,7 +308,7 @@
     }
 
     if (isCryptoOperationError) {
-      return 'Unable to decrypt synced data. Verify your passphrase and reconnect sync if needed.';
+      return 'Unable to decrypt synced data. Verify your password and reconnect sync if needed.';
     }
 
     return message || fallback;
@@ -754,7 +754,31 @@
   };
 
   const SYNC_UNLOCK_CACHE_KEY = 'ccSubcapSyncUnlockCache';
-  const SYNC_UNLOCK_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+  function getJwtTokenExpiryMs(token) {
+    if (!token || typeof token !== 'string') {
+      return null;
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    try {
+      const payloadBase64Url = parts[1];
+      const payloadBase64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const padding = payloadBase64.length % 4;
+      const normalized = padding ? payloadBase64 + '='.repeat(4 - padding) : payloadBase64;
+      const payload = JSON.parse(atob(normalized));
+      if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+        return null;
+      }
+      return payload.exp * 1000;
+    } catch (error) {
+      return null;
+    }
+  }
 
   class SyncManager {
     constructor(storage) {
@@ -832,9 +856,15 @@
       }
     }
 
-    async rememberUnlockPassphrase(passphrase) {
+    async rememberUnlockPassphrase(passphrase, token = null) {
       if (!this.secretVault.isAvailable()) {
         throw new Error('Secure local unlock cache is unavailable in this browser');
+      }
+
+      const sourceToken = token || this.config.token;
+      const tokenExpiresAt = getJwtTokenExpiryMs(sourceToken);
+      if (!tokenExpiresAt || tokenExpiresAt <= Date.now()) {
+        throw new Error('Cannot remember unlock because session token is missing or expired');
       }
 
       const encrypted = await this.secretVault.encryptText(passphrase);
@@ -843,7 +873,7 @@
         email: this.config.email || '',
         serverUrl: this.config.serverUrl || SYNC_CONFIG.serverUrl,
         createdAt: Date.now(),
-        expiresAt: Date.now() + SYNC_UNLOCK_CACHE_TTL_MS,
+        expiresAt: tokenExpiresAt,
         encrypted
       };
 
@@ -928,7 +958,7 @@
       }
 
       if (!passphrase || typeof passphrase !== 'string') {
-        return { success: false, error: 'Passphrase is required to unlock sync' };
+        return { success: false, error: 'Password is required to unlock sync' };
       }
 
       if (this.unlockInProgress) {
@@ -953,13 +983,14 @@
             this.saveSyncConfig({
               ...this.config,
               token: authResult.token,
+              tokenExpiresAt: getJwtTokenExpiryMs(authResult.token) || 0,
               tier: authResult.tier
             });
           }
 
           if (remember) {
             try {
-              await this.rememberUnlockPassphrase(passphrase);
+              await this.rememberUnlockPassphrase(passphrase, this.config.token);
               this.saveSyncConfig({
                 ...this.config,
                 rememberUnlock: true
@@ -984,7 +1015,7 @@
       }
     }
 
-    async setupSync(email, passphrase, deviceName, serverUrl, rememberUnlock = false) {
+    async setupSync(email, passphrase, serverUrl, rememberUnlock = false) {
       try {
         const deviceId = generateDeviceId();
         
@@ -1017,9 +1048,9 @@
         this.saveSyncConfig({
           enabled: true,
           deviceId,
-          deviceName,
           email,
           token: authResult.token,
+          tokenExpiresAt: getJwtTokenExpiryMs(authResult.token) || 0,
           tier: authResult.tier,
           shareMappings: authResult.tier === 'free', // Free users share by default
           lastSync: 0,
@@ -1030,7 +1061,7 @@
 
         if (rememberUnlock) {
           try {
-            await this.rememberUnlockPassphrase(passphrase);
+            await this.rememberUnlockPassphrase(passphrase, authResult.token);
             this.saveSyncConfig({
               ...this.config,
               rememberUnlock: true
@@ -1062,7 +1093,7 @@
       if (!this.isUnlocked()) {
         const unlockedFromCache = await this.tryUnlockFromRememberedCache();
         if (!unlockedFromCache) {
-          return { success: false, error: 'Sync is locked. Enter your passphrase to unlock sync.' };
+          return { success: false, error: 'Sync is locked. Enter your password to unlock sync.' };
         }
       }
 
@@ -1297,7 +1328,7 @@
       const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
       const lockStateText = isUnlocked
         ? 'Unlocked'
-        : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (passphrase required)');
+        : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
       const rememberChecked = config.rememberUnlock === true || hasRememberedUnlock;
 
       container.innerHTML = `
@@ -1305,7 +1336,7 @@
         <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
         <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel}">
           <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled (${lockStateText})</p>
-          <p style="margin: 0 0 8px 0;"><strong>Device:</strong> ${config.deviceName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${config.email || '-'}</p>
           <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
           <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
           <p style="margin: 0 0 8px 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
@@ -1313,14 +1344,14 @@
         </div>
         ${isUnlocked ? '' : `
         <div class="${UI_CLASSES.stackTight}">
-          <label style="display: block; font-weight: 500;">Passphrase (unlock for this session)</label>
-          <input id="sync-unlock-passphrase" type="password" placeholder="Enter sync passphrase" style="
+          <label style="display: block; font-weight: 500;">Password (unlock for this session)</label>
+          <input id="sync-unlock-passphrase" type="password" placeholder="Enter sync password" style="
             width: 100%; padding: 12px; border: 1px solid ${THEME.border};
             border-radius: 8px; box-sizing: border-box;
           "/>
           <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
             <input id="sync-remember-unlock" type="checkbox" ${rememberChecked ? 'checked' : ''}/>
-            Remember unlock on this device for 30 days
+            Remember sync on this device until session token expiry or logout
           </label>
           <button id="unlock-sync-btn" style="
             padding: 12px 24px;
@@ -1386,7 +1417,7 @@
             statusDiv.style.display = 'block';
             statusDiv.style.background = THEME.warningSoft;
             statusDiv.style.color = THEME.warning;
-            statusDiv.textContent = 'Passphrase is required to unlock sync.';
+            statusDiv.textContent = 'Password is required to unlock sync.';
             return;
           }
 
@@ -1451,7 +1482,7 @@
           if (!syncManager.isUnlocked() && !passphrase) {
             statusDiv.style.background = THEME.warningSoft;
             statusDiv.style.color = THEME.warning;
-            statusDiv.textContent = 'Sync is locked. Enter your passphrase to unlock sync first.';
+            statusDiv.textContent = 'Sync is locked. Enter your password to unlock sync first.';
             return;
           }
 
@@ -1527,22 +1558,15 @@
         "/>
       </div>
       <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Passphrase</label>
-        <input id="sync-passphrase" type="password" placeholder="Enter secure passphrase" style="
-          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-          border-radius: 8px; box-sizing: border-box;
-        "/>
-      </div>
-      <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Device Name</label>
-        <input id="sync-device" type="text" placeholder="My Laptop" style="
+        <label style="display: block; font-weight: 500;">Password</label>
+        <input id="sync-passphrase" type="password" placeholder="Enter sync password" style="
           width: 100%; padding: 12px; border: 1px solid ${THEME.border};
           border-radius: 8px; box-sizing: border-box;
         "/>
       </div>
       <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
         <input id="sync-remember-unlock-setup" type="checkbox"/>
-        Remember unlock on this device for 30 days
+        Remember sync on this device until session token expiry or logout
       </label>
       <div class="${UI_CLASSES.buttonRow}">
         <button id="sync-setup-save" style="
@@ -1568,11 +1592,10 @@
       const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
       const email = overlay.querySelector('#sync-email').value;
       const passphrase = overlay.querySelector('#sync-passphrase').value;
-      const deviceName = overlay.querySelector('#sync-device').value;
       const rememberUnlock = overlay.querySelector('#sync-remember-unlock-setup')?.checked === true;
       const statusDiv = overlay.querySelector('#sync-setup-status');
 
-      if (!serverUrl || !email || !passphrase || !deviceName) {
+      if (!serverUrl || !email || !passphrase) {
         statusDiv.style.display = 'block';
         statusDiv.style.background = THEME.warningSoft;
         statusDiv.style.color = THEME.warning;
@@ -1596,7 +1619,7 @@
       statusDiv.style.color = THEME.accentText;
       statusDiv.textContent = 'Setting up sync...';
 
-      const result = await syncManager.setupSync(email, passphrase, deviceName, serverUrl, rememberUnlock);
+      const result = await syncManager.setupSync(email, passphrase, serverUrl, rememberUnlock);
 
       if (result.success) {
         statusDiv.style.background = '#d1fae5';
