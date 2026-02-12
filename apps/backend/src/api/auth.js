@@ -220,10 +220,22 @@ export default function createAuthRoutes(rateLimiters) {
 
       const now = Math.floor(Date.now() / 1000);
       if (tokenRecord.revoked_at) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'revoked' }
+        });
         await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
         return c.json({ error: 'Unauthorized' }, 401);
       }
       if (tokenRecord.replaced_by) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'rotated' }
+        });
         await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
         return c.json({ error: 'Unauthorized' }, 401);
       }
@@ -236,7 +248,17 @@ export default function createAuthRoutes(rateLimiters) {
       const newRefreshTokenHash = await hashRefreshToken(newRefreshToken);
       const expiresAt = now + REFRESH_TOKEN_TTL_SECONDS;
       await db.createRefreshToken(tokenRecord.user_id, newRefreshTokenHash, tokenRecord.family_id, expiresAt, tokenRecord.id);
-      await db.markRefreshTokenRotated(tokenRecord.id, newRefreshTokenHash);
+      const rotated = await db.markRefreshTokenRotated(tokenRecord.id, newRefreshTokenHash);
+      if (rotated === 0) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'race' }
+        });
+        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
 
       const accessToken = await generateToken(tokenRecord.user_id, c.env.JWT_SECRET, {
         ttlSeconds: getAccessTokenTtlSeconds(c.env)

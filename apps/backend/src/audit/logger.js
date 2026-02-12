@@ -23,7 +23,8 @@ export const AuditEventType = {
   ADMIN_TOKEN_REJECTED: 'admin_token_rejected',
   ADMIN_MAPPING_APPROVE: 'admin_mapping_approve',
   ADMIN_VIEW_PENDING: 'admin_view_pending',
-  ADMIN_HEALTH_CHECK: 'admin_health_check'
+  ADMIN_HEALTH_CHECK: 'admin_health_check',
+  REFRESH_TOKEN_REUSE: 'refresh_token_reuse'
 };
 
 /**

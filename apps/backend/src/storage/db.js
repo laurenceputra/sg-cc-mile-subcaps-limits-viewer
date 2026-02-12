@@ -244,15 +244,16 @@ export class Database {
   }
 
   async markRefreshTokenRotated(id, replacedBy) {
-    await this.run(
+    const result = await this.run(
       `
         UPDATE refresh_tokens
         SET replaced_by = ?, rotated_at = strftime('%s', 'now')
-        WHERE id = ?
+        WHERE id = ? AND replaced_by IS NULL AND revoked_at IS NULL
       `,
       replacedBy,
       id
     );
+    return result?.meta?.changes ?? 0;
   }
 
   async revokeRefreshToken(id, reason = 'revoked') {
