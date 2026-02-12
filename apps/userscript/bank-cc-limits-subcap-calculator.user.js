@@ -14,6 +14,7 @@
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      bank-cc-sync.laurenceputra.workers.dev
+// @connect      *.laurenceputra.workers.dev
 // @connect      localhost
 // ==/UserScript==
 
