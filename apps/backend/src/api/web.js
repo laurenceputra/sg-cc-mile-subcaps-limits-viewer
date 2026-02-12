@@ -3,12 +3,18 @@ import { Hono } from 'hono';
 const web = new Hono();
 
 const CARD_NAME = "LADY'S SOLITAIRE CARD";
-const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const INACTIVITY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const STORAGE_KEYS = {
   token: 'ccSubcapSyncToken',
   email: 'ccSubcapSyncEmail',
-  passphrase: 'ccSubcapSyncPassphrase',
-  lastLoginAt: 'ccSubcapSyncLastLoginAt'
+  lastActiveAt: 'ccSubcapSyncLastActiveAt',
+  legacyPassphrase: 'ccSubcapSyncPassphrase',
+  legacyLastLoginAt: 'ccSubcapSyncLastLoginAt'
+};
+const VAULT_CONFIG = {
+  dbName: 'ccSubcapWebVault',
+  storeName: 'syncKeys',
+  recordId: 'sync-key-v1'
 };
 
 const BASE_STYLES = `
@@ -117,6 +123,21 @@ const BASE_STYLES = `
   .totals-row:last-child {
     border-bottom: none;
   }
+  .month-section {
+    border: 1px solid #ededed;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .month-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .month-title {
+    font-weight: 600;
+  }
 `;
 
 function createNonce() {
@@ -185,7 +206,8 @@ web.get('/login', (c) => {
   const script = `
     (function() {
       const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
-      const LOGIN_TTL_MS = ${LOGIN_TTL_MS};
+      const INACTIVITY_TTL_MS = ${INACTIVITY_TTL_MS};
+      const VAULT_CONFIG = ${JSON.stringify(VAULT_CONFIG)};
 
       function getStorage() {
         try {
@@ -195,29 +217,83 @@ web.get('/login', (c) => {
         }
       }
 
-      function readStoredAuth(storage) {
+      function readSession(storage) {
         const token = storage.getItem(STORAGE_KEYS.token);
-        const lastLoginAtRaw = storage.getItem(STORAGE_KEYS.lastLoginAt);
-        const lastLoginAt = lastLoginAtRaw ? Number(lastLoginAtRaw) : 0;
-        return { token, lastLoginAt };
+        const email = storage.getItem(STORAGE_KEYS.email);
+        const lastActiveAtRaw = storage.getItem(STORAGE_KEYS.lastActiveAt);
+        const lastActiveAt = lastActiveAtRaw ? Number(lastActiveAtRaw) : 0;
+        return { token, email, lastActiveAt };
       }
 
-      function isLoginFresh(lastLoginAt) {
-        return Number.isFinite(lastLoginAt) && Date.now() - lastLoginAt < LOGIN_TTL_MS;
+      function isSessionActive(lastActiveAt) {
+        return Number.isFinite(lastActiveAt) && Date.now() - lastActiveAt < INACTIVITY_TTL_MS;
       }
 
-      function clearStoredAuth(storage) {
+      function clearSession(storage) {
         Object.values(STORAGE_KEYS).forEach((key) => storage.removeItem(key));
       }
 
+      function setSession(storage, token, email) {
+        storage.setItem(STORAGE_KEYS.token, token);
+        storage.setItem(STORAGE_KEYS.email, email);
+        storage.setItem(STORAGE_KEYS.lastActiveAt, String(Date.now()));
+      }
+
+      function isVaultAvailable() {
+        return typeof indexedDB !== 'undefined' && Boolean(crypto?.subtle);
+      }
+
+      async function openVault() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(VAULT_CONFIG.dbName, 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(VAULT_CONFIG.storeName)) {
+              db.createObjectStore(VAULT_CONFIG.storeName);
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error || new Error('Failed to open vault'));
+        });
+      }
+
+      async function setVaultRecord(record) {
+        if (!isVaultAvailable()) {
+          throw new Error('Secure storage is not available');
+        }
+        const db = await openVault();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(VAULT_CONFIG.storeName, 'readwrite');
+          const store = tx.objectStore(VAULT_CONFIG.storeName);
+          store.put(record, VAULT_CONFIG.recordId);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('Failed to persist secure vault data'));
+        });
+      }
+
+      async function clearVaultRecord() {
+        if (!isVaultAvailable()) {
+          return Promise.resolve();
+        }
+        const db = await openVault();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(VAULT_CONFIG.storeName, 'readwrite');
+          const store = tx.objectStore(VAULT_CONFIG.storeName);
+          store.delete(VAULT_CONFIG.recordId);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('Failed to clear secure vault data'));
+        });
+      }
+
       const storage = getStorage();
-      const { token, lastLoginAt } = readStoredAuth(storage);
-      if (token && isLoginFresh(lastLoginAt)) {
+      const { token, lastActiveAt } = readSession(storage);
+      if (token && isSessionActive(lastActiveAt)) {
         window.location.assign('/dashboard');
         return;
       }
       if (token) {
-        clearStoredAuth(storage);
+        clearSession(storage);
+        clearVaultRecord().catch(() => {});
       }
 
       const form = document.getElementById('login-form');
@@ -232,170 +308,6 @@ web.get('/login', (c) => {
       function setLoading(isLoading) {
         button.disabled = isLoading;
         button.textContent = isLoading ? 'Signing in...' : 'Login';
-      }
-
-      async function hashPassphrase(email, passphrase) {
-        const enc = new TextEncoder();
-        const saltData = enc.encode(email || 'default-salt');
-        const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-        const salt = new Uint8Array(saltHash).slice(0, 16);
-        const keyMaterial = await crypto.subtle.importKey(
-          'raw',
-          enc.encode(passphrase),
-          'PBKDF2',
-          false,
-          ['deriveBits']
-        );
-        const derivedBits = await crypto.subtle.deriveBits(
-          {
-            name: 'PBKDF2',
-            salt,
-            iterations: 310000,
-            hash: 'SHA-256'
-          },
-          keyMaterial,
-          256
-        );
-        return Array.from(new Uint8Array(derivedBits))
-          .map(byte => byte.toString(16).padStart(2, '0'))
-          .join('');
-      }
-
-      async function handleSubmit(event) {
-        event.preventDefault();
-        setStatus('');
-
-        if (!crypto || !crypto.subtle) {
-          setStatus('Secure login is not supported in this browser.', 'error');
-          return;
-        }
-
-        const emailInput = document.getElementById('email');
-        const passwordInput = document.getElementById('password');
-        const email = emailInput.value.trim();
-        const passphrase = passwordInput.value;
-
-        if (!email || !passphrase) {
-          setStatus('Email and password are required.', 'error');
-          return;
-        }
-
-        setLoading(true);
-
-        try {
-          const passwordHash = await hashPassphrase(email, passphrase);
-          const response = await fetch('/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, passwordHash })
-          });
-
-          if (!response.ok) {
-            setStatus('Login failed. Check your credentials and try again.', 'error');
-            return;
-          }
-
-          const data = await response.json();
-          if (!data || !data.token) {
-            setStatus('Login failed. Try again.', 'error');
-            return;
-          }
-
-          storage.setItem(STORAGE_KEYS.token, data.token);
-          storage.setItem(STORAGE_KEYS.email, email);
-          storage.setItem(STORAGE_KEYS.passphrase, passphrase);
-          storage.setItem(STORAGE_KEYS.lastLoginAt, String(Date.now()));
-          window.location.assign('/dashboard');
-        } catch (error) {
-          setStatus('Login failed. Please retry.', 'error');
-        } finally {
-          setLoading(false);
-        }
-      }
-
-      form.addEventListener('submit', handleSubmit);
-    })();
-  `;
-
-  return htmlResponse(c, renderPage({ title: 'Sync Login', body, script, nonce }), nonce);
-});
-
-web.get('/dashboard', (c) => {
-  const nonce = createNonce();
-  const body = `
-    <div class="container">
-      <h1>Dashboard</h1>
-      <p class="muted">${CARD_NAME}</p>
-      <div class="totals">
-        <div class="totals-header">
-          <span id="month-label" class="pill"></span>
-          <strong id="total-amount"></strong>
-        </div>
-        <div id="totals-list"></div>
-        <div id="empty-state" class="muted"></div>
-      </div>
-      <div class="actions">
-        <button id="refresh-button" type="button">Refresh</button>
-        <button id="logout-button" type="button" class="secondary">Logout</button>
-      </div>
-      <div id="status" class="status" role="status" aria-live="polite"></div>
-    </div>
-  `;
-
-  const script = `
-    (function() {
-      const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
-      const CARD_NAME = ${JSON.stringify(CARD_NAME)};
-      const LOGIN_TTL_MS = ${LOGIN_TTL_MS};
-
-      function getStorage() {
-        try {
-          return window.localStorage;
-        } catch (error) {
-          return window.sessionStorage;
-        }
-      }
-
-      function readStoredAuth(storage) {
-        const token = storage.getItem(STORAGE_KEYS.token);
-        const passphrase = storage.getItem(STORAGE_KEYS.passphrase);
-        const lastLoginAtRaw = storage.getItem(STORAGE_KEYS.lastLoginAt);
-        const lastLoginAt = lastLoginAtRaw ? Number(lastLoginAtRaw) : 0;
-        return { token, passphrase, lastLoginAt };
-      }
-
-      function isLoginFresh(lastLoginAt) {
-        return Number.isFinite(lastLoginAt) && Date.now() - lastLoginAt < LOGIN_TTL_MS;
-      }
-
-      const storage = getStorage();
-      function clearStoredAuth() {
-        Object.values(STORAGE_KEYS).forEach((key) => storage.removeItem(key));
-      }
-
-      const { token, passphrase, lastLoginAt } = readStoredAuth(storage);
-      if (!token || !passphrase || !isLoginFresh(lastLoginAt)) {
-        clearStoredAuth();
-        window.location.replace('/login');
-        return;
-      }
-
-      const statusEl = document.getElementById('status');
-      const refreshButton = document.getElementById('refresh-button');
-      const logoutButton = document.getElementById('logout-button');
-      const monthLabel = document.getElementById('month-label');
-      const totalAmountEl = document.getElementById('total-amount');
-      const totalsList = document.getElementById('totals-list');
-      const emptyState = document.getElementById('empty-state');
-
-      function setStatus(message, type) {
-        statusEl.textContent = message || '';
-        statusEl.className = 'status' + (type ? ' ' + type : '');
-      }
-
-      function setLoading(isLoading) {
-        refreshButton.disabled = isLoading;
-        refreshButton.textContent = isLoading ? 'Refreshing...' : 'Refresh';
       }
 
       function base64ToArrayBuffer(base64) {
@@ -425,17 +337,311 @@ web.get('/dashboard', (c) => {
         );
       }
 
-      async function decryptPayload(encryptedData) {
+      async function hashPassphrase(email, passphrase) {
+        const enc = new TextEncoder();
+        const saltData = enc.encode(email || 'default-salt');
+        const saltHash = await crypto.subtle.digest('SHA-256', saltData);
+        const salt = new Uint8Array(saltHash).slice(0, 16);
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          enc.encode(passphrase),
+          'PBKDF2',
+          false,
+          ['deriveBits']
+        );
+        const derivedBits = await crypto.subtle.deriveBits(
+          {
+            name: 'PBKDF2',
+            salt,
+            iterations: 310000,
+            hash: 'SHA-256'
+          },
+          keyMaterial,
+          256
+        );
+        return Array.from(new Uint8Array(derivedBits))
+          .map(byte => byte.toString(16).padStart(2, '0'))
+          .join('');
+      }
+
+      async function persistVaultKey(passphrase, email, token) {
+        if (!isVaultAvailable()) {
+          throw new Error('Secure storage is not available in this browser');
+        }
+        const response = await fetch('/sync/data', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + token },
+          credentials: 'same-origin'
+        });
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (!data || !data.encryptedData || !data.encryptedData.salt) {
+          return;
+        }
+        const key = await deriveKey(passphrase, new Uint8Array(base64ToArrayBuffer(data.encryptedData.salt)));
+        await setVaultRecord({
+          key,
+          salt: data.encryptedData.salt,
+          email,
+          updatedAt: Date.now()
+        });
+      }
+
+      async function handleSubmit(event) {
+        event.preventDefault();
+        setStatus('');
+
+        if (!crypto || !crypto.subtle) {
+          setStatus('Secure login is not supported in this browser.', 'error');
+          return;
+        }
+
+        if (!isVaultAvailable()) {
+          setStatus('Secure storage is unavailable; cannot persist session.', 'error');
+          return;
+        }
+
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const email = emailInput.value.trim().toLowerCase();
+        let passphrase = passwordInput.value;
+
+        if (!email || !passphrase) {
+          setStatus('Email and password are required.', 'error');
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const passwordHash = await hashPassphrase(email, passphrase);
+          const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email, passwordHash })
+          });
+
+          if (!response.ok) {
+            setStatus('Login failed. Check your credentials and try again.', 'error');
+            return;
+          }
+
+          const data = await response.json();
+          if (!data || !data.token) {
+            setStatus('Login failed. Try again.', 'error');
+            return;
+          }
+
+          setSession(storage, data.token, email);
+          try {
+            await persistVaultKey(passphrase, email, data.token);
+          } catch (error) {
+            setStatus('Login succeeded, but secure key storage failed.', 'error');
+            clearSession(storage);
+            clearVaultRecord().catch(() => {});
+            return;
+          } finally {
+            passphrase = '';
+          }
+          window.location.assign('/dashboard');
+        } catch (error) {
+          setStatus('Login failed. Please retry.', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      form.addEventListener('submit', handleSubmit);
+    })();
+  `;
+
+  return htmlResponse(c, renderPage({ title: 'Sync Login', body, script, nonce }), nonce);
+});
+
+web.get('/dashboard', (c) => {
+  const nonce = createNonce();
+  const body = `
+    <div class="container">
+      <h1>Dashboard</h1>
+      <p class="muted">${CARD_NAME}</p>
+      <div class="totals">
+        <div id="totals-list"></div>
+        <div id="empty-state" class="muted"></div>
+      </div>
+      <div class="actions">
+        <button id="refresh-button" type="button">Refresh</button>
+        <button id="logout-button" type="button" class="secondary">Logout</button>
+      </div>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </div>
+  `;
+
+  const script = `
+    (function() {
+      const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
+      const CARD_NAME = ${JSON.stringify(CARD_NAME)};
+      const INACTIVITY_TTL_MS = ${INACTIVITY_TTL_MS};
+      const VAULT_CONFIG = ${JSON.stringify(VAULT_CONFIG)};
+
+      function getStorage() {
+        try {
+          return window.localStorage;
+        } catch (error) {
+          return window.sessionStorage;
+        }
+      }
+
+      function readSession(storage) {
+        const token = storage.getItem(STORAGE_KEYS.token);
+        const email = storage.getItem(STORAGE_KEYS.email);
+        const lastActiveAtRaw = storage.getItem(STORAGE_KEYS.lastActiveAt);
+        const lastActiveAt = lastActiveAtRaw ? Number(lastActiveAtRaw) : 0;
+        return { token, email, lastActiveAt };
+      }
+
+      function isSessionActive(lastActiveAt) {
+        return Number.isFinite(lastActiveAt) && Date.now() - lastActiveAt < INACTIVITY_TTL_MS;
+      }
+
+      function clearSession(storage) {
+        Object.values(STORAGE_KEYS).forEach((key) => storage.removeItem(key));
+      }
+
+      function markActive(storage) {
+        storage.setItem(STORAGE_KEYS.lastActiveAt, String(Date.now()));
+      }
+
+      function isVaultAvailable() {
+        return typeof indexedDB !== 'undefined' && Boolean(crypto?.subtle);
+      }
+
+      async function openVault() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(VAULT_CONFIG.dbName, 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(VAULT_CONFIG.storeName)) {
+              db.createObjectStore(VAULT_CONFIG.storeName);
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error || new Error('Failed to open vault'));
+        });
+      }
+
+      async function getVaultRecord() {
+        if (!isVaultAvailable()) {
+          return null;
+        }
+        const db = await openVault();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(VAULT_CONFIG.storeName, 'readonly');
+          const store = tx.objectStore(VAULT_CONFIG.storeName);
+          const request = store.get(VAULT_CONFIG.recordId);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error || new Error('Failed to read secure vault data'));
+        });
+      }
+
+      async function clearVaultRecord() {
+        if (!isVaultAvailable()) {
+          return Promise.resolve();
+        }
+        const db = await openVault();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(VAULT_CONFIG.storeName, 'readwrite');
+          const store = tx.objectStore(VAULT_CONFIG.storeName);
+          store.delete(VAULT_CONFIG.recordId);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('Failed to clear secure vault data'));
+        });
+      }
+
+      const storage = getStorage();
+      const session = readSession(storage);
+      let token = session.token;
+      const email = session.email;
+
+      if (!token || !email || !isSessionActive(session.lastActiveAt)) {
+        clearSession(storage);
+        clearVaultRecord().catch(() => {});
+        window.location.replace('/login');
+        return;
+      }
+
+      const statusEl = document.getElementById('status');
+      const refreshButton = document.getElementById('refresh-button');
+      const logoutButton = document.getElementById('logout-button');
+      const totalsList = document.getElementById('totals-list');
+      const emptyState = document.getElementById('empty-state');
+
+      function setStatus(message, type) {
+        statusEl.textContent = message || '';
+        statusEl.className = 'status' + (type ? ' ' + type : '');
+      }
+
+      function setLoading(isLoading) {
+        refreshButton.disabled = isLoading;
+        refreshButton.textContent = isLoading ? 'Refreshing...' : 'Refresh';
+      }
+
+      function base64ToArrayBuffer(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+
+      async function decryptPayload(key, encryptedData) {
         if (!encryptedData || !encryptedData.ciphertext || !encryptedData.iv || !encryptedData.salt) {
           throw new Error('Missing encrypted data');
         }
-        const key = await deriveKey(passphrase, new Uint8Array(base64ToArrayBuffer(encryptedData.salt)));
         const plaintext = await crypto.subtle.decrypt(
           { name: 'AES-GCM', iv: base64ToArrayBuffer(encryptedData.iv) },
           key,
           base64ToArrayBuffer(encryptedData.ciphertext)
         );
         return JSON.parse(new TextDecoder().decode(plaintext));
+      }
+
+      async function refreshAccessToken() {
+        const response = await fetch('/auth/refresh', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+        if (!response.ok) {
+          return false;
+        }
+        const data = await response.json();
+        if (!data || !data.token) {
+          return false;
+        }
+        token = data.token;
+        storage.setItem(STORAGE_KEYS.token, token);
+        return true;
+      }
+
+      async function fetchWithAuth(url) {
+        const response = await fetch(url, {
+          headers: { Authorization: 'Bearer ' + token },
+          credentials: 'same-origin'
+        });
+        if (response.status !== 401 && response.status !== 403) {
+          return response;
+        }
+        const refreshed = await refreshAccessToken();
+        if (!refreshed) {
+          return response;
+        }
+        return fetch(url, {
+          headers: { Authorization: 'Bearer ' + token },
+          credentials: 'same-origin'
+        });
       }
 
       function isObjectRecord(value) {
@@ -528,31 +734,63 @@ web.get('/dashboard', (c) => {
         return monthNames[monthIndex] ? monthNames[monthIndex] + ' ' + year : monthKey;
       }
 
-      function renderTotals(monthKey, monthData) {
-        monthLabel.textContent = formatMonthLabel(monthKey);
+      function renderTotals(monthKeys, monthlyTotals) {
         totalsList.innerHTML = '';
         emptyState.textContent = '';
 
-        const totalAmount = monthData?.total_amount || 0;
-        totalAmountEl.textContent = 'Total ' + totalAmount.toFixed(2);
-
-        if (!monthData || !monthData.totals || Object.keys(monthData.totals).length === 0) {
-          emptyState.textContent = 'No stored transactions for this month.';
+        if (!monthKeys.length) {
+          emptyState.textContent = 'No stored transactions yet.';
           return;
         }
 
-        const entries = Object.entries(monthData.totals).sort((a, b) => b[1] - a[1]);
-        entries.forEach(([category, value]) => {
-          const row = document.createElement('div');
-          row.className = 'totals-row';
-          const label = document.createElement('span');
-          label.textContent = category;
-          const amount = document.createElement('span');
-          amount.textContent = value.toFixed(2);
-          row.appendChild(label);
-          row.appendChild(amount);
-          totalsList.appendChild(row);
+        monthKeys.forEach((monthKey) => {
+          const monthData = monthlyTotals[monthKey] || { totals: {}, total_amount: 0 };
+          const section = document.createElement('div');
+          section.className = 'month-section';
+
+          const header = document.createElement('div');
+          header.className = 'month-header';
+          const title = document.createElement('div');
+          title.className = 'month-title';
+          title.textContent = formatMonthLabel(monthKey);
+          const total = document.createElement('div');
+          total.className = 'pill';
+          total.textContent = 'Total ' + (monthData.total_amount || 0).toFixed(2);
+          header.appendChild(title);
+          header.appendChild(total);
+          section.appendChild(header);
+
+          const entries = Object.entries(monthData.totals || {}).sort((a, b) => b[1] - a[1]);
+          if (!entries.length) {
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.textContent = 'No transactions for this month.';
+            section.appendChild(empty);
+          } else {
+            entries.forEach(([category, value]) => {
+              const row = document.createElement('div');
+              row.className = 'totals-row';
+              const label = document.createElement('span');
+              label.textContent = category;
+              const amount = document.createElement('span');
+              amount.textContent = value.toFixed(2);
+              row.appendChild(label);
+              row.appendChild(amount);
+              section.appendChild(row);
+            });
+          }
+
+          totalsList.appendChild(section);
         });
+      }
+
+      async function handleUnlockRequired(message) {
+        setStatus(message, 'error');
+        clearSession(storage);
+        try {
+          await clearVaultRecord();
+        } catch (error) {}
+        window.location.replace('/login');
       }
 
       async function loadData() {
@@ -561,13 +799,17 @@ web.get('/dashboard', (c) => {
         emptyState.textContent = '';
 
         try {
-          const response = await fetch('/sync/data', {
-            headers: { Authorization: 'Bearer ' + token }
-          });
+          const lastActiveAtRaw = storage.getItem(STORAGE_KEYS.lastActiveAt);
+          const lastActiveAt = lastActiveAtRaw ? Number(lastActiveAtRaw) : 0;
+          if (!isSessionActive(lastActiveAt)) {
+            await handleUnlockRequired('Session expired. Please log in again.');
+            return;
+          }
+
+          const response = await fetchWithAuth('/sync/data');
 
           if (response.status === 401 || response.status === 403) {
-            clearStoredAuth();
-            window.location.replace('/login');
+            await handleUnlockRequired('Session expired. Please log in again.');
             return;
           }
 
@@ -577,14 +819,30 @@ web.get('/dashboard', (c) => {
 
           const data = await response.json();
           if (!data || !data.encryptedData) {
-            const now = new Date();
-            const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-            renderTotals(monthKey, { totals: {}, total_amount: 0 });
+            totalsList.innerHTML = '';
             emptyState.textContent = 'No synced data available yet.';
+            markActive(storage);
             return;
           }
 
-          const decrypted = await decryptPayload(data.encryptedData);
+          const vaultRecord = await getVaultRecord();
+          if (!vaultRecord || vaultRecord.email !== email) {
+            await handleUnlockRequired('Unlock required. Please log in again.');
+            return;
+          }
+          if (vaultRecord.salt !== data.encryptedData.salt) {
+            await handleUnlockRequired('Sync key mismatch. Please log in again.');
+            return;
+          }
+
+          let decrypted;
+          try {
+            decrypted = await decryptPayload(vaultRecord.key, data.encryptedData);
+          } catch (error) {
+            await handleUnlockRequired('Unable to decrypt data. Please log in again.');
+            return;
+          }
+
           const parsed = parseSyncPayload(decrypted);
           if (!parsed.ok) {
             throw new Error('Invalid sync payload');
@@ -592,18 +850,17 @@ web.get('/dashboard', (c) => {
 
           const cardSettings = parsed.normalizedData?.cards?.[CARD_NAME];
           if (!cardSettings) {
-            const now = new Date();
-            const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-            renderTotals(monthKey, { totals: {}, total_amount: 0 });
+            totalsList.innerHTML = '';
             emptyState.textContent = 'No data found for ' + CARD_NAME + '.';
+            markActive(storage);
             return;
           }
 
           const transactions = getTransactions(cardSettings);
           const monthlyTotals = calculateMonthlyTotals(transactions, cardSettings);
-          const now = new Date();
-          const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-          renderTotals(monthKey, monthlyTotals[monthKey]);
+          const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a)).slice(0, 2);
+          renderTotals(months, monthlyTotals);
+          markActive(storage);
         } catch (error) {
           setStatus('Unable to load dashboard data. Please retry.', 'error');
         } finally {
@@ -618,7 +875,8 @@ web.get('/dashboard', (c) => {
         try {
           const response = await fetch('/auth/logout', {
             method: 'POST',
-            headers: { Authorization: 'Bearer ' + token }
+            headers: { Authorization: 'Bearer ' + token },
+            credentials: 'same-origin'
           });
 
           if (!response.ok) {
@@ -626,7 +884,8 @@ web.get('/dashboard', (c) => {
             return;
           }
 
-          clearStoredAuth();
+          clearSession(storage);
+          await clearVaultRecord();
           window.location.assign('/login');
         } catch (error) {
           setStatus('Logout failed. Please retry.', 'error');

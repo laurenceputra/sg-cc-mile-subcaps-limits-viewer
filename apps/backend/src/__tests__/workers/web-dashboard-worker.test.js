@@ -62,6 +62,9 @@ describe('Workers web dashboard pages', () => {
       assert.ok(html.includes('Refresh'));
       assert.ok(html.includes('Logout'));
       assert.ok(html.includes("LADY'S SOLITAIRE CARD"));
+      assert.ok(html.includes('ccSubcapSyncLastActiveAt'));
+      assert.ok(html.includes('/auth/refresh'));
+      assert.ok(html.includes('slice(0, 2)'));
     } finally {
       await disposeTestDatabase(mf);
     }

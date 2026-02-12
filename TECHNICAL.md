@@ -41,9 +41,11 @@
 ## Web dashboard
 
 - `GET /login` serves a login page that accepts the same sync credentials as the userscript (`username` == `email`).
-- `GET /dashboard` shows current-month totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
-- Dashboard data is fetched from `GET /sync/data` and decrypted client-side in the browser; the backend never receives plaintext.
-- Login state (token + passphrase) is stored in browser localStorage and expires 30 days after the last successful login.
+- `GET /dashboard` shows up to 2 recent months of totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
+- Dashboard data is fetched from `GET /sync/data` and decrypted client-side; the backend never receives plaintext.
+- Access tokens are short-lived and refreshed via `POST /auth/refresh` using an HttpOnly cookie.
+- Session metadata (`token`, `email`, `lastActiveAt`) is stored in browser localStorage; passphrases are not persisted.
+- Decryption keys are stored in IndexedDB and cleared after 30 days of inactivity or explicit logout.
 
 ## Data extraction details
 

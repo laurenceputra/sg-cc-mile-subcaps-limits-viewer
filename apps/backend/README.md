@@ -77,12 +77,14 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 ### Auth
 - `POST /auth/register` - Create account
 - `POST /auth/login` - Login and get JWT
+- `POST /auth/refresh` - Rotate refresh token and get new access token
 - `POST /auth/device/register` - Register device
 
 ### Web Pages
 - `GET /login` - Login page (email + password) for sync credentials
-- `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing current monthly totals for `LADY'S SOLITAIRE CARD`
-- Login state is stored in browser localStorage and expires 30 days after the last successful login
+- `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing up to 2 recent months for `LADY'S SOLITAIRE CARD`
+- Session metadata (token/email/lastActiveAt) is stored in browser localStorage; passphrases are not persisted
+- Refresh tokens are stored in HttpOnly cookies and expire after 30 days of inactivity
 
 ### Sync (requires auth)
 - `GET /sync/data` - Get encrypted sync data

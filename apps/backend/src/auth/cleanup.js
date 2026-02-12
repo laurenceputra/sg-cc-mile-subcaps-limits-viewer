@@ -36,6 +36,10 @@ export async function runCleanupJobs(db) {
     // Clean up expired blacklist entries
     const blacklistCleaned = await db.cleanupExpiredBlacklist();
     console.log(`[Cleanup] Removed ${blacklistCleaned} expired blacklist entries`);
+
+    // Clean up expired refresh tokens
+    const refreshTokensCleaned = await db.cleanupExpiredRefreshTokens();
+    console.log(`[Cleanup] Removed ${refreshTokensCleaned} expired refresh tokens`);
     
     // Rotate audit logs (90-day retention)
     const auditLogsCleaned = await rotateAuditLogs(db, 90);
@@ -48,6 +52,7 @@ export async function runCleanupJobs(db) {
     lastCleanupResult = {
       success: true,
       blacklistCleaned,
+      refreshTokensCleaned,
       auditLogsCleaned
     };
     

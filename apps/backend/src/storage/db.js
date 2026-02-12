@@ -217,9 +217,89 @@ export class Database {
     );
   }
 
+  // Refresh token operations
+  async createRefreshToken(userId, tokenHash, familyId, expiresAt, parentId = null) {
+    const result = await this.run(
+      `
+        INSERT INTO refresh_tokens (
+          user_id,
+          token_hash,
+          family_id,
+          parent_id,
+          expires_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      userId,
+      tokenHash,
+      familyId,
+      parentId,
+      expiresAt
+    );
+    return Number(result?.meta?.last_row_id);
+  }
+
+  async getRefreshTokenByHash(tokenHash) {
+    return this.first('SELECT * FROM refresh_tokens WHERE token_hash = ?', tokenHash);
+  }
+
+  async markRefreshTokenRotated(id, replacedBy) {
+    await this.run(
+      `
+        UPDATE refresh_tokens
+        SET replaced_by = ?, rotated_at = strftime('%s', 'now')
+        WHERE id = ?
+      `,
+      replacedBy,
+      id
+    );
+  }
+
+  async revokeRefreshToken(id, reason = 'revoked') {
+    await this.run(
+      `
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%s', 'now'), revoked_reason = ?
+        WHERE id = ?
+      `,
+      reason,
+      id
+    );
+  }
+
+  async revokeRefreshTokenFamily(familyId, reason = 'revoked') {
+    await this.run(
+      `
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%s', 'now'), revoked_reason = ?
+        WHERE family_id = ? AND revoked_at IS NULL
+      `,
+      reason,
+      familyId
+    );
+  }
+
+  async revokeAllRefreshTokens(userId, reason = 'logout_all') {
+    await this.run(
+      `
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%s', 'now'), revoked_reason = ?
+        WHERE user_id = ? AND revoked_at IS NULL
+      `,
+      reason,
+      userId
+    );
+  }
+
   async cleanupExpiredBlacklist() {
     const now = Math.floor(Date.now() / 1000);
     const result = await this.run('DELETE FROM token_blacklist WHERE expires_at < ?', now);
+    return result?.meta?.changes ?? 0;
+  }
+
+  async cleanupExpiredRefreshTokens() {
+    const now = Math.floor(Date.now() / 1000);
+    const result = await this.run('DELETE FROM refresh_tokens WHERE expires_at < ?', now);
     return result?.meta?.changes ?? 0;
   }
 

@@ -29,6 +29,20 @@ Response body:
 - `userId` (string)
 - `tier` (`free` or `paid`)
 
+Behavior notes:
+- Sets a refresh token cookie (`ccSubcapRefreshToken`, HttpOnly, SameSite=Strict, Secure in production) scoped to `/auth`.
+
+### `POST /auth/refresh`
+Request:
+- Uses the refresh token cookie (`ccSubcapRefreshToken`).
+
+Response body:
+- `token` (string)
+
+Behavior notes:
+- Rotates the refresh token on every refresh and extends expiry by 30 days.
+- Returns `401` if the refresh token is missing, expired, revoked, or reused.
+
 ### `GET /sync/data` (auth required)
 Response body:
 - `encryptedData` (object or `null`)
