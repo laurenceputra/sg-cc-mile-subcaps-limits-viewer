@@ -5,6 +5,13 @@ import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const auth = new Hono();
 
+const ACCESS_TOKEN_TTL_SECONDS_DEFAULT = 60 * 60;
+const ACCESS_TOKEN_TTL_SECONDS_MIN = 15 * 60;
+const ACCESS_TOKEN_TTL_SECONDS_MAX = 24 * 60 * 60;
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const REFRESH_COOKIE_NAME = 'ccSubcapRefreshToken';
+const REFRESH_COOKIE_PATH = '/auth';
+
 // Device limits by tier
 const DEVICE_LIMITS = {
   free: 5,
@@ -16,6 +23,82 @@ async function sendDeviceRegistrationEmail(email, deviceName) {
   console.log(`[Email] Would send device registration notification to ${email} for device: ${deviceName}`);
   // In production, integrate with email service (SendGrid, AWS SES, etc.)
   return Promise.resolve();
+}
+
+function getAccessTokenTtlSeconds(env) {
+  const rawValue = Number(env?.ACCESS_TOKEN_TTL_SECONDS);
+  if (!Number.isFinite(rawValue) || rawValue <= 0) {
+    return ACCESS_TOKEN_TTL_SECONDS_DEFAULT;
+  }
+  return Math.min(Math.max(rawValue, ACCESS_TOKEN_TTL_SECONDS_MIN), ACCESS_TOKEN_TTL_SECONDS_MAX);
+}
+
+function isProductionEnv(env) {
+  return env?.ENVIRONMENT === 'production' || env?.NODE_ENV === 'production';
+}
+
+function parseCookies(header) {
+  if (!header) return {};
+  return header.split(';').reduce((acc, part) => {
+    const [key, ...rest] = part.trim().split('=');
+    if (!key) return acc;
+    acc[key] = rest.join('=');
+    return acc;
+  }, {});
+}
+
+function base64UrlEncode(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function generateOpaqueToken(size = 32) {
+  const bytes = crypto.getRandomValues(new Uint8Array(size));
+  return base64UrlEncode(bytes);
+}
+
+async function hashRefreshToken(token) {
+  const encoder = new TextEncoder();
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(token));
+  return Array.from(new Uint8Array(hash))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function buildRefreshCookie(token, env) {
+  const parts = [
+    `${REFRESH_COOKIE_NAME}=${token}`,
+    `Max-Age=${REFRESH_TOKEN_TTL_SECONDS}`,
+    `Path=${REFRESH_COOKIE_PATH}`,
+    'HttpOnly',
+    'SameSite=Strict'
+  ];
+  if (isProductionEnv(env)) {
+    parts.push('Secure');
+  }
+  return parts.join('; ');
+}
+
+function clearRefreshCookie(env) {
+  const parts = [
+    `${REFRESH_COOKIE_NAME}=`,
+    'Max-Age=0',
+    `Path=${REFRESH_COOKIE_PATH}`,
+    'HttpOnly',
+    'SameSite=Strict'
+  ];
+  if (isProductionEnv(env)) {
+    parts.push('Secure');
+  }
+  return parts.join('; ');
+}
+
+function getRefreshTokenFromRequest(c) {
+  const cookies = parseCookies(c.req.header('Cookie'));
+  return cookies[REFRESH_COOKIE_NAME] || null;
 }
 
 export default function createAuthRoutes(rateLimiters) {
@@ -39,7 +122,9 @@ export default function createAuthRoutes(rateLimiters) {
       }
 
       const userId = await db.createUser(email, passwordHash, tier);
-      const token = await generateToken(userId, c.env.JWT_SECRET);
+      const token = await generateToken(userId, c.env.JWT_SECRET, {
+        ttlSeconds: getAccessTokenTtlSeconds(c.env)
+      });
 
       // Audit log successful registration
       await logAuditEvent(db, {
@@ -89,7 +174,14 @@ export default function createAuthRoutes(rateLimiters) {
         return c.json({ error: 'Invalid credentials' }, 401);
       }
 
-      const token = await generateToken(user.id, c.env.JWT_SECRET);
+      const accessToken = await generateToken(user.id, c.env.JWT_SECRET, {
+        ttlSeconds: getAccessTokenTtlSeconds(c.env)
+      });
+      const refreshToken = generateOpaqueToken();
+      const refreshTokenHash = await hashRefreshToken(refreshToken);
+      const familyId = generateOpaqueToken(16);
+      const expiresAt = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL_SECONDS;
+      await db.createRefreshToken(user.id, refreshTokenHash, familyId, expiresAt);
 
       // Audit log successful login
       await logAuditEvent(db, {
@@ -99,10 +191,83 @@ export default function createAuthRoutes(rateLimiters) {
         details: { email }
       });
 
-      return c.json({ token, userId: user.id, tier: user.tier });
+      c.header('Set-Cookie', buildRefreshCookie(refreshToken, c.env));
+      return c.json({ token: accessToken, userId: user.id, tier: user.tier });
     } catch (error) {
       console.error('[Auth] Login error:', error);
       // Generic error - don't leak information
+      return c.json({ error: 'Authentication failed' }, 500);
+    }
+  });
+
+  auth.post('/refresh', rateLimiters.refreshRateLimiter, async (c) => {
+    const db = c.get('db');
+    if (!db) {
+      return c.json({ error: 'Authentication failed' }, 500);
+    }
+
+    const refreshToken = getRefreshTokenFromRequest(c);
+    if (!refreshToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    try {
+      const refreshTokenHash = await hashRefreshToken(refreshToken);
+      const tokenRecord = await db.getRefreshTokenByHash(refreshTokenHash);
+      if (!tokenRecord) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      if (tokenRecord.revoked_at) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'revoked' }
+        });
+        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      if (tokenRecord.replaced_by) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'rotated' }
+        });
+        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      if (tokenRecord.expires_at < now) {
+        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'expired');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+
+      const newRefreshToken = generateOpaqueToken();
+      const newRefreshTokenHash = await hashRefreshToken(newRefreshToken);
+      const expiresAt = now + REFRESH_TOKEN_TTL_SECONDS;
+      await db.createRefreshToken(tokenRecord.user_id, newRefreshTokenHash, tokenRecord.family_id, expiresAt, tokenRecord.id);
+      const rotated = await db.markRefreshTokenRotated(tokenRecord.id, newRefreshTokenHash);
+      if (rotated === 0) {
+        await logAuditEvent(db, {
+          eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+          request: c.req.raw,
+          userId: tokenRecord.user_id,
+          details: { familyId: tokenRecord.family_id, reason: 'race' }
+        });
+        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+
+      const accessToken = await generateToken(tokenRecord.user_id, c.env.JWT_SECRET, {
+        ttlSeconds: getAccessTokenTtlSeconds(c.env)
+      });
+
+      c.header('Set-Cookie', buildRefreshCookie(newRefreshToken, c.env));
+      return c.json({ token: accessToken });
+    } catch (error) {
+      console.error('[Auth] Refresh error:', error);
       return c.json({ error: 'Authentication failed' }, 500);
     }
   });
@@ -115,6 +280,14 @@ export default function createAuthRoutes(rateLimiters) {
     const db = c.get('db');
     
     try {
+      const refreshToken = getRefreshTokenFromRequest(c);
+      if (refreshToken && db) {
+        const refreshTokenHash = await hashRefreshToken(refreshToken);
+        const tokenRecord = await db.getRefreshTokenByHash(refreshTokenHash);
+        if (tokenRecord) {
+          await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'logout');
+        }
+      }
       if (user.jti) {
         await db.blacklistToken(user.userId, user.jti, user.exp, 'logout');
       }
@@ -127,6 +300,7 @@ export default function createAuthRoutes(rateLimiters) {
         details: {}
       });
       
+      c.header('Set-Cookie', clearRefreshCookie(c.env));
       return c.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
       console.error('[Auth] Logout error:', error);
@@ -143,6 +317,7 @@ export default function createAuthRoutes(rateLimiters) {
     
     try {
       await db.blacklistAllUserTokens(user.userId, 'logout_all');
+      await db.revokeAllRefreshTokens(user.userId, 'logout_all');
       
       // Audit log logout all
       await logAuditEvent(db, {
@@ -152,6 +327,7 @@ export default function createAuthRoutes(rateLimiters) {
         details: {}
       });
       
+      c.header('Set-Cookie', clearRefreshCookie(c.env));
       return c.json({ success: true, message: 'All devices logged out successfully' });
     } catch (error) {
       console.error('[Auth] Logout all error:', error);

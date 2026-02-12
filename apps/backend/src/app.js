@@ -10,14 +10,27 @@ import sync from './api/sync.js';
 import sharedMappings from './api/shared-mappings.js';
 import admin from './api/admin.js';
 import user from './api/user.js';
+import web from './api/web.js';
 
 export function createApp(rateLimiters) {
   const app = new Hono();
 
   // Parse allowed origins from environment
-  const getAllowedOrigins = (env) => {
+  const getAllowedOrigins = (env, requestUrl) => {
     const origins = env?.ALLOWED_ORIGINS || 'https://pib.uob.com.sg';
-    return origins.split(',').map(o => o.trim()).filter(Boolean);
+    const parsedOrigins = origins.split(',').map(o => o.trim()).filter(Boolean);
+    const allowedOrigins = new Set(parsedOrigins);
+    if (requestUrl) {
+      try {
+        const origin = new URL(requestUrl).origin;
+        if (origin) {
+          allowedOrigins.add(origin);
+        }
+      } catch {
+        // Ignore invalid URL parsing for non-standard requests
+      }
+    }
+    return Array.from(allowedOrigins);
   };
 
   // Set database in context from environment
@@ -33,14 +46,14 @@ export function createApp(rateLimiters) {
 
   // CORS middleware with CSRF protection
   app.use('/*', (c, next) => {
-    const allowedOrigins = getAllowedOrigins(c.env);
+    const allowedOrigins = getAllowedOrigins(c.env, c.req.url);
     const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
     return configureCors({ allowedOrigins, isDevelopment })(c, next);
   });
 
   // CSRF protection for state-changing requests
   app.use('/*', (c, next) => {
-    const allowedOrigins = getAllowedOrigins(c.env);
+    const allowedOrigins = getAllowedOrigins(c.env, c.req.url);
     const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
     // SECURITY: Require Origin header in production to prevent header stripping attacks
     const requireOrigin = !isDevelopment;
@@ -58,6 +71,9 @@ export function createApp(rateLimiters) {
 
   // Central error handler
   app.onError(errorHandler);
+
+  // Web pages (login + dashboard)
+  app.route('/', web);
 
   // Apply auth middleware and rate limiting for protected auth routes
   app.use('/auth/logout', authMiddleware, rateLimiters.logoutRateLimiter);

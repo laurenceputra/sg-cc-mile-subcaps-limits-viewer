@@ -84,7 +84,7 @@ jobs:
 
       - name: Apply preview schema
         working-directory: apps/backend
-        run: npx wrangler@4 d1 execute bank_cc_sync_prod --file src/storage/schema.sql --config wrangler.ci.toml
+        run: npx wrangler@4 d1 execute bank_cc_sync_prod --remote --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Upload preview version
         id: upload

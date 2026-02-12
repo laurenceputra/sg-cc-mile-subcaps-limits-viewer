@@ -45,7 +45,8 @@ export function securityHeadersMiddleware(options = {}) {
     
     // Content Security Policy
     // Restricts resource loading to prevent XSS and data injection
-    if (contentSecurityPolicy) {
+    const hasCustomCsp = Boolean(c.res?.headers?.get('Content-Security-Policy'));
+    if (contentSecurityPolicy && !hasCustomCsp) {
       // API-specific CSP: no scripts, styles, or external resources
       // Only allows connecting back to same origin
       const cspDirectives = [

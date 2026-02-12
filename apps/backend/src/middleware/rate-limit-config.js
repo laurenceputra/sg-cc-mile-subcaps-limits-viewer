@@ -45,6 +45,12 @@ export const rateLimitConfig = {
     windowMs: 60 * 1000 // per minute per location in Workers
   },
 
+  // Refresh token exchange - moderate limits
+  refresh: {
+    maxRequests: 20,
+    windowMs: 60 * 1000 // per minute per location in Workers
+  },
+
   // Admin endpoints - very strict
   admin: {
     maxRequests: 10,
@@ -79,6 +85,7 @@ export function getRateLimitErrorMessage(limitType, retryAfterSeconds) {
     register: 'Too many registration attempts. Please try again later.',
     sync: 'Rate limit exceeded. Please wait before syncing again.',
     logout: 'Rate limit exceeded. Please wait before logging out again.',
+    refresh: 'Rate limit exceeded. Please wait before refreshing again.',
     sharedMappings: 'Rate limit exceeded. Please wait before accessing mappings.',
     admin: 'Admin rate limit exceeded. Please wait before retrying.',
     default: 'Rate limit exceeded. Please try again later.'
