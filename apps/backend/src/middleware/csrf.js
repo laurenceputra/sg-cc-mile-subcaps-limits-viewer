@@ -103,8 +103,24 @@ export function csrfProtection(options = {}) {
     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
     requireOrigin = false,
     methods = ['POST', 'PUT', 'PATCH', 'DELETE'],
-    isDevelopment = false
+    isDevelopment = false,
+    trustedNoOriginHeaderName = '',
+    trustedNoOriginHeaderValue = ''
   } = options;
+
+  const hasTrustedNoOriginBypass = (c) => {
+    if (!trustedNoOriginHeaderName) {
+      return false;
+    }
+    const headerValue = c.req.header(trustedNoOriginHeaderName);
+    if (typeof headerValue !== 'string' || !headerValue) {
+      return false;
+    }
+    if (trustedNoOriginHeaderValue) {
+      return headerValue === trustedNoOriginHeaderValue;
+    }
+    return true;
+  };
   
   return async (c, next) => {
     const method = c.req.method;
@@ -127,6 +143,9 @@ export function csrfProtection(options = {}) {
     if (!requestOrigin) {
       // In strict mode, reject requests without origin
       if (requireOrigin) {
+        if (hasTrustedNoOriginBypass(c)) {
+          return next();
+        }
         console.warn('[CSRF] Request rejected: No Origin or Referer header');
         return c.json({ 
           error: 'Forbidden',
@@ -192,7 +211,7 @@ export function configureCors(options = {}) {
       }
       
       c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CC-Userscript');
       c.header('Access-Control-Max-Age', '86400'); // 24 hours
     }
     
@@ -221,7 +240,9 @@ export function getCSRFDocumentation() {
       allowedOrigins: 'Array of allowed origin URLs',
       requireOrigin: 'Reject requests without Origin header (strict mode)',
       methods: 'HTTP methods to protect (default: POST, PUT, PATCH, DELETE)',
-      isDevelopment: 'Enable localhost/127.0.0.1 for testing'
+      isDevelopment: 'Enable localhost/127.0.0.1 for testing',
+      trustedNoOriginHeaderName: 'Optional header name that can bypass strict no-origin rejection',
+      trustedNoOriginHeaderValue: 'Required header value for trusted no-origin bypass'
     },
     usage_example: {
       production: {

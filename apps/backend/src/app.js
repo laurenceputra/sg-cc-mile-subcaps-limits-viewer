@@ -57,7 +57,13 @@ export function createApp(rateLimiters) {
     const isDevelopment = c.env?.ENVIRONMENT !== 'production' && c.env?.NODE_ENV !== 'production';
     // SECURITY: Require Origin header in production to prevent header stripping attacks
     const requireOrigin = !isDevelopment;
-    return csrfProtection({ allowedOrigins, isDevelopment, requireOrigin })(c, next);
+    return csrfProtection({
+      allowedOrigins,
+      isDevelopment,
+      requireOrigin,
+      trustedNoOriginHeaderName: 'X-CC-Userscript',
+      trustedNoOriginHeaderValue: 'tampermonkey-v1'
+    })(c, next);
   });
 
   // JSON validation middleware

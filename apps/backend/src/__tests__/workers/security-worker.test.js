@@ -27,4 +27,29 @@ describe('Workers security basics', () => {
       await disposeTestDatabase(mf);
     }
   });
+
+  test('allows trusted userscript header when origin is unavailable in production', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const email = `secure-tm-${crypto.randomBytes(6).toString('hex')}@example.com`;
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const res = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CC-Userscript': 'tampermonkey-v1'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(typeof data.token, 'string');
+      assert.ok(data.token.length > 0);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
 });

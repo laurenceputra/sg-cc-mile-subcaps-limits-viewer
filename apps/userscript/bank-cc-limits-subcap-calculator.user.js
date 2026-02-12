@@ -129,6 +129,7 @@
 
     async request(endpoint, options = {}) {
       const url = `${this.baseUrl}${endpoint}`;
+      const isGMTransport = typeof GM_xmlhttpRequest === 'function';
       const headers = {
         'Content-Type': 'application/json',
         ...options.headers
@@ -138,6 +139,20 @@
         headers.Authorization = `Bearer ${this.token}`;
       }
 
+      if (isGMTransport) {
+        headers['X-CC-Userscript'] = 'tampermonkey-v1';
+        try {
+          if (!headers.Origin && typeof window?.location?.origin === 'string') {
+            headers.Origin = window.location.origin;
+          }
+          if (!headers.Referer && typeof window?.location?.href === 'string') {
+            headers.Referer = window.location.href;
+          }
+        } catch {
+          // Ignore header enrichment failures; backend trusted header still enables strict fallback.
+        }
+      }
+
       const config = {
         ...options,
         headers
@@ -145,7 +160,7 @@
 
       try {
         const response =
-          typeof GM_xmlhttpRequest === 'function'
+          isGMTransport
             ? await this.requestWithGM(url, config)
             : await this.requestWithFetch(url, config);
 
