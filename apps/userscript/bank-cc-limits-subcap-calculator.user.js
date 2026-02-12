@@ -7,7 +7,7 @@
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
-// @match        https://cib.maybank2u.com.sg/m2u/accounts/cards*
+// @match        https://cib.maybank2u.com.sg/*
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -1653,6 +1653,7 @@
       {
         id: 'uob-pib',
         urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
+        waitTimeoutMs: 15000,
         cardNameXPath:
           '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3',
         tableBodyXPath:
@@ -1661,9 +1662,11 @@
       {
         id: 'maybank2u-sg',
         urlPrefix: 'https://cib.maybank2u.com.sg/m2u/accounts/cards',
-        // Content-based selector to tolerate Maybank DOM shifts.
-        cardNameXPath: '//*[contains(normalize-space(.), "XL Rewards Card")][1]',
-        tableBodyXPath: '(//tbody[.//td[contains(normalize-space(.), "SGD")]])[1]'
+        waitTimeoutMs: 30000,
+        cardNameXPath:
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
+        tableBodyXPath:
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody'
       }
     ];
 
@@ -1795,6 +1798,7 @@
 
     // Phase 3: Initialize sync manager
     const syncManager = new SyncManager(storage);
+    let stopTableObserver = null;
 
     function loadSettings() {
       const raw = storage.get(STORAGE_KEY, '{}');
@@ -1854,6 +1858,10 @@
     }
 
     function removeUI() {
+      if (stopTableObserver) {
+        stopTableObserver();
+        stopTableObserver = null;
+      }
       const button = document.getElementById(UI_IDS.button);
       if (button) {
         button.remove();
@@ -3743,7 +3751,9 @@
         return;
       }
 
-      const cardNameNode = await waitForXPath(profile.cardNameXPath);
+      const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
+
+      const cardNameNode = await waitForXPath(profile.cardNameXPath, waitTimeoutMs);
       if (!cardNameNode) {
         removeUI();
         return;
@@ -3767,7 +3777,7 @@
       }
 
       const tableBodyXPath = profile.tableBodyXPath;
-      const tableBody = await waitForTableBodyRows(tableBodyXPath);
+      const tableBody = await waitForTableBodyRows(tableBodyXPath, waitTimeoutMs);
       if (!tableBody) {
         removeUI();
         return;
@@ -3788,7 +3798,7 @@
           return;
         }
         refreshInProgress = true;
-        const latestTableBody = await waitForTableBodyRows(tableBodyXPath);
+        const latestTableBody = await waitForTableBodyRows(tableBodyXPath, waitTimeoutMs);
         try {
           if (!latestTableBody) {
             return;
@@ -3830,10 +3840,29 @@
       };
 
       createButton(() => refreshOverlay(true));
-      observeTableBody(tableBodyXPath, refreshOverlay);
+      if (stopTableObserver) {
+        stopTableObserver();
+      }
+      stopTableObserver = observeTableBody(tableBodyXPath, refreshOverlay);
     }
 
-    main();
+    const runMainSafe = () => {
+      main().catch((error) => {
+        console.error('[Subcap] Failed to initialize on current page:', error);
+      });
+    };
+
+    runMainSafe();
+
+    let lastObservedUrl = window.location.href;
+    window.setInterval(() => {
+      const currentUrl = window.location.href;
+      if (currentUrl === lastObservedUrl) {
+        return;
+      }
+      lastObservedUrl = currentUrl;
+      runMainSafe();
+    }, 1000);
   })();
 
 })();
