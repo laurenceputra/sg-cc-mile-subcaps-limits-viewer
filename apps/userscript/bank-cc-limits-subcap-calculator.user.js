@@ -1469,7 +1469,8 @@
     .${UI_CLASSES.panel} {
       width: min(960px, 92vw);
       max-height: 85vh;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
       border-radius: 12px;
       border: 1px solid ${theme.border};
       background: ${theme.panel};
@@ -1986,19 +1987,24 @@
           'Transport',
           'Travel'
         ],
-        subcapSlots: 2
+        subcapSlots: 2,
+        showManageTab: true
       },
       'XL Rewards Card': {
         categories: ['Local', 'Forex'],
-        subcapSlots: 2
+        subcapSlots: 2,
+        showManageTab: false
       }
     };
 
     const UI_IDS = {
       button: 'cc-subcap-btn',
       overlay: 'cc-subcap-overlay',
+      manageContent: 'cc-subcap-manage',
       spendContent: 'cc-subcap-spend',
+      summaryContent: 'cc-subcap-summary',
       syncContent: 'cc-subcap-sync',
+      tabManage: 'cc-subcap-tab-manage',
       tabSpend: 'cc-subcap-tab-spend',
       tabSync: 'cc-subcap-tab-sync',
       close: 'cc-subcap-close'
@@ -3769,10 +3775,13 @@
     }
 
     let activeTabId = 'spend';
+    let currentCardSupportsManage = false;
 
     function switchTab(tab) {
+      const manageContent = document.getElementById(UI_IDS.manageContent);
       const spendContent = document.getElementById(UI_IDS.spendContent);
       const syncContent = document.getElementById(UI_IDS.syncContent);
+      const tabManage = document.getElementById(UI_IDS.tabManage);
       const tabSpend = document.getElementById(UI_IDS.tabSpend);
       const tabSync = document.getElementById(UI_IDS.tabSync);
 
@@ -3780,12 +3789,30 @@
         return;
       }
 
-      activeTabId = tab === 'sync' ? 'sync' : 'spend';
+      if (currentCardSupportsManage && tab === 'manage') {
+        activeTabId = 'manage';
+      } else if (tab === 'sync') {
+        activeTabId = 'sync';
+      } else {
+        activeTabId = 'spend';
+      }
+      if (!currentCardSupportsManage && activeTabId === 'manage') {
+        activeTabId = 'spend';
+      }
+
+      const isManage = activeTabId === 'manage';
       const isSpend = activeTabId === 'spend';
       const isSync = activeTabId === 'sync';
 
+      if (manageContent) {
+        manageContent.classList.toggle(UI_CLASSES.hidden, !isManage || !currentCardSupportsManage);
+      }
       spendContent.classList.toggle(UI_CLASSES.hidden, !isSpend);
       syncContent.classList.toggle(UI_CLASSES.hidden, !isSync);
+      if (tabManage) {
+        tabManage.classList.toggle(UI_CLASSES.hidden, !currentCardSupportsManage);
+        tabManage.classList.toggle(UI_CLASSES.tabButtonActive, isManage && currentCardSupportsManage);
+      }
       tabSpend.classList.toggle(UI_CLASSES.tabButtonActive, isSpend);
       tabSync.classList.toggle(UI_CLASSES.tabButtonActive, isSync);
     }
@@ -3795,15 +3822,18 @@
       settings,
       storedTransactions,
       cardName,
+      cardConfig,
       cardSettings,
       onSyncStateChanged = () => {},
       shouldShow = false
     ) {
       ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
+      let manageContent;
       let spendContent;
       let syncContent;
       const wasVisible = overlay && !overlay.classList.contains(UI_CLASSES.hidden);
+      currentCardSupportsManage = cardConfig?.showManageTab !== false;
 
       if (!overlay) {
         overlay = document.createElement('div');
@@ -3840,6 +3870,13 @@
         const tabs = document.createElement('div');
         tabs.classList.add(UI_CLASSES.tabs);
 
+        const tabManage = document.createElement('button');
+        tabManage.id = UI_IDS.tabManage;
+        tabManage.type = 'button';
+        tabManage.textContent = 'Manage Transactions';
+        tabManage.classList.add(UI_CLASSES.tabButton);
+        tabManage.addEventListener('click', () => switchTab('manage'));
+
         const tabSpend = document.createElement('button');
         tabSpend.id = UI_IDS.tabSpend;
         tabSpend.type = 'button';
@@ -3854,6 +3891,7 @@
         tabSync.classList.add(UI_CLASSES.tabButton);
         tabSync.addEventListener('click', () => switchTab('sync'));
 
+        tabs.appendChild(tabManage);
         tabs.appendChild(tabSpend);
         tabs.appendChild(tabSync);
 
@@ -3862,6 +3900,10 @@
           'Privacy: data stays in your browser (Tampermonkey storage/localStorage). ' +
           'No remote logging. Synced payload contains only settings and monthly totals.';
         privacyNotice.classList.add(UI_CLASSES.small);
+
+        manageContent = document.createElement('div');
+        manageContent.id = UI_IDS.manageContent;
+        manageContent.classList.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
         spendContent = document.createElement('div');
         spendContent.id = UI_IDS.spendContent;
@@ -3874,15 +3916,39 @@
         panel.appendChild(header);
         panel.appendChild(tabs);
         panel.appendChild(privacyNotice);
+        panel.appendChild(manageContent);
         panel.appendChild(spendContent);
         panel.appendChild(syncContent);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
       } else {
+        manageContent = document.getElementById(UI_IDS.manageContent);
         spendContent = document.getElementById(UI_IDS.spendContent);
         syncContent = document.getElementById(UI_IDS.syncContent);
       }
 
+      if (manageContent) {
+        if (currentCardSupportsManage) {
+          renderManageView(
+            manageContent,
+            data,
+            storedTransactions,
+            cardSettings,
+            cardConfig,
+            (updateFn) => {
+              const nextSettings = loadSettings();
+              const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+              if (typeof updateFn === 'function') {
+                updateFn(nextCardSettings);
+              }
+              saveSettings(nextSettings);
+              onSyncStateChanged();
+            }
+          );
+        } else {
+          manageContent.innerHTML = '';
+        }
+      }
       if (spendContent) {
         renderSpendingView(spendContent, storedTransactions, cardSettings);
       }
@@ -3988,6 +4054,7 @@
             settings,
             storedTransactions,
             cardName,
+            cardConfig,
             cardSettings,
             () => {
               refreshOverlay();
