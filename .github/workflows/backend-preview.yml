@@ -84,7 +84,14 @@ jobs:
 
       - name: Apply preview schema
         working-directory: apps/backend
-        run: npx wrangler@4 d1 execute bank_cc_sync_prod --remote --file src/storage/schema.sql --config wrangler.ci.toml
+        env:
+          CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CLOUDFLARE_D1_API_TOKEN:-}" ]; then
+            export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_API_TOKEN"
+          fi
+          npx wrangler@4 d1 execute bank_cc_sync_prod --remote --file src/storage/schema.sql --config wrangler.ci.toml
 
       - name: Upload preview version
         id: upload
