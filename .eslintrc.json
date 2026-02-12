@@ -1,0 +1,26 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true
+  },
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "script"
+  },
+  "globals": {
+    "GM_getValue": "readonly",
+    "GM_setValue": "readonly",
+    "GM_deleteValue": "readonly",
+    "GM_xmlhttpRequest": "readonly",
+    "GM_addStyle": "readonly"
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": "off",
+    "no-prototype-builtins": "off"
+  }
+}

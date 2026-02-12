@@ -263,6 +263,15 @@ Each agent should provide:
 - Deliverables (code, docs, reports)
 - Risks and recommended mitigations
 - Security sign-off (for security-reviewer)
+- Scope-move audit (list functions moved across scopes/modules)
+- External-symbol audit (list non-local symbols referenced by moved/rewired code paths)
+- Interaction proof for changed UI paths (minimum: entry action + one primary click path verified)
+
+## Local Quality Gates
+
+- Enable repository hooks once per clone: `git config core.hooksPath .githooks`
+- Pre-push gate (required): runs userscript lint via `npm run prepush:verify`
+- CI gate: userscript lint workflow must pass (`.github/workflows/userscript-lint.yml`)
 
 ---
 
@@ -302,4 +311,4 @@ Each agent should provide:
 
 **Questions?** Consult the security-reviewer agent or refer to the security docs above.
 
-**Last Updated:** 2026-02-12 (Workflow tightening + merged skill responsibilities)
+**Last Updated:** 2026-02-12 (Workflow tightening + lint/handoff gates)

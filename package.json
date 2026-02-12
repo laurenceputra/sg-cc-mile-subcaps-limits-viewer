@@ -8,10 +8,21 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint:userscript && npm run lint --workspaces --if-present",
+    "lint:userscript": "eslint --max-warnings=0 apps/userscript/bank-cc-limits-subcap-calculator.user.js",
+    "prepush:verify": "npm run lint:userscript",
     "test": "npm run test --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present"
   },
-  "keywords": ["tampermonkey", "credit-card", "subcap", "sync"],
+  "keywords": [
+    "tampermonkey",
+    "credit-card",
+    "subcap",
+    "sync"
+  ],
   "author": "laurenceputra",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
 }

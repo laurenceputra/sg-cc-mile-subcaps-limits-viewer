@@ -1643,11 +1643,46 @@
     statusElement.classList.remove(UI_CLASSES.hidden);
   }
 
+  function calculateMonthlyTotalsForSync(transactions, cardSettings) {
+    const totalsByMonth = {};
+    const safeSettings = isObjectRecord(cardSettings) ? cardSettings : {};
+    const defaultCategory =
+      typeof safeSettings.defaultCategory === 'string' && safeSettings.defaultCategory
+        ? safeSettings.defaultCategory
+        : 'Others';
+
+    (Array.isArray(transactions) ? transactions : []).forEach((transaction) => {
+      const monthKey = typeof transaction?.posting_month === 'string'
+        ? transaction.posting_month
+        : (
+            typeof transaction?.posting_date_iso === 'string' && transaction.posting_date_iso.length >= 7
+              ? transaction.posting_date_iso.slice(0, 7)
+              : ''
+          );
+      if (!monthKey) {
+        return;
+      }
+      if (typeof transaction.amount_value !== 'number' || !Number.isFinite(transaction.amount_value)) {
+        return;
+      }
+      if (!totalsByMonth[monthKey]) {
+        totalsByMonth[monthKey] = { totals: {}, total_amount: 0 };
+      }
+      const category =
+        typeof transaction.category === 'string' && transaction.category
+          ? transaction.category
+          : defaultCategory;
+      totalsByMonth[monthKey].totals[category] =
+        (totalsByMonth[monthKey].totals[category] || 0) + transaction.amount_value;
+      totalsByMonth[monthKey].total_amount += transaction.amount_value;
+    });
+
+    return totalsByMonth;
+  }
+
   function buildSyncCardSnapshot(cardName, cardSettings, storedTransactions) {
     const safeCardSettings = isObjectRecord(cardSettings) ? cardSettings : {};
-    const transactions = Array.isArray(storedTransactions)
-      ? storedTransactions
-      : getStoredTransactions(cardName, safeCardSettings);
+    const transactions = Array.isArray(storedTransactions) ? storedTransactions : [];
     return {
       selectedCategories: Array.isArray(safeCardSettings.selectedCategories)
         ? safeCardSettings.selectedCategories.slice()
@@ -1657,14 +1692,14 @@
           ? safeCardSettings.defaultCategory
           : 'Others',
       merchantMap: isObjectRecord(safeCardSettings.merchantMap) ? { ...safeCardSettings.merchantMap } : {},
-      monthlyTotals: calculateMonthlyTotals(transactions, safeCardSettings)
+      monthlyTotals: calculateMonthlyTotalsForSync(transactions, safeCardSettings)
     };
   }
 
   function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
-    container.id = UI_IDS.syncContent;
+    container.id = 'cc-subcap-sync';
     container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
     const isEnabled = syncManager.isEnabled();
