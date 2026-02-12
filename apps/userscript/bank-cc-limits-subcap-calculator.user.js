@@ -11,6 +11,7 @@
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      bank-cc-sync.laurenceputra.workers.dev
 // @connect      localhost
@@ -71,6 +72,60 @@
       this.token = token;
     }
 
+    async requestWithFetch(url, config) {
+      const response = await fetch(url, config);
+      const text = await response.text();
+      let data = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (error) {
+          data = null;
+        }
+      }
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        data
+      };
+    }
+
+    async requestWithGM(url, config) {
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: config.method || 'GET',
+          url,
+          headers: config.headers || {},
+          data: config.body,
+          responseType: 'text',
+          timeout: 30000,
+          onload: (response) => {
+            let data = null;
+            if (response.responseText) {
+              try {
+                data = JSON.parse(response.responseText);
+              } catch (error) {
+                data = null;
+              }
+            }
+            resolve({
+              ok: response.status >= 200 && response.status < 300,
+              status: response.status,
+              statusText: response.statusText || '',
+              data
+            });
+          },
+          onerror: () => {
+            reject(new Error('Network request failed'));
+          },
+          ontimeout: () => {
+            reject(new Error('Network request timed out'));
+          }
+        });
+      });
+    }
+
     async request(endpoint, options = {}) {
       const url = `${this.baseUrl}${endpoint}`;
       const headers = {
@@ -88,14 +143,17 @@
       };
 
       try {
-        const response = await fetch(url, config);
+        const response =
+          typeof GM_xmlhttpRequest === 'function'
+            ? await this.requestWithGM(url, config)
+            : await this.requestWithFetch(url, config);
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ message: response.statusText }));
-          throw new Error(error.message || `HTTP ${response.status}`);
+          const errorMessage = response.data?.message || response.statusText || `HTTP ${response.status}`;
+          throw new Error(errorMessage);
         }
 
-        return await response.json();
+        return response.data;
       } catch (error) {
         console.error('[ApiClient] Request failed:', error);
         throw error;
@@ -387,27 +445,79 @@
       }
     }
 
-    mergeCardSettings(local, remote) {
-      if (!remote) return local;
-      if (!local) return remote;
+    mergeCardSettings(base, incoming) {
+      if (!base) return incoming;
+      if (!incoming) return base;
 
-      const merged = { ...local };
+      const merged = { ...base, ...incoming };
+      merged.merchantMap = { ...(base.merchantMap || {}), ...(incoming.merchantMap || {}) };
+      merged.monthlyTotals = { ...(base.monthlyTotals || {}), ...(incoming.monthlyTotals || {}) };
 
-      merged.merchantMap = { ...local.merchantMap };
-      for (const [merchant, category] of Object.entries(remote.merchantMap || {})) {
-        merged.merchantMap[merchant] = category;
+      if (Array.isArray(incoming.selectedCategories)) {
+        merged.selectedCategories = incoming.selectedCategories.slice();
       }
-
-      merged.monthlyTotals = { ...local.monthlyTotals, ...remote.monthlyTotals };
-
-      if (remote.selectedCategories) {
-        merged.selectedCategories = remote.selectedCategories;
-      }
-      if (remote.defaultCategory) {
-        merged.defaultCategory = remote.defaultCategory;
+      if (typeof incoming.defaultCategory === 'string' && incoming.defaultCategory) {
+        merged.defaultCategory = incoming.defaultCategory;
       }
 
       return merged;
+    }
+
+    sanitizeCardSettings(cardSettings) {
+      if (!isObjectRecord(cardSettings)) {
+        return null;
+      }
+
+      const selectedCategories = Array.isArray(cardSettings.selectedCategories)
+        ? cardSettings.selectedCategories.map((value) => (typeof value === 'string' ? value : ''))
+        : [];
+      const defaultCategory =
+        typeof cardSettings.defaultCategory === 'string' && cardSettings.defaultCategory
+          ? cardSettings.defaultCategory
+          : 'Others';
+      const merchantMap = isObjectRecord(cardSettings.merchantMap)
+        ? Object.fromEntries(
+            Object.entries(cardSettings.merchantMap).filter(
+              ([merchant, category]) => typeof merchant === 'string' && typeof category === 'string'
+            )
+          )
+        : {};
+      const monthlyTotals = isObjectRecord(cardSettings.monthlyTotals)
+        ? Object.fromEntries(
+            Object.entries(cardSettings.monthlyTotals).map(([monthKey, monthData]) => {
+              const totals = isObjectRecord(monthData?.totals)
+                ? Object.fromEntries(
+                    Object.entries(monthData.totals)
+                      .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+                  )
+                : {};
+              const totalAmount =
+                typeof monthData?.total_amount === 'number' && Number.isFinite(monthData.total_amount)
+                  ? monthData.total_amount
+                  : Object.values(totals).reduce((sum, value) => sum + value, 0);
+              return [monthKey, { totals, total_amount: totalAmount }];
+            })
+          )
+        : {};
+
+      return {
+        selectedCategories,
+        defaultCategory,
+        merchantMap,
+        monthlyTotals
+      };
+    }
+
+    sanitizeDataForSync(data) {
+      const inputCards = isObjectRecord(data?.cards) ? data.cards : {};
+      const sanitizedCards = {};
+      for (const [cardName, cardSettings] of Object.entries(inputCards)) {
+        const sanitized = this.sanitizeCardSettings(cardSettings);
+        if (sanitized) {
+          sanitizedCards[cardName] = sanitized;
+        }
+      }
+      return { cards: sanitizedCards };
     }
 
     async sync(localData, currentVersion, deviceId) {
@@ -417,24 +527,15 @@
         return pullResult;
       }
 
-      let dataToSync = localData;
+      const remoteCards = isObjectRecord(pullResult.data?.cards) ? pullResult.data.cards : {};
+      const localCards = isObjectRecord(localData?.cards) ? localData.cards : {};
+      const mergedCards = { ...remoteCards };
 
-      if (pullResult.data) {
-        const mergedCards = {};
-        const allCardNames = new Set([
-          ...Object.keys(localData.cards || {}),
-          ...Object.keys(pullResult.data.cards || {})
-        ]);
-
-        for (const cardName of allCardNames) {
-          mergedCards[cardName] = this.mergeCardSettings(
-            localData.cards[cardName],
-            pullResult.data.cards[cardName]
-          );
-        }
-
-        dataToSync = { cards: mergedCards };
+      for (const [cardName, localCardSettings] of Object.entries(localCards)) {
+        mergedCards[cardName] = this.mergeCardSettings(remoteCards[cardName], localCardSettings);
       }
+
+      const dataToSync = this.sanitizeDataForSync({ cards: mergedCards });
 
       const pushResult = await this.push(dataToSync, pullResult.version, deviceId);
 
@@ -1216,16 +1317,42 @@
     notice: 'cc-subcap-notice',
     modal: 'cc-subcap-modal',
     buttonRow: 'cc-subcap-button-row',
-    status: 'cc-subcap-status'
+    status: 'cc-subcap-status',
+    hidden: 'cc-subcap-hidden',
+    fab: 'cc-subcap-fab',
+    overlay: 'cc-subcap-overlay-root',
+    panel: 'cc-subcap-panel',
+    panelHeader: 'cc-subcap-panel-header',
+    title: 'cc-subcap-title',
+    closeButton: 'cc-subcap-close-button',
+    tabs: 'cc-subcap-tabs',
+    tabButton: 'cc-subcap-tab-button',
+    tabButtonActive: 'cc-subcap-tab-button-active',
+    meta: 'cc-subcap-meta',
+    small: 'cc-subcap-small',
+    spendMonthHeader: 'cc-subcap-month-header',
+    spendMonthTotal: 'cc-subcap-month-total',
+    spendTotalsList: 'cc-subcap-totals-list',
+    spendDetailsTable: 'cc-subcap-details-table',
+    fieldLabel: 'cc-subcap-field-label',
+    input: 'cc-subcap-input',
+    checkboxLabel: 'cc-subcap-checkbox-label',
+    primaryButton: 'cc-subcap-btn-primary',
+    secondaryButton: 'cc-subcap-btn-secondary',
+    dangerButton: 'cc-subcap-btn-danger',
+    dialogBackdrop: 'cc-subcap-dialog-backdrop'
   };
 
+  let uiStylesInjected = false;
+
   function ensureUiStyles(theme) {
-    if (document.getElementById('cc-subcap-styles')) {
+    if (uiStylesInjected) {
       return;
     }
-    const style = document.createElement('style');
-    style.id = 'cc-subcap-styles';
-    style.textContent = `
+
+    const css = `
+    .${UI_CLASSES.hidden} { display: none !important; }
+
     .${UI_CLASSES.stack},
     .${UI_CLASSES.stackTight},
     .${UI_CLASSES.stackLoose} {
@@ -1267,6 +1394,9 @@
       padding: 24px;
       border-radius: 16px;
       background: ${theme.surface};
+      border: 1px solid ${theme.border};
+      box-shadow: ${theme.shadow};
+      width: min(500px, 92vw);
     }
     .${UI_CLASSES.buttonRow} {
       display: flex;
@@ -1274,47 +1404,286 @@
       flex-wrap: wrap;
     }
     .${UI_CLASSES.status} {
-      padding: 12px;
+      padding: 10px 12px;
       border-radius: 8px;
+      border: 1px solid ${theme.border};
+      background: ${theme.panel};
+      color: ${theme.text};
+      font-size: 13px;
+    }
+    .${UI_CLASSES.status}[data-variant="warning"] {
+      border-color: ${theme.warning};
+      background: ${theme.warningSoft};
+      color: ${theme.warning};
+    }
+    .${UI_CLASSES.status}[data-variant="error"] {
+      border-color: ${theme.errorBorder};
+      background: ${theme.errorSoft};
+      color: ${theme.errorText};
+    }
+    .${UI_CLASSES.status}[data-variant="success"] {
+      border-color: ${theme.successBorder};
+      background: ${theme.successSoft};
+      color: ${theme.success};
+    }
+    .${UI_CLASSES.status}[data-variant="info"] {
+      border-color: ${theme.accent};
+      background: ${theme.accentSoft};
+      color: ${theme.accentText};
+    }
+
+    .${UI_CLASSES.fab} {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 99999;
+      padding: 12px 16px;
+      border-radius: 999px;
+      border: 1px solid ${theme.accent};
+      background: ${theme.accent};
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: ${theme.accentShadow};
+    }
+
+    .${UI_CLASSES.overlay} {
+      position: fixed;
+      inset: 0;
+      z-index: 99998;
+      background: ${theme.overlay};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .${UI_CLASSES.dialogBackdrop} {
+      position: fixed;
+      inset: 0;
+      z-index: 100001;
+      background: ${theme.overlay};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .${UI_CLASSES.panel} {
+      width: min(960px, 92vw);
+      max-height: 85vh;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid ${theme.border};
+      background: ${theme.panel};
+      color: ${theme.text};
+      box-shadow: ${theme.shadow};
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+    }
+    .${UI_CLASSES.panelHeader} {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .${UI_CLASSES.title} {
+      margin: 0;
+      color: ${theme.accent};
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .${UI_CLASSES.meta} {
+      margin: 0;
+      color: ${theme.text};
+      font-size: 14px;
+    }
+    .${UI_CLASSES.small} {
+      margin: 0;
+      color: ${theme.muted};
+      font-size: 12px;
+    }
+    .${UI_CLASSES.closeButton},
+    .${UI_CLASSES.primaryButton},
+    .${UI_CLASSES.secondaryButton},
+    .${UI_CLASSES.dangerButton} {
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid ${theme.border};
+    }
+    .${UI_CLASSES.closeButton},
+    .${UI_CLASSES.secondaryButton} {
+      background: ${theme.surface};
+      color: ${theme.text};
+    }
+    .${UI_CLASSES.primaryButton} {
+      background: ${theme.accent};
+      border-color: ${theme.accent};
+      color: #fff;
+    }
+    .${UI_CLASSES.dangerButton} {
+      background: ${theme.warning};
+      border-color: ${theme.warning};
+      color: #fff;
+    }
+
+    .${UI_CLASSES.tabs} {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .${UI_CLASSES.tabButton} {
+      border-radius: 999px;
+      padding: 6px 12px;
+      border: 1px solid ${theme.border};
+      background: transparent;
+      color: ${theme.text};
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .${UI_CLASSES.tabButton}.${UI_CLASSES.tabButtonActive} {
+      border-color: ${theme.accent};
+      background: ${theme.accentSoft};
+      color: ${theme.accentText};
+      font-weight: 600;
+    }
+
+    .${UI_CLASSES.fieldLabel} {
+      display: block;
+      font-weight: 600;
+      color: ${theme.text};
+      font-size: 13px;
+    }
+    .${UI_CLASSES.input} {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid ${theme.border};
+      background: ${theme.surface};
+      color: ${theme.text};
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    .${UI_CLASSES.checkboxLabel} {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: ${theme.muted};
+      font-size: 12px;
+    }
+
+    .${UI_CLASSES.spendMonthHeader} {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .${UI_CLASSES.spendMonthTotal} {
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: ${theme.accentSoft};
+      border: 1px solid ${theme.border};
+      color: ${theme.accentText};
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .${UI_CLASSES.spendTotalsList} {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 12px;
+      font-size: 13px;
+    }
+    .${UI_CLASSES.spendDetailsTable} {
+      display: grid;
+      grid-template-columns: 1.6fr 0.6fr 0.6fr;
+      gap: 6px 10px;
+      font-size: 12px;
+    }
+    .${UI_CLASSES.spendDetailsTable} > strong {
+      color: ${theme.muted};
+    }
+    @media (max-width: 768px) {
+      .${UI_CLASSES.panel} {
+        width: min(98vw, 98vw);
+        max-height: 92vh;
+      }
+      .${UI_CLASSES.spendDetailsTable} {
+        grid-template-columns: 1fr;
+      }
     }
     `;
-    document.head.appendChild(style);
+
+    if (typeof GM_addStyle === 'function') {
+      GM_addStyle(css);
+    } else {
+      const style = document.createElement('style');
+      style.id = 'cc-subcap-styles';
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
+
+    uiStylesInjected = true;
   }
 
-  function createSyncTab(syncManager, settings, THEME, onSyncStateChanged = () => {}) {
+  function setStatusMessage(statusElement, message = '', variant = 'info') {
+    if (!statusElement) {
+      return;
+    }
+    if (!message) {
+      statusElement.textContent = '';
+      statusElement.classList.add(UI_CLASSES.hidden);
+      statusElement.removeAttribute('data-variant');
+      return;
+    }
+    statusElement.textContent = message;
+    statusElement.setAttribute('data-variant', variant);
+    statusElement.classList.remove(UI_CLASSES.hidden);
+  }
+
+  function buildSyncCardSnapshot(cardName, cardSettings, storedTransactions) {
+    const safeCardSettings = isObjectRecord(cardSettings) ? cardSettings : {};
+    const transactions = Array.isArray(storedTransactions)
+      ? storedTransactions
+      : getStoredTransactions(cardName, safeCardSettings);
+    return {
+      selectedCategories: Array.isArray(safeCardSettings.selectedCategories)
+        ? safeCardSettings.selectedCategories.slice()
+        : [],
+      defaultCategory:
+        typeof safeCardSettings.defaultCategory === 'string' && safeCardSettings.defaultCategory
+          ? safeCardSettings.defaultCategory
+          : 'Others',
+      merchantMap: isObjectRecord(safeCardSettings.merchantMap) ? { ...safeCardSettings.merchantMap } : {},
+      monthlyTotals: calculateMonthlyTotals(transactions, safeCardSettings)
+    };
+  }
+
+  function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
-    container.id = 'cc-subcap-sync';
-    container.style.display = 'none';
-    container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
+    container.id = UI_IDS.syncContent;
+    container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
     const isEnabled = syncManager.isEnabled();
-    const config = syncManager.config;
+    const config = syncManager.config || {};
 
     if (!isEnabled) {
       container.innerHTML = `
       <div class="${UI_CLASSES.stack}">
-        <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
-        <p style="color: ${THEME.muted}; margin: 0;">
-          Enable sync to access your settings across devices.
-        </p>
+        <h3 class="${UI_CLASSES.title}">Sync Settings</h3>
+        <p class="${UI_CLASSES.meta}">Enable sync to access your settings across devices.</p>
         <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionAccent}">
-          <strong style="color: ${THEME.accentText}">Privacy First:</strong>
-          <ul style="margin: 8px 0 0 0; padding-left: 20px; color: ${THEME.accentText};">
+          <strong>Privacy First</strong>
+          <ul>
             <li>Settings are encrypted before leaving your browser</li>
-            <li>Merchant mappings are NOT encrypted (supports community-based data grooming)</li>
-            <li>Raw transactions stay local</li>
+            <li>Raw transactions never leave your browser</li>
+            <li>Sync payload contains settings and monthly totals only</li>
           </ul>
         </div>
-        <button id="setup-sync-btn" style="
-          padding: 12px 24px;
-          background: ${THEME.accent};
-          color: white;
-          border: none;
-          border-radius: 8px;
-          font-weight: 500;
-          cursor: pointer;
-        ">Setup Sync</button>
+        <button id="setup-sync-btn" type="button" class="${UI_CLASSES.primaryButton}">Setup Sync</button>
       </div>
     `;
 
@@ -1322,210 +1691,137 @@
       setupBtn.addEventListener('click', () => {
         showSyncSetupDialog(syncManager, THEME, onSyncStateChanged);
       });
-    } else {
-      const isUnlocked = syncManager.isUnlocked();
-      const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
-      const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
-      const shareMappingsText = config.shareMappings ? 'Yes (helping community)' : 'No (private)';
-      const lockStateText = isUnlocked
-        ? 'Unlocked'
-        : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
-      const rememberChecked = config.rememberUnlock === true || hasRememberedUnlock;
+      return container;
+    }
 
-      container.innerHTML = `
-      <div class="${UI_CLASSES.stack}">
-        <h3 style="margin: 0; color: ${THEME.text}">Sync Settings</h3>
-        <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel}">
-          <p style="margin: 0 0 8px 0;"><strong>Status:</strong> ☁️ Enabled (${lockStateText})</p>
-          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${config.email || '-'}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Last Sync:</strong> ${lastSync}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Tier:</strong> ${config.tier}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Share Mappings:</strong> ${shareMappingsText}</p>
-          <p style="margin: 0;"><strong>Remembered Unlock:</strong> ${hasRememberedUnlock ? 'Yes (this device)' : 'No'}</p>
-        </div>
-        ${isUnlocked ? '' : `
-        <div class="${UI_CLASSES.stackTight}">
-          <label style="display: block; font-weight: 500;">Password (unlock for this session)</label>
-          <input id="sync-unlock-passphrase" type="password" placeholder="Enter sync password" style="
-            width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-            border-radius: 8px; box-sizing: border-box;
-          "/>
-          <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
-            <input id="sync-remember-unlock" type="checkbox" ${rememberChecked ? 'checked' : ''}/>
-            Remember sync on this device until session token expiry or logout
-          </label>
-          <button id="unlock-sync-btn" style="
-            padding: 12px 24px;
-            background: ${THEME.panel};
-            color: ${THEME.text};
-            border: 1px solid ${THEME.border};
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-          ">Unlock Sync</button>
-        </div>
-        `}
-        <div class="${UI_CLASSES.stackTight}">
-          <div class="${UI_CLASSES.buttonRow}">
-            <button id="sync-now-btn" style="
-              padding: 12px 24px;
-              background: ${THEME.accent};
-              color: white;
-              border: none;
-              border-radius: 8px;
-              font-weight: 500;
-              cursor: pointer;
-            ">Sync Now</button>
-            <button id="disable-sync-btn" style="
-              padding: 12px 24px;
-              background: ${THEME.warning};
-              color: white;
-              border: none;
-              border-radius: 8px;
-              font-weight: 500;
-              cursor: pointer;
-            ">Disable Sync</button>
-            ${hasRememberedUnlock ? `
-            <button id="forget-sync-unlock-btn" style="
-              padding: 12px 24px;
-              background: ${THEME.panel};
-              color: ${THEME.text};
-              border: 1px solid ${THEME.border};
-              border-radius: 8px;
-              font-weight: 500;
-              cursor: pointer;
-            ">Forget Saved Unlock</button>
-            ` : ''}
-          </div>
-          <div id="sync-status" class="${UI_CLASSES.status}" style="display: none;"></div>
-        </div>
+    const isUnlocked = syncManager.isUnlocked();
+    const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
+    const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
+    const lockStateText = isUnlocked
+      ? 'Unlocked'
+      : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
+    const rememberChecked = config.rememberUnlock === true || hasRememberedUnlock;
+
+    container.innerHTML = `
+    <div class="${UI_CLASSES.stack}">
+      <h3 class="${UI_CLASSES.title}">Sync Settings</h3>
+      <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
+        <p class="${UI_CLASSES.meta}"><strong>Status:</strong> Enabled (${lockStateText})</p>
+        <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${config.email || '-'}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${lastSync}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${config.tier || '-'}</p>
+        <p class="${UI_CLASSES.small}">Sync updates only the active card and keeps other cards' remote settings.</p>
       </div>
-    `;
+      ${isUnlocked ? '' : `
+      <div class="${UI_CLASSES.stackTight}">
+        <label for="sync-unlock-passphrase" class="${UI_CLASSES.fieldLabel}">Password (unlock for this session)</label>
+        <input id="sync-unlock-passphrase" class="${UI_CLASSES.input}" type="password" placeholder="Enter sync password" />
+        <label class="${UI_CLASSES.checkboxLabel}">
+          <input id="sync-remember-unlock" type="checkbox" ${rememberChecked ? 'checked' : ''}/>
+          Remember sync on this device until session token expiry or logout
+        </label>
+        <button id="unlock-sync-btn" type="button" class="${UI_CLASSES.secondaryButton}">Unlock Sync</button>
+      </div>
+      `}
+      <div class="${UI_CLASSES.buttonRow}">
+        <button id="sync-now-btn" type="button" class="${UI_CLASSES.primaryButton}">Sync Now</button>
+        <button id="disable-sync-btn" type="button" class="${UI_CLASSES.dangerButton}">Disable Sync</button>
+        ${hasRememberedUnlock ? `<button id="forget-sync-unlock-btn" type="button" class="${UI_CLASSES.secondaryButton}">Forget Saved Unlock</button>` : ''}
+      </div>
+      <div id="sync-status" class="${UI_CLASSES.status} ${UI_CLASSES.hidden}" role="status" aria-live="polite"></div>
+    </div>
+  `;
 
-      const getRememberPreference = () => {
-        const rememberInput = container.querySelector('#sync-remember-unlock');
-        return Boolean(rememberInput?.checked);
-      };
+    const statusDiv = container.querySelector('#sync-status');
+    const getRememberPreference = () => {
+      const rememberInput = container.querySelector('#sync-remember-unlock');
+      return Boolean(rememberInput?.checked);
+    };
 
-      const unlockButton = container.querySelector('#unlock-sync-btn');
-      if (unlockButton) {
-        unlockButton.addEventListener('click', async () => {
-          const statusDiv = container.querySelector('#sync-status');
-          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
-          const passphrase = passphraseInput?.value || '';
+    const unlockButton = container.querySelector('#unlock-sync-btn');
+    if (unlockButton) {
+      unlockButton.addEventListener('click', async () => {
+        const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+        const passphrase = passphraseInput?.value || '';
+        if (!passphrase) {
+          setStatusMessage(statusDiv, 'Password is required to unlock sync.', 'warning');
+          return;
+        }
 
-          if (!passphrase) {
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = THEME.warningSoft;
-            statusDiv.style.color = THEME.warning;
-            statusDiv.textContent = 'Password is required to unlock sync.';
-            return;
-          }
+        setStatusMessage(statusDiv, 'Unlocking sync...', 'info');
+        const unlockResult = await syncManager.unlockSync(passphrase, {
+          remember: getRememberPreference()
+        });
+        if (!unlockResult.success) {
+          setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+          return;
+        }
 
-          statusDiv.style.display = 'block';
-          statusDiv.style.background = THEME.accentSoft;
-          statusDiv.style.color = THEME.accentText;
-          statusDiv.textContent = 'Unlocking sync...';
+        setStatusMessage(
+          statusDiv,
+          unlockResult.warning ? `Sync unlocked (${unlockResult.warning})` : 'Sync unlocked',
+          'success'
+        );
+        onSyncStateChanged();
+      });
+    }
 
+    const forgetButton = container.querySelector('#forget-sync-unlock-btn');
+    if (forgetButton) {
+      forgetButton.addEventListener('click', async () => {
+        setStatusMessage(statusDiv, 'Forgetting saved unlock...', 'info');
+        await syncManager.forgetRememberedUnlock();
+        setStatusMessage(statusDiv, 'Saved unlock removed for this device.', 'success');
+        onSyncStateChanged();
+      });
+    }
+
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    syncNowButton.addEventListener('click', async () => {
+      setStatusMessage(statusDiv, 'Syncing...', 'info');
+
+      if (!syncManager.isUnlocked()) {
+        const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+        if (unlockedFromCache) {
+          onSyncStateChanged();
+        }
+
+        const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+        const passphrase = passphraseInput?.value || '';
+
+        if (!syncManager.isUnlocked() && !passphrase) {
+          setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
+          return;
+        }
+
+        if (!syncManager.isUnlocked()) {
           const unlockResult = await syncManager.unlockSync(passphrase, {
             remember: getRememberPreference()
           });
           if (!unlockResult.success) {
-            statusDiv.style.background = THEME.warningSoft;
-            statusDiv.style.color = THEME.warning;
-            statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
+            setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
             return;
           }
-
-          statusDiv.style.background = '#d1fae5';
-          statusDiv.style.color = '#065f46';
-          statusDiv.textContent = unlockResult.warning
-            ? `✓ Sync unlocked (${unlockResult.warning})`
-            : '✓ Sync unlocked';
-          onSyncStateChanged();
-        });
+        }
       }
 
-      const forgetButton = container.querySelector('#forget-sync-unlock-btn');
-      if (forgetButton) {
-        forgetButton.addEventListener('click', async () => {
-          const statusDiv = container.querySelector('#sync-status');
-          statusDiv.style.display = 'block';
-          statusDiv.style.background = THEME.accentSoft;
-          statusDiv.style.color = THEME.accentText;
-          statusDiv.textContent = 'Forgetting saved unlock...';
+      const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+      const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
 
-          await syncManager.forgetRememberedUnlock();
-
-          statusDiv.style.background = '#d1fae5';
-          statusDiv.style.color = '#065f46';
-          statusDiv.textContent = '✓ Saved unlock removed for this device';
-          onSyncStateChanged();
-        });
+      if (result.success) {
+        setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+        window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
+      } else {
+        setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
       }
+    });
 
-      container.querySelector('#sync-now-btn').addEventListener('click', async () => {
-        const statusDiv = container.querySelector('#sync-status');
-        statusDiv.style.display = 'block';
-        statusDiv.style.background = THEME.accentSoft;
-        statusDiv.style.color = THEME.accentText;
-        statusDiv.textContent = 'Syncing...';
-
-        if (!syncManager.isUnlocked()) {
-          const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
-          if (unlockedFromCache) {
-            onSyncStateChanged();
-          }
-
-          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
-          const passphrase = passphraseInput?.value || '';
-
-          if (!syncManager.isUnlocked() && !passphrase) {
-            statusDiv.style.background = THEME.warningSoft;
-            statusDiv.style.color = THEME.warning;
-            statusDiv.textContent = 'Sync is locked. Enter your password to unlock sync first.';
-            return;
-          }
-
-          if (!syncManager.isUnlocked()) {
-            const unlockResult = await syncManager.unlockSync(passphrase, {
-              remember: getRememberPreference()
-            });
-            if (!unlockResult.success) {
-              statusDiv.style.background = THEME.warningSoft;
-              statusDiv.style.color = THEME.warning;
-              statusDiv.textContent = `❌ Unlock failed: ${unlockResult.error}`;
-              return;
-            }
-          }
-        }
-
-        const syncCards = isObjectRecord(settings?.cards) ? settings.cards : {};
-        if (!isObjectRecord(settings?.cards)) {
-          console.warn('[SyncTab] Missing settings.cards. Sync will proceed with empty remote baseline merge.');
-        }
-
-        const result = await syncManager.sync({ cards: syncCards });
-
-        if (result.success) {
-          statusDiv.style.background = '#d1fae5';
-          statusDiv.style.color = '#065f46';
-          statusDiv.textContent = '✓ Synced successfully!';
-          setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
-        } else {
-          statusDiv.style.background = THEME.warningSoft;
-          statusDiv.style.color = THEME.warning;
-          statusDiv.textContent = `❌ Sync failed: ${result.error}`;
-        }
-      });
-
-      container.querySelector('#disable-sync-btn').addEventListener('click', () => {
-        if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
-          syncManager.disableSync();
-          onSyncStateChanged();
-        }
-      });
-    }
+    container.querySelector('#disable-sync-btn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
+        syncManager.disableSync();
+        onSyncStateChanged();
+      }
+    });
 
     return container;
   }
@@ -1533,109 +1829,77 @@
   function showSyncSetupDialog(syncManager, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const overlay = document.createElement('div');
-    overlay.style.cssText = `
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: ${THEME.overlay}; z-index: 100001;
-    display: flex; align-items: center; justify-content: center;
-  `;
-
+    overlay.classList.add(UI_CLASSES.dialogBackdrop);
     overlay.innerHTML = `
-    <div class="${UI_CLASSES.modal} ${UI_CLASSES.stack}" style="
-      max-width: 500px; width: 90%; box-shadow: ${THEME.shadow};
-    ">
-      <h3 style="margin: 0;">Setup Sync</h3>
+    <div class="${UI_CLASSES.modal} ${UI_CLASSES.stack}">
+      <h3 class="${UI_CLASSES.title}">Setup Sync</h3>
       <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Server URL</label>
-        <input id="sync-server-url" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" style="
-          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-          border-radius: 8px; box-sizing: border-box;
-        "/>
+        <label class="${UI_CLASSES.fieldLabel}" for="sync-server-url">Server URL</label>
+        <input id="sync-server-url" class="${UI_CLASSES.input}" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" />
       </div>
       <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Email</label>
-        <input id="sync-email" type="email" placeholder="your@email.com" style="
-          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-          border-radius: 8px; box-sizing: border-box;
-        "/>
+        <label class="${UI_CLASSES.fieldLabel}" for="sync-email">Email</label>
+        <input id="sync-email" class="${UI_CLASSES.input}" type="email" placeholder="your@email.com" />
       </div>
       <div class="${UI_CLASSES.stackTight}">
-        <label style="display: block; font-weight: 500;">Password</label>
-        <input id="sync-passphrase" type="password" placeholder="Enter sync password" style="
-          width: 100%; padding: 12px; border: 1px solid ${THEME.border};
-          border-radius: 8px; box-sizing: border-box;
-        "/>
+        <label class="${UI_CLASSES.fieldLabel}" for="sync-passphrase">Password</label>
+        <input id="sync-passphrase" class="${UI_CLASSES.input}" type="password" placeholder="Enter sync password" />
       </div>
-      <label style="display: flex; align-items: center; gap: 8px; color: ${THEME.muted}; font-size: 12px;">
+      <label class="${UI_CLASSES.checkboxLabel}">
         <input id="sync-remember-unlock-setup" type="checkbox"/>
         Remember sync on this device until session token expiry or logout
       </label>
       <div class="${UI_CLASSES.buttonRow}">
-        <button id="sync-setup-save" style="
-          flex: 1; padding: 12px; background: ${THEME.accent}; color: white;
-          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
-        ">Setup</button>
-        <button id="sync-setup-cancel" style="
-          flex: 1; padding: 12px; background: ${THEME.panel}; color: ${THEME.text};
-          border: none; border-radius: 8px; font-weight: 500; cursor: pointer;
-        ">Cancel</button>
+        <button id="sync-setup-save" type="button" class="${UI_CLASSES.primaryButton}">Setup</button>
+        <button id="sync-setup-cancel" type="button" class="${UI_CLASSES.secondaryButton}">Cancel</button>
       </div>
-      <div id="sync-setup-status" class="${UI_CLASSES.status}" style="display: none;"></div>
+      <div id="sync-setup-status" class="${UI_CLASSES.status} ${UI_CLASSES.hidden}" role="status" aria-live="polite"></div>
     </div>
   `;
 
-    document.body.appendChild(overlay);
+    const closeDialog = () => overlay.remove();
+    const statusDiv = overlay.querySelector('#sync-setup-status');
 
-    overlay.querySelector('#sync-setup-cancel').addEventListener('click', () => {
-      overlay.remove();
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeDialog();
+      }
     });
+    overlay.querySelector('#sync-setup-cancel').addEventListener('click', closeDialog);
 
     overlay.querySelector('#sync-setup-save').addEventListener('click', async () => {
       const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
-      const email = overlay.querySelector('#sync-email').value;
+      const email = overlay.querySelector('#sync-email').value.trim();
       const passphrase = overlay.querySelector('#sync-passphrase').value;
       const rememberUnlock = overlay.querySelector('#sync-remember-unlock-setup')?.checked === true;
-      const statusDiv = overlay.querySelector('#sync-setup-status');
 
       if (!serverUrl || !email || !passphrase) {
-        statusDiv.style.display = 'block';
-        statusDiv.style.background = THEME.warningSoft;
-        statusDiv.style.color = THEME.warning;
-        statusDiv.textContent = 'All fields are required';
+        setStatusMessage(statusDiv, 'All fields are required.', 'warning');
         return;
       }
 
-      // Validate server URL
       try {
         validateServerUrl(serverUrl);
       } catch (error) {
-        statusDiv.style.display = 'block';
-        statusDiv.style.background = THEME.warningSoft;
-        statusDiv.style.color = THEME.warning;
-        statusDiv.textContent = error.message;
+        setStatusMessage(statusDiv, error.message, 'warning');
         return;
       }
 
-      statusDiv.style.display = 'block';
-      statusDiv.style.background = THEME.accentSoft;
-      statusDiv.style.color = THEME.accentText;
-      statusDiv.textContent = 'Setting up sync...';
-
+      setStatusMessage(statusDiv, 'Setting up sync...', 'info');
       const result = await syncManager.setupSync(email, passphrase, serverUrl, rememberUnlock);
-
       if (result.success) {
-        statusDiv.style.background = '#d1fae5';
-        statusDiv.style.color = '#065f46';
-        statusDiv.textContent = '✓ Sync setup complete!';
-        setTimeout(() => {
-          overlay.remove();
+        setStatusMessage(statusDiv, 'Sync setup complete.', 'success');
+        window.setTimeout(() => {
+          closeDialog();
           onSyncStateChanged();
         }, 500);
-      } else {
-        statusDiv.style.background = THEME.warningSoft;
-        statusDiv.style.color = THEME.warning;
-        statusDiv.textContent = `❌ Setup failed: ${result.error}`;
+        return;
       }
+
+      setStatusMessage(statusDiv, `Setup failed: ${result.error}`, 'error');
     });
+
+    document.body.appendChild(overlay);
   }
 
   // Phase 3: Sync integration (imports added)
@@ -1654,19 +1918,25 @@
         id: 'uob-pib',
         urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
         waitTimeoutMs: 15000,
-        cardNameXPath:
-          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3',
-        tableBodyXPath:
+        cardNameXPaths: [
+          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3'
+        ],
+        tableBodyXPaths: [
           '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
+        ]
       },
       {
         id: 'maybank2u-sg',
         urlPrefix: 'https://cib.maybank2u.com.sg/m2u/accounts/cards',
         waitTimeoutMs: 30000,
-        cardNameXPath:
+        cardNameXPaths: [
           '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
-        tableBodyXPath:
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody'
+          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
+        ],
+        tableBodyXPaths: [
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody',
+          '(//table//tbody)[1]'
+        ]
       }
     ];
 
@@ -1692,11 +1962,8 @@
     const UI_IDS = {
       button: 'cc-subcap-btn',
       overlay: 'cc-subcap-overlay',
-      manageContent: 'cc-subcap-manage',
       spendContent: 'cc-subcap-spend',
-      summaryContent: 'cc-subcap-summary',
       syncContent: 'cc-subcap-sync',
-      tabManage: 'cc-subcap-tab-manage',
       tabSpend: 'cc-subcap-tab-spend',
       tabSync: 'cc-subcap-tab-sync',
       close: 'cc-subcap-close'
@@ -1927,7 +2194,80 @@
       return tbody;
     }
 
-    function observeTableBody(tableBodyXPath, onChange) {
+    async function waitForAnyXPath(xpaths, timeoutMs = 15000) {
+      const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
+      if (!candidates.length) {
+        return null;
+      }
+      const getMatch = () => {
+        for (const xpath of candidates) {
+          const node = evalXPath(xpath);
+          if (node) {
+            return { xpath, node };
+          }
+        }
+        return null;
+      };
+
+      return new Promise((resolve) => {
+        const existingMatch = getMatch();
+        if (existingMatch) {
+          resolve(existingMatch);
+          return;
+        }
+
+        const observer = new MutationObserver(() => {
+          const match = getMatch();
+          if (match) {
+            observer.disconnect();
+            resolve(match);
+          }
+        });
+
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        window.setTimeout(() => {
+          observer.disconnect();
+          resolve(null);
+        }, timeoutMs);
+      });
+    }
+
+    async function waitForAnyTableBodyRows(xpaths, timeoutMs = 15000, settleMs = 2000) {
+      const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
+      if (!candidates.length) {
+        return null;
+      }
+
+      const startedAt = Date.now();
+      let fallback = null;
+      while (Date.now() - startedAt < timeoutMs) {
+        for (const xpath of candidates) {
+          const tbody = evalXPath(xpath);
+          if (!tbody) {
+            continue;
+          }
+          fallback = fallback || { xpath, tbody };
+          if (tbody.querySelectorAll('tr').length > 0) {
+            return { xpath, tbody };
+          }
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      }
+
+      if (fallback) {
+        const waitStart = Date.now();
+        while (Date.now() - waitStart < settleMs) {
+          if (fallback.tbody.querySelectorAll('tr').length > 0) {
+            return fallback;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+        }
+      }
+
+      return fallback;
+    }
+
+    function observeTableBody(tableBodyXPaths, onChange) {
       let currentTbody = null;
       let tableObserver = null;
       let refreshTimer = null;
@@ -1953,7 +2293,8 @@
       };
 
       const ensureObserver = async () => {
-        const tbody = await waitForXPath(tableBodyXPath);
+        const match = await waitForAnyXPath(tableBodyXPaths, 15000);
+        const tbody = match?.node || null;
         if (!tbody || tbody === currentTbody) {
           return;
         }
@@ -2603,19 +2944,7 @@
       button.id = UI_IDS.button;
       button.type = 'button';
       button.textContent = 'Subcap Tools';
-      button.style.position = 'fixed';
-      button.style.bottom = '24px';
-      button.style.right = '24px';
-      button.style.zIndex = '99999';
-      button.style.padding = '12px 16px';
-      button.style.borderRadius = '999px';
-      button.style.border = `1px solid ${THEME.accent}`;
-      button.style.background = THEME.accent;
-      button.style.color = '#ffffff';
-      button.style.fontSize = '14px';
-      button.style.fontWeight = '600';
-      button.style.cursor = 'pointer';
-      button.style.boxShadow = THEME.accentShadow;
+      button.classList.add(UI_CLASSES.fab);
       button.addEventListener('click', onClick);
 
       document.body.appendChild(button);
@@ -3255,13 +3584,12 @@
       container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
 
       const title = document.createElement('div');
+      title.classList.add(UI_CLASSES.title);
       title.textContent = 'Spend Totals (Last 3 Calendar Months)';
-      title.style.fontWeight = '600';
 
       const subtitle = document.createElement('div');
-      subtitle.textContent = 'Grouped by posting month using stored transactions.';
-      subtitle.style.opacity = '0.7';
-      subtitle.style.fontSize = '12px';
+      subtitle.classList.add(UI_CLASSES.small);
+      subtitle.textContent = 'Grouped by posting month using local stored transactions.';
 
       const notice = document.createElement('div');
       notice.classList.add(UI_CLASSES.notice);
@@ -3287,8 +3615,8 @@
 
       if (!months.length) {
         const empty = document.createElement('div');
+        empty.classList.add(UI_CLASSES.meta);
         empty.textContent = 'No stored transactions yet.';
-        empty.style.opacity = '0.8';
         container.appendChild(empty);
         return;
       }
@@ -3318,83 +3646,62 @@
 
         const card = document.createElement('div');
         card.classList.add(UI_CLASSES.card, UI_CLASSES.stack);
-
-        const header = document.createElement('button');
-        header.type = 'button';
-        header.style.display = 'flex';
-        header.style.alignItems = 'center';
-        header.style.justifyContent = 'space-between';
-        header.style.width = '100%';
-        header.style.border = `1px solid ${THEME.border}`;
-        header.style.borderRadius = '10px';
-        header.style.background = THEME.panel;
-        header.style.padding = '10px 12px';
-        header.style.cursor = 'pointer';
-        header.style.color = THEME.text;
-
-        const headerLeft = document.createElement('div');
-        headerLeft.style.display = 'flex';
-        headerLeft.style.alignItems = 'center';
-        headerLeft.style.gap = '8px';
-
-        const chevron = document.createElement('span');
-        chevron.textContent = '▸';
-        chevron.style.fontSize = '12px';
-        chevron.style.color = THEME.muted;
+        const monthHeader = document.createElement('div');
+        monthHeader.classList.add(UI_CLASSES.spendMonthHeader);
 
         const monthLabel = document.createElement('div');
         monthLabel.textContent = formatMonthLabel(monthKey);
-        monthLabel.style.fontWeight = '600';
-
-        headerLeft.appendChild(chevron);
-        headerLeft.appendChild(monthLabel);
-
-        const headerRight = document.createElement('div');
-        headerRight.style.display = 'flex';
-        headerRight.style.flexWrap = 'wrap';
-        headerRight.style.gap = '6px';
-        headerRight.style.justifyContent = 'flex-end';
 
         const totalPill = document.createElement('div');
+        totalPill.classList.add(UI_CLASSES.spendMonthTotal);
         totalPill.textContent = `Total ${monthData.total_amount.toFixed(2)}`;
-        totalPill.style.padding = '4px 8px';
-        totalPill.style.borderRadius = '999px';
-        totalPill.style.background = THEME.accentSoft;
-        totalPill.style.border = `1px solid ${THEME.border}`;
-        totalPill.style.fontWeight = '600';
-        totalPill.style.fontSize = '12px';
-        totalPill.style.color = THEME.accentText;
 
-        headerRight.appendChild(totalPill);
+        monthHeader.appendChild(monthLabel);
+        monthHeader.appendChild(totalPill);
+        card.appendChild(monthHeader);
 
-        const warnings = [];
-        
+        const totalsList = document.createElement('div');
+        totalsList.classList.add(UI_CLASSES.spendTotalsList);
         categoryOrder.forEach((category) => {
           const value = monthData.totals?.[category] || 0;
-          const severity = getWarningSeverity(value);
-          const pill = createStyledPill(`${category} ${value.toFixed(2)}`, severity);
-          
-          if (severity === 'critical') {
-            warnings.push({ category, value, level: 'critical' });
-          } else if (severity === 'warning') {
-            warnings.push({ category, value, level: 'warning' });
-          }
-          
-          headerRight.appendChild(pill);
+          const label = document.createElement('div');
+          label.textContent = category;
+          const amount = document.createElement('div');
+          amount.textContent = value.toFixed(2);
+          totalsList.appendChild(label);
+          totalsList.appendChild(amount);
         });
+        card.appendChild(totalsList);
 
-        header.appendChild(headerLeft);
-        header.appendChild(headerRight);
-
-        const details = document.createElement('div');
-        details.style.display = 'none';
+        const details = document.createElement('details');
         details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent);
+        const summary = document.createElement('summary');
+        summary.textContent = 'View transactions';
+        details.appendChild(summary);
 
         categoryOrder.forEach((category) => {
           const group = grouped[category];
           if (!group) {
             return;
           }
+          const categoryHeader = document.createElement('div');
+          categoryHeader.classList.add(UI_CLASSES.spendMonthHeader);
+          const categoryLabel = document.createElement('strong');
+          categoryLabel.textContent = category;
+          const categoryTotal = document.createElement('strong');
+          categoryTotal.textContent = group.total.toFixed(2);
+          categoryHeader.appendChild(categoryLabel);
+          categoryHeader.appendChild(categoryTotal);
+          details.appendChild(categoryHeader);
+
+          const table = document.createElement('div');
+          table.classList.add(UI_CLASSES.spendDetailsTable);
+          ['Merchant', 'Posting Date', 'Amount'].forEach((header) => {
+            const headerNode = document.createElement('strong');
+            headerNode.textContent = header;
+            table.appendChild(headerNode);
+          });
+
           const sortedTransactions = group.transactions.slice().sort((a, b) => {
             const dateA = getParsedDate(a);
             const dateB = getParsedDate(b);
@@ -3405,127 +3712,22 @@
             }
             return (a.merchant_detail || '').localeCompare(b.merchant_detail || '');
           });
-          const categoryHeader = document.createElement('div');
-          categoryHeader.style.display = 'flex';
-          categoryHeader.style.justifyContent = 'space-between';
-          categoryHeader.style.fontWeight = '600';
-          categoryHeader.style.marginTop = '8px';
-
-          const categoryLabel = document.createElement('div');
-          categoryLabel.textContent = category;
-
-          const categoryTotal = document.createElement('div');
-          categoryTotal.textContent = group.total.toFixed(2);
-
-          categoryHeader.appendChild(categoryLabel);
-          categoryHeader.appendChild(categoryTotal);
-
-          const list = document.createElement('div');
-          list.style.display = 'grid';
-          list.style.gridTemplateColumns = '1.6fr 0.6fr 0.6fr';
-          list.style.gap = '6px 12px';
-          list.style.marginTop = '6px';
-
-          const headerMerchant = document.createElement('div');
-          headerMerchant.textContent = 'Merchant';
-          headerMerchant.style.fontWeight = '600';
-          headerMerchant.style.color = THEME.muted;
-
-          const headerDate = document.createElement('div');
-          headerDate.textContent = 'Posting Date';
-          headerDate.style.fontWeight = '600';
-          headerDate.style.color = THEME.muted;
-
-          const headerAmount = document.createElement('div');
-          headerAmount.textContent = 'Amount';
-          headerAmount.style.fontWeight = '600';
-          headerAmount.style.color = THEME.muted;
-
-          list.appendChild(headerMerchant);
-          list.appendChild(headerDate);
-          list.appendChild(headerAmount);
 
           sortedTransactions.forEach((tx) => {
             const merchantCell = document.createElement('div');
             merchantCell.textContent = tx.merchant_detail || '-';
-            merchantCell.style.wordBreak = 'break-word';
-
             const dateCell = document.createElement('div');
             dateCell.textContent = tx.posting_date || '-';
-            dateCell.style.color = THEME.muted;
-
             const amountCell = document.createElement('div');
-            amountCell.textContent =
-              typeof tx.amount_value === 'number' ? tx.amount_value.toFixed(2) : '-';
-
-            list.appendChild(merchantCell);
-            list.appendChild(dateCell);
-            list.appendChild(amountCell);
+            amountCell.textContent = typeof tx.amount_value === 'number' ? tx.amount_value.toFixed(2) : '-';
+            table.appendChild(merchantCell);
+            table.appendChild(dateCell);
+            table.appendChild(amountCell);
           });
 
-          details.appendChild(categoryHeader);
-          details.appendChild(list);
+          details.appendChild(table);
         });
 
-        header.addEventListener('click', () => {
-          const isOpen = details.style.display === 'block';
-          details.style.display = isOpen ? 'none' : 'block';
-          chevron.textContent = isOpen ? '▸' : '▾';
-        });
-
-        card.appendChild(header);
-        
-        // Add warning banner if there are any warnings
-        if (warnings.length > 0) {
-          const warningBanner = document.createElement('div');
-          warningBanner.style.padding = '10px 12px';
-          warningBanner.style.borderRadius = '8px';
-          warningBanner.style.fontSize = '13px';
-          
-          const criticalWarnings = warnings.filter((w) => w.level === 'critical');
-          const softWarnings = warnings.filter((w) => w.level === 'warning');
-          
-          if (criticalWarnings.length > 0) {
-            warningBanner.style.background = '#fee2e2';
-            warningBanner.style.border = '2px solid #dc2626';
-            warningBanner.style.color = '#991b1b';
-            warningBanner.style.fontWeight = '700';
-            
-            const title = document.createElement('div');
-            title.textContent = '⚠️ Cap Exceeded Alert';
-            title.style.marginBottom = '4px';
-            title.style.fontSize = '14px';
-            
-            const message = document.createElement('div');
-            const cats = criticalWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-            message.textContent = `The following categories have exceeded the $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
-            message.style.fontWeight = '400';
-            
-            warningBanner.appendChild(title);
-            warningBanner.appendChild(message);
-          } else if (softWarnings.length > 0) {
-            warningBanner.style.background = THEME.warningSoft;
-            warningBanner.style.border = `2px solid ${THEME.warning}`;
-            warningBanner.style.color = THEME.warning;
-            warningBanner.style.fontWeight = '600';
-            
-            const title = document.createElement('div');
-            title.textContent = '⚡ Approaching Cap';
-            title.style.marginBottom = '4px';
-            title.style.fontSize = '14px';
-            
-            const message = document.createElement('div');
-            const cats = softWarnings.map((w) => `${w.category} ($${w.value.toFixed(2)})`).join(', ');
-            message.textContent = `Nearing $${CATEGORY_THRESHOLDS.critical} cap: ${cats}`;
-            message.style.fontWeight = '400';
-            
-            warningBanner.appendChild(title);
-            warningBanner.appendChild(message);
-          }
-          
-          card.appendChild(warningBanner);
-        }
-        
         card.appendChild(details);
         container.appendChild(card);
       });
@@ -3534,212 +3736,136 @@
     let activeTabId = 'spend';
 
     function switchTab(tab) {
-      const manageContent = document.getElementById(UI_IDS.manageContent);
       const spendContent = document.getElementById(UI_IDS.spendContent);
       const syncContent = document.getElementById(UI_IDS.syncContent);
-      const tabManage = document.getElementById(UI_IDS.tabManage);
       const tabSpend = document.getElementById(UI_IDS.tabSpend);
       const tabSync = document.getElementById(UI_IDS.tabSync);
 
-      if (!manageContent || !spendContent || !syncContent || !tabManage || !tabSpend || !tabSync) {
+      if (!spendContent || !syncContent || !tabSpend || !tabSync) {
         return;
       }
 
-      activeTabId = tab;
-      const isManage = tab === 'manage';
-      const isSpend = tab === 'spend';
-      const isSync = tab === 'sync';
-      manageContent.style.display = isManage ? 'flex' : 'none';
-      spendContent.style.display = isSpend ? 'flex' : 'none';
-      syncContent.style.display = isSync ? 'flex' : 'none';
+      activeTabId = tab === 'sync' ? 'sync' : 'spend';
+      const isSpend = activeTabId === 'spend';
+      const isSync = activeTabId === 'sync';
 
-      const setTabState = (tabElement, isActive) => {
-        tabElement.style.background = isActive ? THEME.accentSoft : 'transparent';
-        tabElement.style.borderColor = isActive ? THEME.accent : THEME.border;
-        tabElement.style.color = isActive ? THEME.accentText : THEME.text;
-        tabElement.style.fontWeight = isActive ? '600' : '500';
-      };
-
-      setTabState(tabManage, isManage);
-      setTabState(tabSpend, isSpend);
-      setTabState(tabSync, isSync);
+      spendContent.classList.toggle(UI_CLASSES.hidden, !isSpend);
+      syncContent.classList.toggle(UI_CLASSES.hidden, !isSync);
+      tabSpend.classList.toggle(UI_CLASSES.tabButtonActive, isSpend);
+      tabSync.classList.toggle(UI_CLASSES.tabButtonActive, isSync);
     }
 
     function createOverlay(
       data,
       settings,
       storedTransactions,
+      cardName,
       cardSettings,
-      cardConfig,
-      onChange,
       onSyncStateChanged = () => {},
       shouldShow = false
     ) {
       ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
-      let manageContent;
       let spendContent;
       let syncContent;
-      const wasVisible = overlay && overlay.style.display === 'flex';
+      const wasVisible = overlay && !overlay.classList.contains(UI_CLASSES.hidden);
 
       if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = UI_IDS.overlay;
-        overlay.style.position = 'fixed';
-        overlay.style.inset = '0';
-        overlay.style.zIndex = '99998';
-        overlay.style.background = THEME.overlay;
-        overlay.style.display = 'none';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
+        overlay.classList.add(UI_CLASSES.overlay, UI_CLASSES.hidden);
         overlay.addEventListener('click', (event) => {
           if (event.target === overlay) {
-            overlay.style.display = 'none';
+            overlay.classList.add(UI_CLASSES.hidden);
           }
         });
 
         const panel = document.createElement('div');
-        panel.style.width = 'min(960px, 92vw)';
-        panel.style.maxHeight = '85vh';
-        panel.style.background = THEME.panel;
-        panel.style.color = THEME.text;
-        panel.style.border = `1px solid ${THEME.border}`;
-        panel.style.borderRadius = '12px';
-        panel.style.padding = '16px';
-        panel.style.boxShadow = THEME.shadow;
-        panel.classList.add(UI_CLASSES.stackLoose);
+        panel.classList.add(UI_CLASSES.panel);
 
         const header = document.createElement('div');
-        header.style.display = 'flex';
-        header.style.justifyContent = 'space-between';
-        header.style.alignItems = 'center';
+        header.classList.add(UI_CLASSES.panelHeader);
 
         const title = document.createElement('div');
         title.textContent = 'Subcap Tools';
-        title.style.fontWeight = '600';
-        title.style.fontSize = '16px';
-        title.style.color = THEME.accent;
+        title.classList.add(UI_CLASSES.title);
 
         const closeButton = document.createElement('button');
         closeButton.id = UI_IDS.close;
         closeButton.type = 'button';
         closeButton.textContent = 'Close';
-        closeButton.style.background = THEME.surface;
-        closeButton.style.color = THEME.text;
-        closeButton.style.border = `1px solid ${THEME.border}`;
-        closeButton.style.borderRadius = '8px';
-        closeButton.style.padding = '6px 10px';
-        closeButton.style.cursor = 'pointer';
+        closeButton.classList.add(UI_CLASSES.closeButton);
         closeButton.addEventListener('click', () => {
-          overlay.style.display = 'none';
+          overlay.classList.add(UI_CLASSES.hidden);
         });
 
         header.appendChild(title);
         header.appendChild(closeButton);
 
         const tabs = document.createElement('div');
-        tabs.style.display = 'flex';
-        tabs.style.gap = '8px';
-
-        const tabManage = document.createElement('button');
-        tabManage.id = UI_IDS.tabManage;
-        tabManage.type = 'button';
-        tabManage.textContent = 'Manage Transactions';
-        tabManage.style.border = `1px solid ${THEME.border}`;
-        tabManage.style.borderRadius = '999px';
-        tabManage.style.padding = '6px 12px';
-        tabManage.style.background = 'transparent';
-        tabManage.style.color = THEME.text;
-        tabManage.style.cursor = 'pointer';
-        tabManage.addEventListener('click', () => switchTab('manage'));
+        tabs.classList.add(UI_CLASSES.tabs);
 
         const tabSpend = document.createElement('button');
         tabSpend.id = UI_IDS.tabSpend;
         tabSpend.type = 'button';
         tabSpend.textContent = 'Spend Totals';
-        tabSpend.style.border = `1px solid ${THEME.border}`;
-        tabSpend.style.borderRadius = '999px';
-        tabSpend.style.padding = '6px 12px';
-        tabSpend.style.background = 'transparent';
-        tabSpend.style.color = THEME.text;
-        tabSpend.style.cursor = 'pointer';
+        tabSpend.classList.add(UI_CLASSES.tabButton);
         tabSpend.addEventListener('click', () => switchTab('spend'));
 
         const tabSync = document.createElement('button');
         tabSync.id = UI_IDS.tabSync;
         tabSync.type = 'button';
         tabSync.textContent = 'Sync';
-        tabSync.style.border = `1px solid ${THEME.border}`;
-        tabSync.style.borderRadius = '999px';
-        tabSync.style.padding = '6px 12px';
-        tabSync.style.background = 'transparent';
-        tabSync.style.color = THEME.text;
-        tabSync.style.cursor = 'pointer';
+        tabSync.classList.add(UI_CLASSES.tabButton);
         tabSync.addEventListener('click', () => switchTab('sync'));
 
         tabs.appendChild(tabSpend);
-        tabs.appendChild(tabManage);
         tabs.appendChild(tabSync);
 
         const privacyNotice = document.createElement('div');
         privacyNotice.textContent =
           'Privacy: data stays in your browser (Tampermonkey storage/localStorage). ' +
-          'No remote logging. Stored transactions cover the last 3 calendar months.';
-        privacyNotice.style.fontSize = '12px';
-        privacyNotice.style.color = THEME.muted;
-
-        manageContent = document.createElement('div');
-        manageContent.id = UI_IDS.manageContent;
-        manageContent.style.display = 'none';
-        manageContent.style.overflow = 'auto';
+          'No remote logging. Synced payload contains only settings and monthly totals.';
+        privacyNotice.classList.add(UI_CLASSES.small);
 
         spendContent = document.createElement('div');
         spendContent.id = UI_IDS.spendContent;
-        spendContent.style.display = 'none';
-        spendContent.style.overflow = 'auto';
+        spendContent.classList.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
-        syncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
+        syncContent = createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged);
         syncContent.id = UI_IDS.syncContent;
-        syncContent.style.display = 'none';
-        syncContent.style.overflow = 'auto';
+        syncContent.classList.add(UI_CLASSES.hidden);
 
         panel.appendChild(header);
         panel.appendChild(tabs);
         panel.appendChild(privacyNotice);
-        panel.appendChild(manageContent);
         panel.appendChild(spendContent);
         panel.appendChild(syncContent);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
       } else {
-        manageContent = document.getElementById(UI_IDS.manageContent);
         spendContent = document.getElementById(UI_IDS.spendContent);
         syncContent = document.getElementById(UI_IDS.syncContent);
       }
 
-      if (manageContent) {
-        renderManageView(
-          manageContent,
-          data,
-          storedTransactions,
-          cardSettings,
-          cardConfig,
-          onChange
-        );
-      }
       if (spendContent) {
         renderSpendingView(spendContent, storedTransactions, cardSettings);
       }
       if (syncContent) {
-        const nextSyncContent = createSyncTab(syncManager, settings, THEME, onSyncStateChanged);
+        const nextSyncContent = createSyncTab(
+          syncManager,
+          cardName,
+          cardSettings,
+          storedTransactions,
+          THEME,
+          onSyncStateChanged
+        );
         nextSyncContent.id = UI_IDS.syncContent;
-        nextSyncContent.style.display = syncContent.style.display || 'none';
-        nextSyncContent.style.overflow = 'auto';
         syncContent.replaceWith(nextSyncContent);
       }
 
       if (shouldShow || wasVisible) {
-        overlay.style.display = 'flex';
+        overlay.classList.remove(UI_CLASSES.hidden);
       }
       switchTab(activeTabId);
     }
@@ -3753,7 +3879,11 @@
 
       const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
 
-      const cardNameNode = await waitForXPath(profile.cardNameXPath, waitTimeoutMs);
+      const cardNameMatch = await waitForAnyXPath(
+        profile.cardNameXPaths || [profile.cardNameXPath],
+        waitTimeoutMs
+      );
+      const cardNameNode = cardNameMatch?.node || null;
       if (!cardNameNode) {
         removeUI();
         return;
@@ -3776,8 +3906,10 @@
         return;
       }
 
-      const tableBodyXPath = profile.tableBodyXPath;
-      const tableBody = await waitForTableBodyRows(tableBodyXPath, waitTimeoutMs);
+      const tableBodyXPaths = profile.tableBodyXPaths || [profile.tableBodyXPath];
+      const initialTableBodyMatch = await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
+      const tableBody = initialTableBodyMatch?.tbody || null;
+      const preferredTableBodyXPath = initialTableBodyMatch?.xpath || null;
       if (!tableBody) {
         removeUI();
         return;
@@ -3791,6 +3923,9 @@
 
       let refreshInProgress = false;
       let refreshPending = false;
+      const observedTableBodyXPaths = preferredTableBodyXPath
+        ? [preferredTableBodyXPath, ...tableBodyXPaths.filter((xpath) => xpath !== preferredTableBodyXPath)]
+        : tableBodyXPaths;
 
       const refreshOverlay = async (shouldShow = false) => {
         if (refreshInProgress) {
@@ -3798,7 +3933,8 @@
           return;
         }
         refreshInProgress = true;
-        const latestTableBody = await waitForTableBodyRows(tableBodyXPath, waitTimeoutMs);
+        const latestTableBodyMatch = await waitForAnyTableBodyRows(observedTableBodyXPaths, waitTimeoutMs);
+        const latestTableBody = latestTableBodyMatch?.tbody || null;
         try {
           if (!latestTableBody) {
             return;
@@ -3816,15 +3952,8 @@
             data,
             settings,
             storedTransactions,
+            cardName,
             cardSettings,
-            cardConfig,
-            (updateFn) => {
-              const nextSettings = loadSettings();
-              const nextCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
-              updateFn(nextCardSettings);
-              saveSettings(nextSettings);
-              refreshOverlay();
-            },
             () => {
               refreshOverlay();
             },
@@ -3843,7 +3972,7 @@
       if (stopTableObserver) {
         stopTableObserver();
       }
-      stopTableObserver = observeTableBody(tableBodyXPath, refreshOverlay);
+      stopTableObserver = observeTableBody(observedTableBodyXPaths, refreshOverlay);
     }
 
     const runMainSafe = () => {

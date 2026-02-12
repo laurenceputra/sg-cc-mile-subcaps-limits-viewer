@@ -27,7 +27,13 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 3. Open a supported credit card transaction page:
    - UOB PIB (`LADY'S SOLITAIRE CARD`)
    - Maybank2u SG (`XL Rewards Card`) — debit-only rows, with `... SGP` auto-categorized as `Local` (else `Forex`)
-4. Click **Subcap Tools** to view totals and manage categories.
+4. Click **Subcap Tools** to view **Spend Totals** and **Sync**.
+
+## Sync privacy model
+
+- Raw transactions remain local to your browser.
+- Synced encrypted payload contains card settings + monthly totals only.
+- `Sync Now` updates the active card key while preserving other remote card keys.
 
 ## Documentation
 

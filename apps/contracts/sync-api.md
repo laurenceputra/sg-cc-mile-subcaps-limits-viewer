@@ -71,6 +71,9 @@ Conflict response body (`409`):
 Behavior notes:
 - This endpoint only persists encrypted sync blobs (`sync_blobs`).
 - It does not create shared mapping contributions.
+- Userscript sync payload remains under `data.cards` and is card-keyed.
+- Current client behavior syncs only the active card from the current portal page, while preserving other remote card keys.
+- Synced card data is minimized to settings + aggregates (`selectedCategories`, `defaultCategory`, `merchantMap`, `monthlyTotals`) and excludes raw `transactions`.
 
 ### `GET /shared/mappings/:cardType` (auth required)
 Path param:

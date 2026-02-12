@@ -17,7 +17,7 @@ export function createApp(rateLimiters) {
 
   // Parse allowed origins from environment
   const getAllowedOrigins = (env, requestUrl) => {
-    const origins = env?.ALLOWED_ORIGINS || 'https://pib.uob.com.sg';
+    const origins = env?.ALLOWED_ORIGINS || 'https://pib.uob.com.sg,https://cib.maybank2u.com.sg';
     const parsedOrigins = origins.split(',').map(o => o.trim()).filter(Boolean);
     const allowedOrigins = new Set(parsedOrigins);
     if (requestUrl) {

@@ -65,6 +65,8 @@ describe('Workers web dashboard pages', () => {
       assert.ok(html.includes('ccSubcapSyncLastActiveAt'));
       assert.ok(html.includes('/auth/refresh'));
       assert.ok(html.includes('slice(0, 2)'));
+      assert.ok(html.includes('cardSettings?.monthlyTotals'));
+      assert.ok(html.includes('No synced monthly totals yet.'));
     } finally {
       await disposeTestDatabase(mf);
     }

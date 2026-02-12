@@ -705,6 +705,33 @@ web.get('/dashboard', (c) => {
         });
       }
 
+      function normalizeMonthlyTotals(monthlyTotals) {
+        if (!isObjectRecord(monthlyTotals)) {
+          return {};
+        }
+        const normalized = {};
+        Object.entries(monthlyTotals).forEach(([monthKey, monthData]) => {
+          if (!isObjectRecord(monthData)) {
+            return;
+          }
+          const totals = isObjectRecord(monthData.totals)
+            ? Object.fromEntries(
+                Object.entries(monthData.totals)
+                  .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+              )
+            : {};
+          const totalAmount =
+            typeof monthData.total_amount === 'number' && Number.isFinite(monthData.total_amount)
+              ? monthData.total_amount
+              : Object.values(totals).reduce((sum, value) => sum + value, 0);
+          normalized[monthKey] = {
+            totals,
+            total_amount: totalAmount
+          };
+        });
+        return normalized;
+      }
+
       function calculateMonthlyTotals(transactions, cardSettings) {
         const totalsByMonth = {};
         const defaultCategory = cardSettings?.defaultCategory || 'Others';
@@ -725,6 +752,13 @@ web.get('/dashboard', (c) => {
         return totalsByMonth;
       }
 
+      function getMonthlyTotals(cardSettings) {
+        if (isObjectRecord(cardSettings?.monthlyTotals)) {
+          return normalizeMonthlyTotals(cardSettings.monthlyTotals);
+        }
+        return calculateMonthlyTotals(getTransactions(cardSettings), cardSettings);
+      }
+
       function formatMonthLabel(monthKey) {
         const match = String(monthKey).match(/^(\\d{4})-(\\d{2})$/);
         if (!match) return monthKey;
@@ -739,7 +773,7 @@ web.get('/dashboard', (c) => {
         emptyState.textContent = '';
 
         if (!monthKeys.length) {
-          emptyState.textContent = 'No stored transactions yet.';
+          emptyState.textContent = 'No synced monthly totals yet.';
           return;
         }
 
@@ -856,8 +890,7 @@ web.get('/dashboard', (c) => {
             return;
           }
 
-          const transactions = getTransactions(cardSettings);
-          const monthlyTotals = calculateMonthlyTotals(transactions, cardSettings);
+          const monthlyTotals = getMonthlyTotals(cardSettings);
           const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a)).slice(0, 2);
           renderTotals(months, monthlyTotals);
           markActive(storage);

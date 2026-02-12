@@ -19,7 +19,7 @@
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension.
 2. Create a new userscript and paste the contents of `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
-3. Save the script and visit the supported UOB PIB card transaction page.
+3. Save the script and visit a supported UOB PIB or Maybank2u SG card transaction page.
 4. Click **Subcap Tools** to open the UI.
 
 ## Privacy and safety
@@ -29,11 +29,15 @@
 - **No remote telemetry**: The script does not send analytics or logs to external services.
 - **Optional sync**: If the user explicitly enables sync, encrypted settings are sent to the configured sync backend.
 - **Retention**: Stored transactions are kept for the last 3 calendar months to support monthly summaries.
+- **Sync minimization**: Raw transactions remain local; sync payloads include card settings + monthly totals only.
 
 ## Sync behavior notes
 
 - `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
 - Sync payload remains card-keyed under a `cards` envelope (`{ cards: { [cardName]: ... } }`), so adding new cards (e.g., `XL Rewards Card`) is backward-compatible and requires no backend schema/API changes.
+- `Sync Now` updates only the active card key from the current page and preserves other remote card keys.
+- Each synced card payload includes `selectedCategories`, `defaultCategory`, `merchantMap`, and `monthlyTotals`; it excludes raw `transactions`.
+- On bank pages with strict `connect-src`, sync/auth network requests use Tampermonkey transport (`GM_xmlhttpRequest`) with `fetch` fallback.
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
@@ -60,10 +64,12 @@
     - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
 
 - **Maybank2u SG (XL Rewards Card)**
-  - **Card name XPath** (content-based):
-    - `//*[contains(normalize-space(.), "XL Rewards Card")][1]`
-  - **Transactions table body XPath** (content-based, looks for `SGD`):
-    - `(//tbody[.//td[contains(normalize-space(.), "SGD")]])[1]`
+  - **Card name XPaths** (ordered fallback):
+    - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span`
+    - `//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]`
+  - **Transactions table body XPaths** (ordered fallback):
+    - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody`
+    - `(//table//tbody)[1]`
   - **Extraction notes**:
     - Only rows where amount text starts with `-` are ingested (debit spend rows).
     - Description ending with `SGP` is categorized as `Local`; other suffixes are categorized as `Forex`.
@@ -71,50 +77,11 @@
 
 If the portal markup changes, update these selectors in `main()`.
 
-## Category mapping with wildcard support
+## Category mapping behavior
 
-The script allows you to assign merchants to categories manually. As of version 0.6.0, **wildcard matching** is supported for flexible merchant categorization:
-
-### How to use wildcards
-
-**Method 1: Add wildcard pattern manually (recommended)**
-1. Open the **Subcap Tools** panel
-2. Navigate to the **Manage Transactions** tab
-3. Scroll to the **"Add Wildcard Pattern"** section at the bottom
-4. Enter a pattern (e.g., `STARBUCKS*` or `*GRAB*`)
-5. Select the category to assign
-6. Click **Add**
-
-**Method 2: Categorize existing merchants**
-1. Wait for a transaction from the merchant to appear on the page
-2. Find the merchant in the categorization list
-3. Select a category - the pattern can then be edited to use wildcards via browser console or by re-adding it with the wildcard form
-
-### Pattern syntax
-
-- Use `*` as a wildcard character to match any sequence of characters except literal `*`
-- Escape literal asterisks with `\*` (e.g., `KrisPay\*Paradise*`)
-- Wildcards can appear at the beginning, middle, or end of a pattern
-- Matching is **case-insensitive**
-
-### Examples
-
-| Pattern | Matches | Does not match |
-|---------|---------|----------------|
-| `STARBUCKS*` | STARBUCKS SINGAPORE, STARBUCKS ORCHARD | MCDONALDS |
-| `*STARBUCKS` | SINGAPORE STARBUCKS, THE STARBUCKS | STARBUCKS DOWNTOWN |
-| `STARBUCKS*CAFE` | STARBUCKS SINGAPORE CAFE | STARBUCKS SINGAPORE |
-| `*GRAB*` | GRAB SINGAPORE, GRABTAXI, THE GRAB APP, MY GRAB RIDE | UBER, GOJEK |
-| `KrisPay\*Paradise*` | KrisPay*Paradise C Singapore SG | KrisPay Paradise C Singapore SG |
-
-### Matching priority
-
-1. **Exact match** (case-sensitive) is checked first (for backward compatibility and performance)
-2. **Case-insensitive exact match** for non-wildcard patterns is checked second
-3. **Wildcard patterns** are checked if no exact match is found
-4. **Default category** is used if no match is found
-
-This allows you to create flexible rules like `GRAB*` to categorize all Grab-related merchants as "Transport" without having to add each variant individually.
+- Overlay tabs are now **Spend Totals** and **Sync** only (no **Manage Transactions** tab).
+- Existing merchant/category mappings in local storage are still respected during categorization.
+- Wildcard matching support remains in the underlying categorization logic for previously stored mappings.
 
 ## Diagnostics and data issues
 

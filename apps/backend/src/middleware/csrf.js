@@ -18,6 +18,7 @@
  */
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://pib.uob.com.sg',
+  'https://cib.maybank2u.com.sg',
   // Add self-hosted domain when available
   // 'https://your-domain.com',
 ];

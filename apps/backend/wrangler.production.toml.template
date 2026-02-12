@@ -13,7 +13,7 @@ crons = ["0 2 * * *"]
 [vars]
 ENVIRONMENT = "production"
 NODE_ENV = "production"
-ALLOWED_ORIGINS = "https://pib.uob.com.sg"
+ALLOWED_ORIGINS = "https://pib.uob.com.sg,https://cib.maybank2u.com.sg"
 
 [[d1_databases]]
 binding = "DB"
