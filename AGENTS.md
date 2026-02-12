@@ -20,16 +20,16 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 | Skill | Summary | Link |
 | --- | --- | --- |
 | code-review | Expert code reviewer with best-practice guidance for correctness, security, performance, and maintainability. | [.agents/skills/code-review/SKILL.md](.agents/skills/code-review/SKILL.md) |
-| debugging-assistant | Debugging methodologies for root-cause analysis, reproduction, and prevention. | [.agents/skills/debugging-assistant/SKILL.md](.agents/skills/debugging-assistant/SKILL.md) |
+| debugging-assistant | Debugging methodologies for root-cause analysis, reproduction, edge observability triage, and prevention. | [.agents/skills/debugging-assistant/SKILL.md](.agents/skills/debugging-assistant/SKILL.md) |
 | documentation | Technical writing guidance for clear, complete documentation. | [.agents/skills/documentation/SKILL.md](.agents/skills/documentation/SKILL.md) |
 | implementation-engineer | Production implementation workflow for this repo with security-first defaults, minimal diffs, and validation discipline. | [.agents/skills/implementation-engineer/SKILL.md](.agents/skills/implementation-engineer/SKILL.md) |
 | network-resilience | Reliability improvements for network calls, retries, and offline handling. | [.agents/skills/network-resilience/SKILL.md](.agents/skills/network-resilience/SKILL.md) |
 | performance-optimization | Performance analysis and optimization best practices. | [.agents/skills/performance-optimization/SKILL.md](.agents/skills/performance-optimization/SKILL.md) |
-| qa-testing | Test planning for happy paths, edge cases, and regressions. | [.agents/skills/qa-testing/SKILL.md](.agents/skills/qa-testing/SKILL.md) |
+| qa-testing | Test planning for happy paths, edge cases, contract compatibility, and regressions. | [.agents/skills/qa-testing/SKILL.md](.agents/skills/qa-testing/SKILL.md) |
 | refactoring-expert | Safe refactoring practices to improve structure without behavior changes. | [.agents/skills/refactoring-expert/SKILL.md](.agents/skills/refactoring-expert/SKILL.md) |
-| release-management | Release planning, checklists, and notes. | [.agents/skills/release-management/SKILL.md](.agents/skills/release-management/SKILL.md) |
+| release-management | Release planning with schema migration stewardship, deployment gates, and rollback discipline. | [.agents/skills/release-management/SKILL.md](.agents/skills/release-management/SKILL.md) |
 | requirements-researcher | Requirements discovery, constraints, and feasibility analysis. | [.agents/skills/requirements-researcher/SKILL.md](.agents/skills/requirements-researcher/SKILL.md) |
-| security-risk | Security and privacy risk identification with mitigations. | [.agents/skills/security-risk/SKILL.md](.agents/skills/security-risk/SKILL.md) |
+| security-risk | Security and privacy risk identification with mitigations, including auth/session/token lifecycle review. | [.agents/skills/security-risk/SKILL.md](.agents/skills/security-risk/SKILL.md) |
 | spec-writer | Specifications/plans with tasks, acceptance criteria, and verification steps. | [.agents/skills/spec-writer/SKILL.md](.agents/skills/spec-writer/SKILL.md) |
 | ux-accessibility | Accessibility checks for UI changes (keyboard, focus, contrast, semantics). | [.agents/skills/ux-accessibility/SKILL.md](.agents/skills/ux-accessibility/SKILL.md) |
 
@@ -85,9 +85,33 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - **Phase 3: Quality Validation** → `qa-testing`, `performance-optimization`, `ux-accessibility`
 - **Phase 4: Security Testing** → `security-risk`
 - **Phase 5: Documentation** → `documentation`
-- **Phase 6: Maintenance** → `release-management` (situational), `code-review` (as needed)
+- **Phase 6: Maintenance & Release Readiness** → `release-management` (primary), `code-review` (as needed), `debugging-assistant` (incident triage)
 
 **When to use skills:** skills are selected based on task needs. Situational skills are optional and only apply when the task includes that concern.
+
+## Workflow Tightening (Mandatory for Backend/Auth/Schema Changes)
+
+For any change that touches database schema, auth/session flows, deployment configuration, or cross-app API contract:
+
+1. **Schema Compatibility Gate**
+   - Provide explicit forward migration steps.
+   - Validate migration against target preview/production D1 shape.
+   - Do not rely on `CREATE TABLE IF NOT EXISTS` for structural upgrades.
+
+2. **Preview Smoke Gate**
+   - Validate `/login`, auth flow, refresh flow, and key protected data paths on preview URL before approval.
+   - Block release if critical auth/session paths fail.
+
+3. **Environment Parity Gate**
+   - Verify required bindings/secrets/rate-limit namespaces and relevant env vars are present in preview and production.
+   - Verify deployed Worker config matches expected runtime assumptions.
+
+4. **Failure-Mode Requirement**
+   - Specs and implementation notes must include known failure modes, user-facing symptom, detection signal, and rollback/mitigation steps.
+
+5. **Post-Deploy Observation Gate**
+   - Monitor endpoint-level error rates for changed auth/session/data paths.
+   - Treat unexplained 5xx increases as release blockers until triaged.
 
 ## Agents
 
@@ -278,4 +302,4 @@ Each agent should provide:
 
 **Questions?** Consult the security-reviewer agent or refer to the security docs above.
 
-**Last Updated:** 2026-01-30 (Simplified from 12 to 6 agents)
+**Last Updated:** 2026-02-12 (Workflow tightening + merged skill responsibilities)
