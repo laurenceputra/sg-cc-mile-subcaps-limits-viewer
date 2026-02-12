@@ -4,7 +4,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 ## Projects
 
-- **Userscript (UOB Lady's Solitaire)** — `apps/userscript/bank-cc-limits-subcap-calculator.user.js`  
+- **Userscript (UOB + Maybank)** — `apps/userscript/bank-cc-limits-subcap-calculator.user.js`  
   Tampermonkey userscript that summarizes spend and manages subcap categories.  
   Installable build: [apps/userscript/bank-cc-limits-subcap-calculator.user.js](apps/userscript/bank-cc-limits-subcap-calculator.user.js) (canonical copy)
 
@@ -24,7 +24,9 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/).
 2. Add the script from `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
-3. Open your UOB PIB credit card transaction page.
+3. Open a supported credit card transaction page:
+   - UOB PIB (`LADY'S SOLITAIRE CARD`)
+   - Maybank2u SG (`XL Rewards Card`) — debit-only rows, with `... SGP` auto-categorized as `Local` (else `Forex`)
 4. Click **Subcap Tools** to view totals and manage categories.
 
 ## Documentation

@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      0.6.0
+// @version      0.7.0
 // @description  Extract credit card transactions and manage subcap categories with optional sync
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
+// @match        https://cib.maybank2u.com.sg/m2u/accounts/cards*
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -1646,9 +1647,25 @@
     }
     window.__ccSubcapInjected = true;
 
-    const URL_PREFIX = 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do';
     const STORAGE_KEY = 'ccSubcapSettings';
-    const TARGET_CARD_NAME = "LADY'S SOLITAIRE CARD";
+
+    const PORTAL_PROFILES = [
+      {
+        id: 'uob-pib',
+        urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
+        cardNameXPath:
+          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3',
+        tableBodyXPath:
+          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
+      },
+      {
+        id: 'maybank2u-sg',
+        urlPrefix: 'https://cib.maybank2u.com.sg/m2u/accounts/cards',
+        // Content-based selector to tolerate Maybank DOM shifts.
+        cardNameXPath: '//*[contains(normalize-space(.), "XL Rewards Card")][1]',
+        tableBodyXPath: '(//tbody[.//td[contains(normalize-space(.), "SGD")]])[1]'
+      }
+    ];
 
     const CARD_CONFIGS = {
       "LADY'S SOLITAIRE CARD": {
@@ -1661,6 +1678,10 @@
           'Transport',
           'Travel'
         ],
+        subcapSlots: 2
+      },
+      'XL Rewards Card': {
+        categories: ['Local', 'Forex'],
         subcapSlots: 2
       }
     };
@@ -1702,7 +1723,8 @@
     };
 
 
-    const TRANSACTION_LOADING_NOTICE = '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the UOB site by clicking "View More" first, then reopen the panel through the button.';
+    const TRANSACTION_LOADING_NOTICE =
+      '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the bank site first (e.g. paginate / "View More"), then reopen the panel through the button.';
 
     // Helper constants for warnings
     const CATEGORY_THRESHOLDS = { critical: 750, warning: 700 };
@@ -2066,6 +2088,26 @@
       return Number.isNaN(number) ? null : number;
     }
 
+    function hashFNV1a(value) {
+      const text = String(value || '');
+      let hash = 0x811c9dc5;
+      for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+      }
+      return (hash >>> 0).toString(16).padStart(8, '0');
+    }
+
+    function buildMaybankSyntheticRefNo(postingDateIso, description, amountValue) {
+      const normalizedDate = normalizeText(postingDateIso);
+      const normalizedDesc = normalizeText(description).toUpperCase();
+      const normalizedAmount =
+        typeof amountValue === 'number' && Number.isFinite(amountValue) ? amountValue.toFixed(2) : '';
+      const base = `${normalizedDate}|${normalizedDesc}|${normalizedAmount}`;
+      const hash = hashFNV1a(base);
+      return `MB:${normalizedDate}:${normalizedAmount}:${hash}`;
+    }
+
     function extractDollarsAndCents(amountCell) {
       if (!amountCell) {
         return { dollarsText: '', centsText: '', amountText: '' };
@@ -2190,7 +2232,7 @@
       return regex.test(merchantName);
     }
 
-    function resolveCategory(merchantName, cardSettings) {
+    function resolveCategory(merchantName, cardSettings, cardName = '') {
       if (!merchantName) {
         return cardSettings.defaultCategory || 'Others';
       }
@@ -2221,10 +2263,89 @@
         }
       }
       
+      if (cardName === 'XL Rewards Card') {
+        const normalized = normalizeText(merchantName);
+        return /\bSGP$/i.test(normalized) ? 'Local' : 'Forex';
+      }
+
       return cardSettings.defaultCategory || 'Others';
     }
 
-    function buildTransactions(tbody, cardSettings) {
+    function buildMaybankTransactions(tbody, cardName, cardSettings) {
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const diagnostics = {
+        skipped_rows: 0,
+        non_debit_rows: 0,
+        invalid_posting_date: 0,
+        invalid_amount: 0,
+        missing_ref_no: 0
+      };
+
+      const transactions = rows
+        .map((row, index) => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length < 3) {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+
+          const postingDate = normalizeText(cells[0].textContent);
+          const description = normalizeText(cells.length >= 3 ? cells[2].textContent : '');
+          const amountTextCandidate = Array.from(cells)
+            .map((cell) => normalizeText(cell.textContent))
+            .find((value) => /SGD/i.test(value));
+          const amountText = amountTextCandidate || normalizeText(cells[cells.length - 1].textContent);
+
+          if (!/^\s*-/.test(amountText)) {
+            diagnostics.non_debit_rows += 1;
+            return null;
+          }
+
+          const postingDateParsed = parsePostingDate(postingDate);
+          if (postingDate && !postingDateParsed) {
+            diagnostics.invalid_posting_date += 1;
+          }
+          const postingDateIso = postingDateParsed ? toISODate(postingDateParsed) : '';
+
+          const amountValueRaw = parseAmount(amountText);
+          const amountValue =
+            amountValueRaw === null ? null : Math.abs(amountValueRaw);
+          if (amountText && amountValue === null) {
+            diagnostics.invalid_amount += 1;
+            return null;
+          }
+
+          if (!postingDate || !description || !postingDateIso || typeof amountValue !== 'number') {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+
+          const refNo = buildMaybankSyntheticRefNo(postingDateIso, description, amountValue);
+          const category = resolveCategory(description, cardSettings, cardName);
+
+          return {
+            row_index: index + 1,
+            posting_date: postingDate,
+            posting_date_iso: postingDateIso,
+            transaction_date: '',
+            merchant_detail: description,
+            ref_no: refNo,
+            amount_dollars: '',
+            amount_cents: '',
+            amount_text: amountText,
+            amount_value: amountValue,
+            category
+          };
+        })
+        .filter(Boolean);
+
+      return { transactions, diagnostics };
+    }
+
+    function buildTransactions(tbody, cardName, cardSettings) {
+      if (cardName === 'XL Rewards Card') {
+        return buildMaybankTransactions(tbody, cardName, cardSettings);
+      }
       const rows = Array.from(tbody.querySelectorAll('tr'));
       const diagnostics = {
         skipped_rows: 0,
@@ -2271,7 +2392,7 @@
           }
 
           const postingDateIso = postingDateParsed ? toISODate(postingDateParsed) : '';
-          const category = resolveCategory(merchantName, cardSettings);
+          const category = resolveCategory(merchantName, cardSettings, cardName);
 
           return {
             row_index: index + 1,
@@ -2313,7 +2434,7 @@
     }
 
     function buildData(tableBody, cardName, cardSettings) {
-      const { transactions, diagnostics } = buildTransactions(tableBody, cardSettings);
+      const { transactions, diagnostics } = buildTransactions(tableBody, cardName, cardSettings);
       const summary = calculateSummary(transactions, cardSettings);
 
       return {
@@ -2368,7 +2489,7 @@
       cardSettings.transactions = nextStored;
     }
 
-    function getStoredTransactions(cardSettings) {
+    function getStoredTransactions(cardName, cardSettings) {
       const stored = cardSettings.transactions || {};
       const deduped = {};
 
@@ -2386,7 +2507,7 @@
           typeof entry.amount_value === 'number'
             ? entry.amount_value
             : parseAmount(entry.amount_text || '');
-        const category = resolveCategory(merchantDetail, cardSettings);
+        const category = resolveCategory(merchantDetail, cardSettings, cardName);
 
         const normalizedEntry = {
           ...entry,
@@ -2553,6 +2674,10 @@
           label: 'Rows skipped (missing ref no)'
         },
         {
+          key: 'non_debit_rows',
+          label: 'Rows skipped (non-debit / credits)'
+        },
+        {
           key: 'invalid_amount',
           label: 'Rows with unreadable amounts'
         },
@@ -2602,7 +2727,7 @@
 
     function renderCategorySelectors(container, cardSettings, cardConfig, onChange) {
       const title = document.createElement('div');
-      title.textContent = 'Select bonus categories (2)';
+      title.textContent = `Select bonus categories (${cardConfig.subcapSlots})`;
       title.style.fontWeight = '600';
       title.style.color = THEME.accent;
 
@@ -3612,33 +3737,36 @@
     }
 
     async function main() {
-      if (!window.location.href.startsWith(URL_PREFIX)) {
+      const profile = PORTAL_PROFILES.find((entry) => window.location.href.startsWith(entry.urlPrefix));
+      if (!profile) {
         removeUI();
         return;
       }
 
-      const cardNameNode = await waitForXPath(
-        '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3'
-      );
+      const cardNameNode = await waitForXPath(profile.cardNameXPath);
       if (!cardNameNode) {
         removeUI();
         return;
       }
 
-      const cardName = normalizeText(cardNameNode.textContent);
-      if (cardName !== TARGET_CARD_NAME) {
+      const rawCardName = normalizeText(cardNameNode.textContent);
+      const matchedCardName =
+        CARD_CONFIGS[rawCardName]
+          ? rawCardName
+          : Object.keys(CARD_CONFIGS).find((name) => rawCardName.toUpperCase().includes(name.toUpperCase())) || '';
+      if (!matchedCardName) {
         removeUI();
         return;
       }
 
+      const cardName = matchedCardName;
       const cardConfig = CARD_CONFIGS[cardName];
       if (!cardConfig) {
         removeUI();
         return;
       }
 
-      const tableBodyXPath =
-        '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody';
+      const tableBodyXPath = profile.tableBodyXPath;
       const tableBody = await waitForTableBodyRows(tableBodyXPath);
       if (!tableBody) {
         removeUI();
@@ -3673,7 +3801,7 @@
           if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
             await syncManager.tryUnlockFromRememberedCache();
           }
-          const storedTransactions = getStoredTransactions(cardSettings);
+          const storedTransactions = getStoredTransactions(cardName, cardSettings);
           createOverlay(
             data,
             settings,

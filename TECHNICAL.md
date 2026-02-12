@@ -8,9 +8,12 @@
 
 ## Supported scope
 
-- **Bank/portal**: UOB Personal Internet Banking (PIB)
-- **Page**: Credit card transaction listing (`https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*`)
-- **Card**: `LADY'S SOLITAIRE CARD`
+- **UOB Personal Internet Banking (PIB)**
+  - **Page**: Credit card transaction listing (`https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*`)
+  - **Card**: `LADY'S SOLITAIRE CARD`
+- **Maybank2u SG**
+  - **Page**: Cards transaction listing (`https://cib.maybank2u.com.sg/m2u/accounts/cards*`)
+  - **Card**: `XL Rewards Card` (debit-only rows, with `... SGP` auto-categorized as `Local` else `Forex`)
 
 ## Installation details
 
@@ -30,6 +33,7 @@
 ## Sync behavior notes
 
 - `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
+- Sync payload remains card-keyed under a `cards` envelope (`{ cards: { [cardName]: ... } }`), so adding new cards (e.g., `XL Rewards Card`) is backward-compatible and requires no backend schema/API changes.
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
@@ -49,10 +53,21 @@
 
 ## Data extraction details
 
-- **Card name XPath** (must match `TARGET_CARD_NAME`):
-  - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3`
-- **Transactions table body XPath**:
-  - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
+- **UOB PIB**
+  - **Card name XPath**:
+    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3`
+  - **Transactions table body XPath**:
+    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
+
+- **Maybank2u SG (XL Rewards Card)**
+  - **Card name XPath** (content-based):
+    - `//*[contains(normalize-space(.), "XL Rewards Card")][1]`
+  - **Transactions table body XPath** (content-based, looks for `SGD`):
+    - `(//tbody[.//td[contains(normalize-space(.), "SGD")]])[1]`
+  - **Extraction notes**:
+    - Only rows where amount text starts with `-` are ingested (debit spend rows).
+    - Description ending with `SGP` is categorized as `Local`; other suffixes are categorized as `Forex`.
+    - Maybank rows do not expose UOB-style reference numbers, so a deterministic synthetic key is generated for storage dedupe.
 
 If the portal markup changes, update these selectors in `main()`.
 
@@ -113,7 +128,7 @@ Use this section to understand why totals might look off.
 
 ## Troubleshooting
 
-- **Script doesn’t appear**: Ensure the current page URL matches the UOB PIB pattern in the script.
+- **Script doesn’t appear**: Ensure the current page URL matches a supported UOB PIB or Maybank2u SG pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
@@ -123,7 +138,7 @@ Use this section to understand why totals might look off.
 ## Extending to new cards
 
 1. Add a new entry to `CARD_CONFIGS` with categories and subcap slots.
-2. Update the card name match in `TARGET_CARD_NAME` (or adjust logic to allow multiple cards).
+2. Add/update a `PORTAL_PROFILES` entry (URL prefix + XPaths) and ensure `main()` can match the detected card name to your new `CARD_CONFIGS` key.
 
 ## Maintenance checklist
 
