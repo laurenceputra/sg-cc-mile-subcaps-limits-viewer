@@ -118,10 +118,10 @@
             });
           },
           onerror: () => {
-            reject(new Error('Network request failed'));
+            reject(new Error('Network connection failed'));
           },
           ontimeout: () => {
-            reject(new Error('Network request timed out'));
+            reject(new Error('Request timed out after 30s'));
           }
         });
       });
@@ -472,18 +472,17 @@
       if (!base) return incoming;
       if (!incoming) return base;
 
-      const merged = { ...base, ...incoming };
-      merged.merchantMap = { ...(base.merchantMap || {}), ...(incoming.merchantMap || {}) };
-      merged.monthlyTotals = { ...(base.monthlyTotals || {}), ...(incoming.monthlyTotals || {}) };
-
-      if (Array.isArray(incoming.selectedCategories)) {
-        merged.selectedCategories = incoming.selectedCategories.slice();
-      }
-      if (typeof incoming.defaultCategory === 'string' && incoming.defaultCategory) {
-        merged.defaultCategory = incoming.defaultCategory;
-      }
-
-      return merged;
+      // Merge only known fields to prevent accidental field inclusion
+      return {
+        selectedCategories: Array.isArray(incoming.selectedCategories)
+          ? incoming.selectedCategories.slice()
+          : (Array.isArray(base.selectedCategories) ? base.selectedCategories : []),
+        defaultCategory: (typeof incoming.defaultCategory === 'string' && incoming.defaultCategory)
+          ? incoming.defaultCategory
+          : (base.defaultCategory || 'Others'),
+        merchantMap: { ...(base.merchantMap || {}), ...(incoming.merchantMap || {}) },
+        monthlyTotals: { ...(base.monthlyTotals || {}), ...(incoming.monthlyTotals || {}) }
+      };
     }
 
     sanitizeCardSettings(cardSettings) {
