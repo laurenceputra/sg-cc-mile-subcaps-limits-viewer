@@ -2135,12 +2135,6 @@
     let hasInitializedCachedCapPolicy = false;
 
     // Helper functions
-    function applyStyles(element, styles) {
-      Object.entries(styles).forEach(([key, value]) => {
-        element.style[key] = value;
-      });
-    }
-
     function normalizeCapPolicy(policy) {
       const fallback = EMBEDDED_CAP_POLICY;
       if (!isObjectRecord(policy)) {
@@ -2564,7 +2558,7 @@
       return fallback;
     }
 
-    function observeTableBody(tableBodyXPaths, onChange) {
+    function observeTableBody(tableBodyXPaths, onChange, waitTimeoutMs) {
       let currentTbody = null;
       let tableObserver = null;
       let refreshTimer = null;
@@ -2590,7 +2584,8 @@
       };
 
       const ensureObserver = async () => {
-        const match = await waitForAnyXPath(tableBodyXPaths, 15000);
+        const timeoutMs = (typeof waitTimeoutMs === 'number' ? waitTimeoutMs : 15000);
+        const match = await waitForAnyXPath(tableBodyXPaths, timeoutMs);
         const tbody = match?.node || null;
         if (!tbody || tbody === currentTbody) {
           return;
@@ -2652,14 +2647,40 @@
       return null;
     }
 
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     function resolveSupportedCardName(rawCardName) {
+      if (!rawCardName) {
+        return '';
+      }
+      // Fast path: exact key match
       if (CARD_CONFIGS[rawCardName]) {
         return rawCardName;
       }
-      if (/\bXL\s*REWARDS\b/i.test(rawCardName)) {
+      const normalizedRaw = rawCardName.trim();
+      const upperRaw = normalizedRaw.toUpperCase();
+      // Case-insensitive exact match against configured card names
+      const exactKey = Object.keys(CARD_CONFIGS).find(
+        (name) => name.toUpperCase() === upperRaw
+      );
+      if (exactKey) {
+        return exactKey;
+      }
+      // Special handling for XL Rewards, using robust word-boundary pattern
+      if (/\bXL\s*REWARDS\b/i.test(normalizedRaw)) {
         return 'XL Rewards Card';
       }
-      return Object.keys(CARD_CONFIGS).find((name) => rawCardName.toUpperCase().includes(name.toUpperCase())) || '';
+      // Fallback: case-insensitive match using word boundaries for each configured name
+      for (const name of Object.keys(CARD_CONFIGS)) {
+        const escapedName = escapeRegExp(name);
+        const pattern = new RegExp('\\b' + escapedName + '\\b', 'i');
+        if (pattern.test(normalizedRaw)) {
+          return name;
+        }
+      }
+      return '';
     }
 
     function extractMerchantInfo(cell) {
@@ -4459,14 +4480,28 @@
       if (stopTableObserver) {
         stopTableObserver();
       }
-      stopTableObserver = observeTableBody(observedTableBodyXPaths, refreshOverlay);
+      stopTableObserver = observeTableBody(observedTableBodyXPaths, refreshOverlay, waitTimeoutMs);
       ensureCapPolicyLoaded().catch(() => {});
     }
 
+    let mainInProgress = false;
+    let mainRunId = 0;
+
     const runMainSafe = () => {
-      main().catch((error) => {
-        console.error('[Subcap] Failed to initialize on current page:', error);
-      });
+      if (mainInProgress) {
+        return;
+      }
+      mainInProgress = true;
+      const currentRunId = ++mainRunId;
+      main()
+        .catch((error) => {
+          console.error('[Subcap] Failed to initialize on current page:', error);
+        })
+        .finally(() => {
+          if (currentRunId === mainRunId) {
+            mainInProgress = false;
+          }
+        });
     };
 
     runMainSafe();
