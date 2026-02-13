@@ -31,6 +31,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 | requirements-researcher | Requirements discovery, constraints, and feasibility analysis. | [.agents/skills/requirements-researcher/SKILL.md](.agents/skills/requirements-researcher/SKILL.md) |
 | security-risk | Security and privacy risk identification with mitigations, including auth/session/token lifecycle review. | [.agents/skills/security-risk/SKILL.md](.agents/skills/security-risk/SKILL.md) |
 | spec-writer | Specifications/plans with tasks, acceptance criteria, and verification steps. | [.agents/skills/spec-writer/SKILL.md](.agents/skills/spec-writer/SKILL.md) |
+| userscript-implementation | Tampermonkey userscript implementation and hardening with CSP-safe UI, GM transport, and sync-privacy guardrails. | [.agents/skills/userscript-implementation/SKILL.md](.agents/skills/userscript-implementation/SKILL.md) |
 | ux-accessibility | Accessibility checks for UI changes (keyboard, focus, contrast, semantics). | [.agents/skills/ux-accessibility/SKILL.md](.agents/skills/ux-accessibility/SKILL.md) |
 
 ## Simplified Workflow (6 Agents)
@@ -80,7 +81,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 ## Phase ↔ Skills Mapping
 
 - **Phase 0: Requirements & Safety Gate** → `requirements-researcher`, `security-risk`
-- **Phase 1: Implementation** → `implementation-engineer` (primary), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
+- **Phase 1: Implementation** → `implementation-engineer` (primary), `userscript-implementation` (userscript-focused), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
 - **Phase 2: Code Review** → `code-review`, `security-risk`
 - **Phase 3: Quality Validation** → `qa-testing`, `performance-optimization`, `ux-accessibility`
 - **Phase 4: Security Testing** → `security-risk`
