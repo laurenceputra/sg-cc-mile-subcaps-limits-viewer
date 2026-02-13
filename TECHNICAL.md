@@ -83,6 +83,7 @@ If the portal markup changes, update these selectors in `main()`.
 
 - UOB (`LADY'S SOLITAIRE CARD`) tabs are ordered: **Spend Totals**, **Manage Transactions**, **Sync**.
 - Maybank (`XL Rewards Card`) tabs are ordered: **Spend Totals**, **Sync** (Manage tab intentionally hidden).
+- Spend Totals transaction expansion uses a shared `details/summary` chevron renderer on both UOB and Maybank cards.
 - Existing merchant/category mappings in local storage are still respected during categorization.
 - Wildcard matching support remains in the underlying categorization logic for previously stored mappings.
 

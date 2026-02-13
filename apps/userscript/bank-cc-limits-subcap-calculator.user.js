@@ -3933,6 +3933,21 @@
       container.appendChild(mappingSection);
     }
 
+    function createSpendDetailsToggle() {
+      const details = document.createElement('details');
+      details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent, UI_CLASSES.spendDetailsToggle);
+      const summary = document.createElement('summary');
+      const chevron = document.createElement('span');
+      chevron.classList.add(UI_CLASSES.spendChevron);
+      chevron.setAttribute('aria-hidden', 'true');
+      const summaryText = document.createElement('span');
+      summaryText.textContent = 'View transactions';
+      summary.appendChild(chevron);
+      summary.appendChild(summaryText);
+      details.appendChild(summary);
+      return details;
+    }
+
     function renderSpendingView(container, storedTransactions, cardSettings, cardName, capPolicy = activeCapPolicy) {
       container.innerHTML = '';
       container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
@@ -4049,17 +4064,7 @@
         });
         card.appendChild(totalsList);
 
-        const details = document.createElement('details');
-        details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent, UI_CLASSES.spendDetailsToggle);
-        const summary = document.createElement('summary');
-        const chevron = document.createElement('span');
-        chevron.classList.add(UI_CLASSES.spendChevron);
-        chevron.setAttribute('aria-hidden', 'true');
-        const summaryText = document.createElement('span');
-        summaryText.textContent = 'View transactions';
-        summary.appendChild(chevron);
-        summary.appendChild(summaryText);
-        details.appendChild(summary);
+        const details = createSpendDetailsToggle();
 
         categoryOrder.forEach((category) => {
           const group = grouped[category];
