@@ -4038,14 +4038,10 @@
           amount.textContent = value.toFixed(2);
           amountWrap.appendChild(amount);
 
-          if (cardCapPolicy.mode === 'per-category' && cardCapPolicy.cap > 0) {
+          if (cardCapPolicy.mode === 'per-category' && cardCapPolicy.cap > 0 && category !== 'Others') {
             const severity = getCapSeverity(value, cardCapPolicy.cap, normalizedPolicy);
-            const capBadge = document.createElement('span');
-            capBadge.classList.add(UI_CLASSES.spendCapBadge);
-            capBadge.textContent = `${value.toFixed(2)} / ${cardCapPolicy.cap.toFixed(0)}`;
+            amount.textContent = `${value.toFixed(2)} / ${cardCapPolicy.cap.toFixed(0)}`;
             applyCapToneStyles(amount, severity, normalizedPolicy, false);
-            applyCapToneStyles(capBadge, severity, normalizedPolicy, true);
-            amountWrap.appendChild(capBadge);
           }
 
           totalsList.appendChild(label);

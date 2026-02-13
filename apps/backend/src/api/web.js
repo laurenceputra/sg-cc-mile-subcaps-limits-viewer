@@ -1008,14 +1008,10 @@ web.get('/dashboard', (c) => {
                 amount.textContent = value.toFixed(2);
                 valueWrap.appendChild(amount);
 
-                if (cardPolicy.mode === 'per-category' && cardPolicy.cap > 0) {
+                if (cardPolicy.mode === 'per-category' && cardPolicy.cap > 0 && category !== 'Others') {
                   const severity = getCapSeverity(value, cardPolicy.cap, capPolicy);
-                  const capPill = document.createElement('span');
-                  capPill.className = 'cap-pill';
-                  capPill.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);
+                  amount.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);
                   applyToneStyle(amount, severity, capPolicy, false);
-                  applyToneStyle(capPill, severity, capPolicy, true);
-                  valueWrap.appendChild(capPill);
                 }
 
                 row.appendChild(label);
