@@ -3,6 +3,28 @@ import { Hono } from 'hono';
 const web = new Hono();
 
 const CARD_NAME = "LADY'S SOLITAIRE CARD";
+const CAP_POLICY = Object.freeze({
+  version: 1,
+  thresholds: {
+    warningRatio: 0.9333333333,
+    criticalRatio: 1
+  },
+  styles: {
+    normal: { background: '#f1f5f9', border: '#cbd5e1', text: '#334155' },
+    warning: { background: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+    critical: { background: '#fee2e2', border: '#ef4444', text: '#991b1b' }
+  },
+  cards: {
+    "LADY'S SOLITAIRE CARD": {
+      mode: 'per-category',
+      cap: 750
+    },
+    'XL Rewards Card': {
+      mode: 'combined',
+      cap: 1000
+    }
+  }
+});
 const INACTIVITY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const STORAGE_KEYS = {
   token: 'ccSubcapSyncToken',
@@ -122,6 +144,38 @@ const BASE_STYLES = `
   }
   .totals-row:last-child {
     border-bottom: none;
+  }
+  .totals-row-value {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .cap-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    border: 1px solid #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .tone-warning {
+    font-weight: 600;
+  }
+  .tone-critical {
+    font-weight: 700;
+  }
+  .card-block {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+  }
+  .card-title {
+    margin: 0 0 8px 0;
+    font-size: 16px;
   }
   .month-section {
     border: 1px solid #ededed;
@@ -461,12 +515,16 @@ web.get('/login', (c) => {
   return htmlResponse(c, renderPage({ title: 'Sync Login', body, script, nonce }), nonce);
 });
 
+web.get('/meta/cap-policy', (c) => {
+  return c.json(CAP_POLICY);
+});
+
 web.get('/dashboard', (c) => {
   const nonce = createNonce();
   const body = `
     <div class="container">
       <h1>Dashboard</h1>
-      <p class="muted">${CARD_NAME}</p>
+      <p class="muted">Supported cards: ${CARD_NAME}, XL Rewards Card</p>
       <div class="totals">
         <div id="totals-list"></div>
         <div id="empty-state" class="muted"></div>
@@ -483,6 +541,7 @@ web.get('/dashboard', (c) => {
     (function() {
       const STORAGE_KEYS = ${JSON.stringify(STORAGE_KEYS)};
       const CARD_NAME = ${JSON.stringify(CARD_NAME)};
+      const EMBEDDED_CAP_POLICY = ${JSON.stringify(CAP_POLICY)};
       const INACTIVITY_TTL_MS = ${INACTIVITY_TTL_MS};
       const VAULT_CONFIG = ${JSON.stringify(VAULT_CONFIG)};
 
@@ -768,54 +827,213 @@ web.get('/dashboard', (c) => {
         return monthNames[monthIndex] ? monthNames[monthIndex] + ' ' + year : monthKey;
       }
 
-      function renderTotals(monthKeys, monthlyTotals) {
+      function normalizeCapPolicy(policy) {
+        const fallback = EMBEDDED_CAP_POLICY;
+        if (!isObjectRecord(policy)) {
+          return fallback;
+        }
+        const normalized = {
+          version: typeof policy.version === 'number' ? policy.version : fallback.version,
+          thresholds: {
+            warningRatio:
+              typeof policy.thresholds?.warningRatio === 'number'
+                ? policy.thresholds.warningRatio
+                : fallback.thresholds.warningRatio,
+            criticalRatio:
+              typeof policy.thresholds?.criticalRatio === 'number'
+                ? policy.thresholds.criticalRatio
+                : fallback.thresholds.criticalRatio
+          },
+          styles: {
+            normal: {
+              ...fallback.styles.normal,
+              ...(isObjectRecord(policy.styles?.normal) ? policy.styles.normal : {})
+            },
+            warning: {
+              ...fallback.styles.warning,
+              ...(isObjectRecord(policy.styles?.warning) ? policy.styles.warning : {})
+            },
+            critical: {
+              ...fallback.styles.critical,
+              ...(isObjectRecord(policy.styles?.critical) ? policy.styles.critical : {})
+            }
+          },
+          cards: {}
+        };
+
+        const sourceCards = isObjectRecord(policy.cards) ? policy.cards : fallback.cards;
+        Object.entries(sourceCards).forEach(([cardName, cardPolicy]) => {
+          if (!isObjectRecord(cardPolicy)) {
+            return;
+          }
+          const mode = cardPolicy.mode === 'combined' ? 'combined' : 'per-category';
+          const cap = typeof cardPolicy.cap === 'number' && Number.isFinite(cardPolicy.cap) ? cardPolicy.cap : 0;
+          normalized.cards[cardName] = { mode, cap };
+        });
+
+        if (!Object.keys(normalized.cards).length) {
+          normalized.cards = fallback.cards;
+        }
+
+        return normalized;
+      }
+
+      function getCapSeverity(value, cap, capPolicy) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || typeof cap !== 'number' || cap <= 0) {
+          return 'normal';
+        }
+        const ratio = value / cap;
+        const warningRatio = capPolicy.thresholds?.warningRatio ?? EMBEDDED_CAP_POLICY.thresholds.warningRatio;
+        const criticalRatio = capPolicy.thresholds?.criticalRatio ?? EMBEDDED_CAP_POLICY.thresholds.criticalRatio;
+        if (ratio >= criticalRatio) {
+          return 'critical';
+        }
+        if (ratio >= warningRatio) {
+          return 'warning';
+        }
+        return 'normal';
+      }
+
+      function applyToneStyle(node, severity, capPolicy, includeBackground = false) {
+        const tone = capPolicy.styles?.[severity] || capPolicy.styles?.normal || EMBEDDED_CAP_POLICY.styles.normal;
+        node.classList.remove('tone-normal', 'tone-warning', 'tone-critical');
+        node.classList.add('tone-' + severity);
+        node.style.color = tone.text || EMBEDDED_CAP_POLICY.styles.normal.text;
+        if (includeBackground) {
+          node.style.background = tone.background || EMBEDDED_CAP_POLICY.styles.normal.background;
+          node.style.borderColor = tone.border || EMBEDDED_CAP_POLICY.styles.normal.border;
+        }
+      }
+
+      async function fetchCapPolicy() {
+        try {
+          const response = await fetch('/meta/cap-policy', {
+            credentials: 'same-origin'
+          });
+          if (!response.ok) {
+            throw new Error('Failed to fetch cap policy');
+          }
+          const data = await response.json();
+          return normalizeCapPolicy(data);
+        } catch {
+          return normalizeCapPolicy(EMBEDDED_CAP_POLICY);
+        }
+      }
+
+      function renderTotals(cards, capPolicy) {
         totalsList.innerHTML = '';
         emptyState.textContent = '';
+        const cardsRecord = isObjectRecord(cards) ? cards : {};
+        const policyCardNames = Object.keys(capPolicy.cards || {});
+        const extraCardNames = Object.keys(cardsRecord).filter((cardName) => !policyCardNames.includes(cardName));
+        const cardNames = policyCardNames.length ? policyCardNames.concat(extraCardNames) : Object.keys(cardsRecord);
 
-        if (!monthKeys.length) {
+        if (!cardNames.length) {
           emptyState.textContent = 'No synced monthly totals yet.';
           return;
         }
 
-        monthKeys.forEach((monthKey) => {
-          const monthData = monthlyTotals[monthKey] || { totals: {}, total_amount: 0 };
-          const section = document.createElement('div');
-          section.className = 'month-section';
+        let renderedCount = 0;
+        cardNames.forEach((cardName) => {
+          const cardPolicy = capPolicy.cards?.[cardName] || { mode: 'per-category', cap: 0 };
+          const cardSettings = cardsRecord[cardName];
+          const cardBlock = document.createElement('div');
+          cardBlock.className = 'card-block';
 
-          const header = document.createElement('div');
-          header.className = 'month-header';
-          const title = document.createElement('div');
-          title.className = 'month-title';
-          title.textContent = formatMonthLabel(monthKey);
-          const total = document.createElement('div');
-          total.className = 'pill';
-          total.textContent = 'Total ' + (monthData.total_amount || 0).toFixed(2);
-          header.appendChild(title);
-          header.appendChild(total);
-          section.appendChild(header);
+          const cardTitle = document.createElement('h2');
+          cardTitle.className = 'card-title';
+          cardTitle.textContent = cardName;
+          cardBlock.appendChild(cardTitle);
 
-          const entries = Object.entries(monthData.totals || {}).sort((a, b) => b[1] - a[1]);
-          if (!entries.length) {
-            const empty = document.createElement('div');
-            empty.className = 'muted';
-            empty.textContent = 'No transactions for this month.';
-            section.appendChild(empty);
-          } else {
-            entries.forEach(([category, value]) => {
-              const row = document.createElement('div');
-              row.className = 'totals-row';
-              const label = document.createElement('span');
-              label.textContent = category;
-              const amount = document.createElement('span');
-              amount.textContent = value.toFixed(2);
-              row.appendChild(label);
-              row.appendChild(amount);
-              section.appendChild(row);
-            });
+          if (!cardSettings) {
+            const emptyCard = document.createElement('div');
+            emptyCard.className = 'muted';
+            emptyCard.textContent = 'No synced totals for this card yet.';
+            cardBlock.appendChild(emptyCard);
+            totalsList.appendChild(cardBlock);
+            return;
           }
 
-          totalsList.appendChild(section);
+          const monthlyTotals = getMonthlyTotals(cardSettings);
+          const monthKeys = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a)).slice(0, 2);
+          if (!monthKeys.length) {
+            const emptyCard = document.createElement('div');
+            emptyCard.className = 'muted';
+            emptyCard.textContent = 'No transactions for this card yet.';
+            cardBlock.appendChild(emptyCard);
+            totalsList.appendChild(cardBlock);
+            return;
+          }
+
+          monthKeys.forEach((monthKey) => {
+            const monthData = monthlyTotals[monthKey] || { totals: {}, total_amount: 0 };
+            const section = document.createElement('div');
+            section.className = 'month-section';
+
+            const header = document.createElement('div');
+            header.className = 'month-header';
+            const title = document.createElement('div');
+            title.className = 'month-title';
+            title.textContent = formatMonthLabel(monthKey);
+            const total = document.createElement('div');
+            total.className = 'pill';
+            total.textContent = 'Total ' + (monthData.total_amount || 0).toFixed(2);
+
+            if (cardPolicy.mode === 'combined' && cardPolicy.cap > 0) {
+              const severity = getCapSeverity(monthData.total_amount || 0, cardPolicy.cap, capPolicy);
+              total.classList.add('cap-pill');
+              total.textContent = 'Total ' + (monthData.total_amount || 0).toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);
+              applyToneStyle(total, severity, capPolicy, true);
+            }
+
+            header.appendChild(title);
+            header.appendChild(total);
+            section.appendChild(header);
+
+            const entries = Object.entries(monthData.totals || {}).sort((a, b) => b[1] - a[1]);
+            if (!entries.length) {
+              const empty = document.createElement('div');
+              empty.className = 'muted';
+              empty.textContent = 'No transactions for this month.';
+              section.appendChild(empty);
+            } else {
+              entries.forEach(([category, value]) => {
+                const row = document.createElement('div');
+                row.className = 'totals-row';
+                const label = document.createElement('span');
+                label.textContent = category;
+                const valueWrap = document.createElement('span');
+                valueWrap.className = 'totals-row-value';
+                const amount = document.createElement('span');
+                amount.textContent = value.toFixed(2);
+                valueWrap.appendChild(amount);
+
+                if (cardPolicy.mode === 'per-category' && cardPolicy.cap > 0) {
+                  const severity = getCapSeverity(value, cardPolicy.cap, capPolicy);
+                  const capPill = document.createElement('span');
+                  capPill.className = 'cap-pill';
+                  capPill.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);
+                  applyToneStyle(amount, severity, capPolicy, false);
+                  applyToneStyle(capPill, severity, capPolicy, true);
+                  valueWrap.appendChild(capPill);
+                }
+
+                row.appendChild(label);
+                row.appendChild(valueWrap);
+                section.appendChild(row);
+              });
+            }
+
+            cardBlock.appendChild(section);
+          });
+
+          totalsList.appendChild(cardBlock);
+          renderedCount += 1;
         });
+
+        if (!renderedCount) {
+          emptyState.textContent = 'No synced monthly totals yet.';
+        }
       }
 
       async function handleUnlockRequired(message) {
@@ -882,17 +1100,9 @@ web.get('/dashboard', (c) => {
             throw new Error('Invalid sync payload');
           }
 
-          const cardSettings = parsed.normalizedData?.cards?.[CARD_NAME];
-          if (!cardSettings) {
-            totalsList.innerHTML = '';
-            emptyState.textContent = 'No data found for ' + CARD_NAME + '.';
-            markActive(storage);
-            return;
-          }
-
-          const monthlyTotals = getMonthlyTotals(cardSettings);
-          const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a)).slice(0, 2);
-          renderTotals(months, monthlyTotals);
+          const cards = parsed.normalizedData?.cards || {};
+          const capPolicy = await fetchCapPolicy();
+          renderTotals(cards, capPolicy);
           markActive(storage);
         } catch (error) {
           setStatus('Unable to load dashboard data. Please retry.', 'error');

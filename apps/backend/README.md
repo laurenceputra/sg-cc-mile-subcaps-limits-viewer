@@ -24,6 +24,13 @@ Deterministic PR comment URLs require repository secret `CLOUDFLARE_WORKERS_SUBD
 - **Preview:** `backend-preview.yml` deploys Worker Versions using the production D1 (`bank_cc_sync_prod`).
 - **Production:** `backend-prod.yml` deploys via `wrangler deploy` to `bank_cc_sync_prod`.
 
+### Environment parity checklist (required for auth/sync)
+
+- Verify `ALLOWED_ORIGINS` includes both:
+  - `https://pib.uob.com.sg`
+  - `https://cib.maybank2u.com.sg`
+- Run smoke checks from both UOB and Maybank userscript pages after each preview deploy (register/login or unlock + sync path).
+
 ### D1 schema application policy
 
 Both workflows apply `apps/backend/src/storage/schema.sql` on every deploy to keep preview and production schemas in sync.
@@ -82,7 +89,8 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 
 ### Web Pages
 - `GET /login` - Login page (email + password) for sync credentials
-- `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing up to 2 recent months for `LADY'S SOLITAIRE CARD`
+- `GET /dashboard` - Authenticated dashboard with `Refresh` + `Logout` showing up to 2 recent months for supported cards
+- `GET /meta/cap-policy` - Backend-owned cap/severity policy used by dashboard and userscript cap visuals
 - Session metadata (token/email/lastActiveAt) is stored in browser localStorage; passphrases are not persisted
 - Refresh tokens are stored in HttpOnly cookies and expire after 30 days of inactivity
 

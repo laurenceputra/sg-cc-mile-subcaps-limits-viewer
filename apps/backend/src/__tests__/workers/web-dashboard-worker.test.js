@@ -62,11 +62,30 @@ describe('Workers web dashboard pages', () => {
       assert.ok(html.includes('Refresh'));
       assert.ok(html.includes('Logout'));
       assert.ok(html.includes("LADY'S SOLITAIRE CARD"));
+      assert.ok(html.includes('XL Rewards Card'));
       assert.ok(html.includes('ccSubcapSyncLastActiveAt'));
       assert.ok(html.includes('/auth/refresh'));
+      assert.ok(html.includes('/meta/cap-policy'));
       assert.ok(html.includes('slice(0, 2)'));
       assert.ok(html.includes('cardSettings?.monthlyTotals'));
+      assert.ok(html.includes('cap-pill'));
       assert.ok(html.includes('No synced monthly totals yet.'));
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('serves cap policy metadata endpoint', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const res = await app.fetch(new Request('http://localhost/meta/cap-policy'), env);
+      assert.equal(res.status, 200);
+      const json = await res.json();
+      assert.equal(json.cards["LADY'S SOLITAIRE CARD"].cap, 750);
+      assert.equal(json.cards['XL Rewards Card'].cap, 1000);
+      assert.equal(typeof json.thresholds.warningRatio, 'number');
+      assert.equal(typeof json.styles.warning.background, 'string');
     } finally {
       await disposeTestDatabase(mf);
     }

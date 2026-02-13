@@ -38,6 +38,7 @@
 - `Sync Now` updates only the active card key from the current page and preserves other remote card keys.
 - Each synced card payload includes `selectedCategories`, `defaultCategory`, `merchantMap`, and `monthlyTotals`; it excludes raw `transactions`.
 - On bank pages with strict `connect-src`, sync/auth network requests use Tampermonkey transport (`GM_xmlhttpRequest`) with `fetch` fallback.
+- Userscript auth/sync transport identifies trusted requests with `X-CC-Userscript: tampermonkey-v1`; it does not rely on forcing `Origin`/`Referer` headers.
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
@@ -49,7 +50,8 @@
 ## Web dashboard
 
 - `GET /login` serves a login page that accepts the same sync credentials as the userscript (`username` == `email`).
-- `GET /dashboard` shows up to 2 recent months of totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
+- `GET /dashboard` shows up to 2 recent months of totals for supported cards (`LADY'S SOLITAIRE CARD`, `XL Rewards Card`) with `Refresh` and `Logout` actions.
+- `GET /meta/cap-policy` exposes backend-owned cap + severity style policy used by dashboard and userscript visuals.
 - Dashboard data is fetched from `GET /sync/data` and decrypted client-side; the backend never receives plaintext.
 - Access tokens are short-lived and refreshed via `POST /auth/refresh` using an HttpOnly cookie.
 - Session metadata (`token`, `email`, `lastActiveAt`) is stored in browser localStorage; passphrases are not persisted.
@@ -79,9 +81,21 @@ If the portal markup changes, update these selectors in `main()`.
 
 ## Category mapping behavior
 
-- Overlay tabs are now **Spend Totals** and **Sync** only (no **Manage Transactions** tab).
+- UOB (`LADY'S SOLITAIRE CARD`) tabs are ordered: **Spend Totals**, **Manage Transactions**, **Sync**.
+- Maybank (`XL Rewards Card`) tabs are ordered: **Spend Totals**, **Sync** (Manage tab intentionally hidden).
 - Existing merchant/category mappings in local storage are still respected during categorization.
 - Wildcard matching support remains in the underlying categorization logic for previously stored mappings.
+
+## Cap policy behavior
+
+- Cap/severity display policy is backend-owned (`/meta/cap-policy`) and cached client-side.
+- Userscript policy loading order:
+  1. fetch from configured sync backend (GM transport when available),
+  2. use last successful cached policy,
+  3. fallback to embedded defaults.
+- UOB Spend Totals uses per-category cap indicators (`750`).
+- Maybank Spend Totals uses combined monthly cap indicator (`1000`).
+- Raw transactions remain local-only; synced payload remains settings + monthly totals only.
 
 ## Diagnostics and data issues
 
@@ -98,9 +112,14 @@ Use this section to understand why totals might look off.
 - **Script doesn’t appear**: Ensure the current page URL matches a supported UOB PIB or Maybank2u SG pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
+- **Maybank button missing on cards page**: Ensure URL host/path matches `https://cib.maybank2u.com.sg/m2u/accounts/cards...`; the button now appears after card match even before table rows finish loading.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
 - **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or your JWT session may have expired. Re-enter password and re-enable remembered sync.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
+- **`Unlock failed: CSRF validation failed: Invalid origin`**:
+  - Verify backend `ALLOWED_ORIGINS` includes both `https://pib.uob.com.sg` and `https://cib.maybank2u.com.sg` in preview/prod.
+  - Confirm request carries trusted userscript header (`X-CC-Userscript: tampermonkey-v1`).
+  - `Origin: null`/extension-style origins are treated as non-authoritative and rely on the trusted userscript path; disallowed valid web origins remain blocked.
 
 ## Extending to new cards
 

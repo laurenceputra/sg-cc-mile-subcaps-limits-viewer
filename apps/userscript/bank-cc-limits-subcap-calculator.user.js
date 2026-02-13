@@ -130,6 +130,8 @@
     async request(endpoint, options = {}) {
       const url = `${this.baseUrl}${endpoint}`;
       const isGMTransport = typeof GM_xmlhttpRequest === 'function';
+      const transportMode = isGMTransport ? 'gm_xmlhttpRequest' : 'fetch';
+      const pageOrigin = typeof window?.location?.origin === 'string' ? window.location.origin : 'unknown';
       const headers = {
         'Content-Type': 'application/json',
         ...options.headers
@@ -141,16 +143,6 @@
 
       if (isGMTransport) {
         headers['X-CC-Userscript'] = 'tampermonkey-v1';
-        try {
-          if (!headers.Origin && typeof window?.location?.origin === 'string') {
-            headers.Origin = window.location.origin;
-          }
-          if (!headers.Referer && typeof window?.location?.href === 'string') {
-            headers.Referer = window.location.href;
-          }
-        } catch {
-          // Ignore header enrichment failures; backend trusted header still enables strict fallback.
-        }
       }
 
       const config = {
@@ -166,11 +158,26 @@
 
         if (!response.ok) {
           const errorMessage = response.data?.message || response.statusText || `HTTP ${response.status}`;
+          if (endpoint.startsWith('/auth/')) {
+            console.warn('[ApiClient] Auth request failed:', {
+              endpoint,
+              status: response.status,
+              transport: transportMode,
+              pageOrigin
+            });
+          }
           throw new Error(errorMessage);
         }
 
         return response.data;
       } catch (error) {
+        if (endpoint.startsWith('/auth/')) {
+          console.warn('[ApiClient] Auth transport diagnostics:', {
+            endpoint,
+            transport: transportMode,
+            pageOrigin
+          });
+        }
         console.error('[ApiClient] Request failed:', error);
         throw error;
       }
@@ -1350,6 +1357,10 @@
     spendMonthTotal: 'cc-subcap-month-total',
     spendTotalsList: 'cc-subcap-totals-list',
     spendDetailsTable: 'cc-subcap-details-table',
+    spendDetailsToggle: 'cc-subcap-spend-details',
+    spendChevron: 'cc-subcap-spend-chevron',
+    spendAmountWrap: 'cc-subcap-spend-amount-wrap',
+    spendCapBadge: 'cc-subcap-spend-cap-badge',
     fieldLabel: 'cc-subcap-field-label',
     input: 'cc-subcap-input',
     checkboxLabel: 'cc-subcap-checkbox-label',
@@ -1612,6 +1623,41 @@
       grid-template-columns: 1fr auto;
       gap: 6px 12px;
       font-size: 13px;
+    }
+    .${UI_CLASSES.spendAmountWrap} {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .${UI_CLASSES.spendCapBadge} {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid ${theme.border};
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .${UI_CLASSES.spendDetailsToggle} > summary {
+      list-style: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: ${theme.accentText};
+    }
+    .${UI_CLASSES.spendDetailsToggle} > summary::-webkit-details-marker {
+      display: none;
+    }
+    .${UI_CLASSES.spendChevron}::before {
+      content: '▸';
+      display: inline-block;
+      width: 12px;
+    }
+    .${UI_CLASSES.spendDetailsToggle}[open] .${UI_CLASSES.spendChevron}::before {
+      content: '▾';
     }
     .${UI_CLASSES.spendDetailsTable} {
       display: grid;
@@ -1968,6 +2014,8 @@
     const PORTAL_PROFILES = [
       {
         id: 'uob-pib',
+        host: 'pib.uob.com.sg',
+        pathPrefix: '/PIBCust/2FA/processSubmit.do',
         urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
         waitTimeoutMs: 15000,
         cardNameXPaths: [
@@ -1979,11 +2027,14 @@
       },
       {
         id: 'maybank2u-sg',
+        host: 'cib.maybank2u.com.sg',
+        pathPrefix: '/m2u/accounts/cards',
         urlPrefix: 'https://cib.maybank2u.com.sg/m2u/accounts/cards',
+        allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
           '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
-          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
+          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards")][1]'
         ],
         tableBodyXPaths: [
           '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody',
@@ -2053,8 +2104,35 @@
     const TRANSACTION_LOADING_NOTICE =
       '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the bank site first (e.g. paginate / "View More"), then reopen the panel through the button.';
 
-    // Helper constants for warnings
-    const CATEGORY_THRESHOLDS = { critical: 750, warning: 700 };
+    const CAP_POLICY_CACHE_KEY = 'ccSubcapCapPolicyCache';
+    const CAP_POLICY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    const CAP_POLICY_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+    const EMBEDDED_CAP_POLICY = Object.freeze({
+      version: 1,
+      thresholds: {
+        warningRatio: 0.9333333333,
+        criticalRatio: 1
+      },
+      styles: {
+        normal: { background: '#f1f5f9', border: '#cbd5e1', text: '#334155' },
+        warning: { background: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+        critical: { background: '#fee2e2', border: '#ef4444', text: '#991b1b' }
+      },
+      cards: {
+        "LADY'S SOLITAIRE CARD": {
+          mode: 'per-category',
+          cap: 750
+        },
+        'XL Rewards Card': {
+          mode: 'combined',
+          cap: 1000
+        }
+      }
+    });
+    let activeCapPolicy = EMBEDDED_CAP_POLICY;
+    let capPolicyLoadedAt = 0;
+    let capPolicyLoadPromise = null;
+    let hasInitializedCachedCapPolicy = false;
 
     // Helper functions
     function applyStyles(element, styles) {
@@ -2063,31 +2141,193 @@
       });
     }
 
+    function normalizeCapPolicy(policy) {
+      const fallback = EMBEDDED_CAP_POLICY;
+      if (!isObjectRecord(policy)) {
+        return fallback;
+      }
 
-    function getWarningSeverity(value) {
-      if (value >= CATEGORY_THRESHOLDS.critical) return 'critical';
-      if (value >= CATEGORY_THRESHOLDS.warning) return 'warning';
+      const normalized = {
+        version: typeof policy.version === 'number' ? policy.version : fallback.version,
+        thresholds: {
+          warningRatio:
+            typeof policy.thresholds?.warningRatio === 'number'
+              ? policy.thresholds.warningRatio
+              : fallback.thresholds.warningRatio,
+          criticalRatio:
+            typeof policy.thresholds?.criticalRatio === 'number'
+              ? policy.thresholds.criticalRatio
+              : fallback.thresholds.criticalRatio
+        },
+        styles: {
+          normal: {
+            ...fallback.styles.normal,
+            ...(isObjectRecord(policy.styles?.normal) ? policy.styles.normal : {})
+          },
+          warning: {
+            ...fallback.styles.warning,
+            ...(isObjectRecord(policy.styles?.warning) ? policy.styles.warning : {})
+          },
+          critical: {
+            ...fallback.styles.critical,
+            ...(isObjectRecord(policy.styles?.critical) ? policy.styles.critical : {})
+          }
+        },
+        cards: {}
+      };
+
+      const sourceCards = isObjectRecord(policy.cards) ? policy.cards : fallback.cards;
+      Object.entries(sourceCards).forEach(([cardName, cardPolicy]) => {
+        if (!isObjectRecord(cardPolicy)) {
+          return;
+        }
+        const mode = cardPolicy.mode === 'combined' ? 'combined' : 'per-category';
+        const cap = typeof cardPolicy.cap === 'number' && Number.isFinite(cardPolicy.cap) ? cardPolicy.cap : 0;
+        normalized.cards[cardName] = { mode, cap };
+      });
+
+      if (!Object.keys(normalized.cards).length) {
+        normalized.cards = fallback.cards;
+      }
+
+      return normalized;
+    }
+
+    function getCapSeverity(value, cap, policy = activeCapPolicy) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || typeof cap !== 'number' || cap <= 0) {
+        return 'normal';
+      }
+      const ratio = value / cap;
+      const warningRatio = policy.thresholds?.warningRatio ?? EMBEDDED_CAP_POLICY.thresholds.warningRatio;
+      const criticalRatio = policy.thresholds?.criticalRatio ?? EMBEDDED_CAP_POLICY.thresholds.criticalRatio;
+      if (ratio >= criticalRatio) {
+        return 'critical';
+      }
+      if (ratio >= warningRatio) {
+        return 'warning';
+      }
       return 'normal';
     }
 
-    function createStyledPill(text, severity = 'normal') {
-      const severityStyles = {
-        critical: { background: '#fee2e2', border: '1px solid #dc2626', color: '#991b1b', fontWeight: '700' },
-        warning: { background: THEME.warningSoft, border: `1px solid ${THEME.warning}`, color: THEME.warning, fontWeight: '600' },
-        normal: { background: THEME.surface, border: `1px solid ${THEME.border}`, color: THEME.muted, fontWeight: '500' }
-      };
-      
-      const pill = document.createElement('div');
-      const baseStyles = {
-        padding: '4px 8px',
-        borderRadius: '999px',
-        fontSize: '12px',
-        display: 'inline-block'
-      };
-      
-      applyStyles(pill, { ...baseStyles, ...severityStyles[severity] });
-      pill.textContent = text;
-      return pill;
+    function applyCapToneStyles(element, severity, policy = activeCapPolicy, includeBackground = false) {
+      const tone = policy.styles?.[severity] || policy.styles?.normal || EMBEDDED_CAP_POLICY.styles.normal;
+      element.style.color = tone.text || EMBEDDED_CAP_POLICY.styles.normal.text;
+      if (includeBackground) {
+        element.style.background = tone.background || EMBEDDED_CAP_POLICY.styles.normal.background;
+        element.style.borderColor = tone.border || EMBEDDED_CAP_POLICY.styles.normal.border;
+      }
+    }
+
+    function readCachedCapPolicy() {
+      const raw = storage.get(CAP_POLICY_CACHE_KEY, '');
+      if (!raw) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!isObjectRecord(parsed)) {
+          return null;
+        }
+        if (typeof parsed.savedAt !== 'number' || !Number.isFinite(parsed.savedAt)) {
+          return null;
+        }
+        if (Date.now() - parsed.savedAt > CAP_POLICY_CACHE_MAX_AGE_MS) {
+          return null;
+        }
+        return normalizeCapPolicy(parsed.policy);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeCachedCapPolicy(policy) {
+      storage.set(
+        CAP_POLICY_CACHE_KEY,
+        JSON.stringify({
+          savedAt: Date.now(),
+          policy
+        })
+      );
+    }
+
+    function initializeCachedCapPolicy() {
+      if (hasInitializedCachedCapPolicy) {
+        return;
+      }
+      hasInitializedCachedCapPolicy = true;
+      const cached = readCachedCapPolicy();
+      if (cached) {
+        activeCapPolicy = cached;
+        capPolicyLoadedAt = Date.now();
+      }
+    }
+
+    function getConfiguredPolicyServerUrl() {
+      const configRaw = storage.get('ccSubcapSyncConfig', '{}');
+      if (!configRaw) {
+        return '';
+      }
+      try {
+        const parsed = JSON.parse(configRaw);
+        if (typeof parsed?.serverUrl === 'string' && parsed.serverUrl.trim()) {
+          return parsed.serverUrl.trim();
+        }
+      } catch (error) {
+        return '';
+      }
+      return '';
+    }
+
+    async function fetchCapPolicyFromBackend(serverUrl) {
+      validateServerUrl(serverUrl);
+      const client = new ApiClient(serverUrl);
+      const policy = await client.request('/meta/cap-policy', {
+        method: 'GET'
+      });
+      return normalizeCapPolicy(policy);
+    }
+
+    async function ensureCapPolicyLoaded(force = false) {
+      initializeCachedCapPolicy();
+      if (!force && capPolicyLoadedAt && Date.now() - capPolicyLoadedAt < CAP_POLICY_REFRESH_INTERVAL_MS) {
+        return activeCapPolicy;
+      }
+      if (capPolicyLoadPromise) {
+        return capPolicyLoadPromise;
+      }
+
+      const serverUrl = getConfiguredPolicyServerUrl();
+      if (!serverUrl) {
+        capPolicyLoadedAt = Date.now();
+        return activeCapPolicy;
+      }
+
+      capPolicyLoadPromise = (async () => {
+        try {
+          const policy = await fetchCapPolicyFromBackend(serverUrl);
+          activeCapPolicy = policy;
+          capPolicyLoadedAt = Date.now();
+          writeCachedCapPolicy(policy);
+          return policy;
+        } catch (error) {
+          const cached = readCachedCapPolicy();
+          if (cached) {
+            activeCapPolicy = cached;
+          } else {
+            activeCapPolicy = normalizeCapPolicy(EMBEDDED_CAP_POLICY);
+          }
+          capPolicyLoadedAt = Date.now();
+          return activeCapPolicy;
+        } finally {
+          capPolicyLoadPromise = null;
+        }
+      })();
+
+      return capPolicyLoadPromise;
+    }
+
+    function getCardCapPolicy(cardName, policy = activeCapPolicy) {
+      return policy.cards?.[cardName] || { mode: 'per-category', cap: 0 };
     }
 
     function getParsedDate(entry) {
@@ -2383,6 +2623,43 @@
 
     function normalizeText(value) {
       return (value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function matchesProfile(profile) {
+      if (!profile) {
+        return false;
+      }
+      const hostMatches = profile.host
+        ? window.location.hostname === profile.host
+        : (profile.urlPrefix ? window.location.href.startsWith(profile.urlPrefix) : true);
+      if (!hostMatches) {
+        return false;
+      }
+      if (profile.pathPrefix && !window.location.pathname.startsWith(profile.pathPrefix)) {
+        return false;
+      }
+      return true;
+    }
+
+    function findAnyTableBody(xpaths) {
+      const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
+      for (const xpath of candidates) {
+        const tbody = evalXPath(xpath);
+        if (tbody) {
+          return { xpath, tbody };
+        }
+      }
+      return null;
+    }
+
+    function resolveSupportedCardName(rawCardName) {
+      if (CARD_CONFIGS[rawCardName]) {
+        return rawCardName;
+      }
+      if (/\bXL\s*REWARDS\b/i.test(rawCardName)) {
+        return 'XL Rewards Card';
+      }
+      return Object.keys(CARD_CONFIGS).find((name) => rawCardName.toUpperCase().includes(name.toUpperCase())) || '';
     }
 
     function extractMerchantInfo(cell) {
@@ -2851,6 +3128,26 @@
         default_category: cardSettings.defaultCategory,
         summary,
         diagnostics,
+        transactions
+      };
+    }
+
+    function buildFallbackData(cardName, cardSettings) {
+      const transactions = [];
+      return {
+        card_name: cardName,
+        source_url: window.location.href,
+        extracted_at: new Date().toISOString(),
+        selected_categories: getSelectedCategories(cardSettings).filter(Boolean),
+        default_category: cardSettings.defaultCategory,
+        summary: calculateSummary(transactions, cardSettings),
+        diagnostics: {
+          skipped_rows: 0,
+          missing_ref_no: 0,
+          invalid_posting_date: 0,
+          invalid_amount: 0,
+          non_debit_rows: 0
+        },
         transactions
       };
     }
@@ -3636,9 +3933,11 @@
       container.appendChild(mappingSection);
     }
 
-    function renderSpendingView(container, storedTransactions, cardSettings) {
+    function renderSpendingView(container, storedTransactions, cardSettings, cardName, capPolicy = activeCapPolicy) {
       container.innerHTML = '';
       container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
+      const normalizedPolicy = normalizeCapPolicy(capPolicy);
+      const cardCapPolicy = getCardCapPolicy(cardName, normalizedPolicy);
 
       const title = document.createElement('div');
       title.classList.add(UI_CLASSES.title);
@@ -3682,6 +3981,10 @@
         const monthData = monthlyTotals[monthKey];
         const monthTransactions = transactionsByMonth[monthKey] || [];
         const grouped = {};
+        const monthTotalAmount =
+          typeof monthData?.total_amount === 'number' && Number.isFinite(monthData.total_amount)
+            ? monthData.total_amount
+            : 0;
 
         monthTransactions.forEach((tx) => {
           const category = tx.category || cardSettings.defaultCategory || 'Others';
@@ -3711,7 +4014,13 @@
 
         const totalPill = document.createElement('div');
         totalPill.classList.add(UI_CLASSES.spendMonthTotal);
-        totalPill.textContent = `Total ${monthData.total_amount.toFixed(2)}`;
+        totalPill.textContent = `Total ${monthTotalAmount.toFixed(2)}`;
+        if (cardCapPolicy.mode === 'combined' && cardCapPolicy.cap > 0) {
+          const severity = getCapSeverity(monthTotalAmount, cardCapPolicy.cap, normalizedPolicy);
+          totalPill.classList.add(UI_CLASSES.spendCapBadge);
+          totalPill.textContent = `Total ${monthTotalAmount.toFixed(2)} / ${cardCapPolicy.cap.toFixed(0)}`;
+          applyCapToneStyles(totalPill, severity, normalizedPolicy, true);
+        }
 
         monthHeader.appendChild(monthLabel);
         monthHeader.appendChild(totalPill);
@@ -3723,17 +4032,37 @@
           const value = monthData.totals?.[category] || 0;
           const label = document.createElement('div');
           label.textContent = category;
-          const amount = document.createElement('div');
+          const amountWrap = document.createElement('div');
+          amountWrap.classList.add(UI_CLASSES.spendAmountWrap);
+          const amount = document.createElement('span');
           amount.textContent = value.toFixed(2);
+          amountWrap.appendChild(amount);
+
+          if (cardCapPolicy.mode === 'per-category' && cardCapPolicy.cap > 0) {
+            const severity = getCapSeverity(value, cardCapPolicy.cap, normalizedPolicy);
+            const capBadge = document.createElement('span');
+            capBadge.classList.add(UI_CLASSES.spendCapBadge);
+            capBadge.textContent = `${value.toFixed(2)} / ${cardCapPolicy.cap.toFixed(0)}`;
+            applyCapToneStyles(amount, severity, normalizedPolicy, false);
+            applyCapToneStyles(capBadge, severity, normalizedPolicy, true);
+            amountWrap.appendChild(capBadge);
+          }
+
           totalsList.appendChild(label);
-          totalsList.appendChild(amount);
+          totalsList.appendChild(amountWrap);
         });
         card.appendChild(totalsList);
 
         const details = document.createElement('details');
-        details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent);
+        details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent, UI_CLASSES.spendDetailsToggle);
         const summary = document.createElement('summary');
-        summary.textContent = 'View transactions';
+        const chevron = document.createElement('span');
+        chevron.classList.add(UI_CLASSES.spendChevron);
+        chevron.setAttribute('aria-hidden', 'true');
+        const summaryText = document.createElement('span');
+        summaryText.textContent = 'View transactions';
+        summary.appendChild(chevron);
+        summary.appendChild(summaryText);
         details.appendChild(summary);
 
         categoryOrder.forEach((category) => {
@@ -3841,7 +4170,8 @@
       cardConfig,
       cardSettings,
       onSyncStateChanged = () => {},
-      shouldShow = false
+      shouldShow = false,
+      capPolicy = activeCapPolicy
     ) {
       ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
@@ -3907,8 +4237,8 @@
         tabSync.classList.add(UI_CLASSES.tabButton);
         tabSync.addEventListener('click', () => switchTab('sync'));
 
-        tabs.appendChild(tabManage);
         tabs.appendChild(tabSpend);
+        tabs.appendChild(tabManage);
         tabs.appendChild(tabSync);
 
         const privacyNotice = document.createElement('div');
@@ -3966,7 +4296,7 @@
         }
       }
       if (spendContent) {
-        renderSpendingView(spendContent, storedTransactions, cardSettings);
+        renderSpendingView(spendContent, storedTransactions, cardSettings, cardName, capPolicy);
       }
       if (syncContent) {
         const nextSyncContent = createSyncTab(
@@ -3988,13 +4318,14 @@
     }
 
     async function main() {
-      const profile = PORTAL_PROFILES.find((entry) => window.location.href.startsWith(entry.urlPrefix));
+      const profile = PORTAL_PROFILES.find((entry) => matchesProfile(entry));
       if (!profile) {
         removeUI();
         return;
       }
 
       const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
+      const allowOverlayWithoutRows = profile.allowOverlayWithoutRows === true;
 
       const cardNameMatch = await waitForAnyXPath(
         profile.cardNameXPaths || [profile.cardNameXPath],
@@ -4007,10 +4338,7 @@
       }
 
       const rawCardName = normalizeText(cardNameNode.textContent);
-      const matchedCardName =
-        CARD_CONFIGS[rawCardName]
-          ? rawCardName
-          : Object.keys(CARD_CONFIGS).find((name) => rawCardName.toUpperCase().includes(name.toUpperCase())) || '';
+      const matchedCardName = resolveSupportedCardName(rawCardName);
       if (!matchedCardName) {
         removeUI();
         return;
@@ -4024,18 +4352,22 @@
       }
 
       const tableBodyXPaths = profile.tableBodyXPaths || [profile.tableBodyXPath];
-      const initialTableBodyMatch = await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
+      const initialTableBodyMatch = allowOverlayWithoutRows
+        ? findAnyTableBody(tableBodyXPaths)
+        : await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
       const tableBody = initialTableBodyMatch?.tbody || null;
       const preferredTableBodyXPath = initialTableBodyMatch?.xpath || null;
-      if (!tableBody) {
+      if (!tableBody && !allowOverlayWithoutRows) {
         removeUI();
         return;
       }
 
       const initialSettings = loadSettings();
       const initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
-      const initialData = buildData(tableBody, cardName, initialCardSettings);
-      updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
+      if (tableBody) {
+        const initialData = buildData(tableBody, cardName, initialCardSettings);
+        updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
+      }
       saveSettings(initialSettings);
 
       let refreshInProgress = false;
@@ -4050,16 +4382,26 @@
           return;
         }
         refreshInProgress = true;
-        const latestTableBodyMatch = await waitForAnyTableBodyRows(observedTableBodyXPaths, waitTimeoutMs);
+        const latestTableBodyMatch = await waitForAnyTableBodyRows(
+          observedTableBodyXPaths,
+          allowOverlayWithoutRows ? 1500 : waitTimeoutMs,
+          allowOverlayWithoutRows ? 0 : 2000
+        );
         const latestTableBody = latestTableBodyMatch?.tbody || null;
         try {
-          if (!latestTableBody) {
+          if (!latestTableBody && !allowOverlayWithoutRows) {
             return;
           }
+          await ensureCapPolicyLoaded();
           const settings = loadSettings();
           const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
-          const data = buildData(latestTableBody, cardName, cardSettings);
-          updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+          let data;
+          if (latestTableBody) {
+            data = buildData(latestTableBody, cardName, cardSettings);
+            updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+          } else {
+            data = buildFallbackData(cardName, cardSettings);
+          }
           saveSettings(settings);
           if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
             await syncManager.tryUnlockFromRememberedCache();
@@ -4075,7 +4417,8 @@
             () => {
               refreshOverlay();
             },
-            shouldShow
+            shouldShow,
+            activeCapPolicy
           );
         } finally {
           refreshInProgress = false;
@@ -4091,6 +4434,7 @@
         stopTableObserver();
       }
       stopTableObserver = observeTableBody(observedTableBodyXPaths, refreshOverlay);
+      ensureCapPolicyLoaded().catch(() => {});
     }
 
     const runMainSafe = () => {

@@ -26,13 +26,27 @@ const DEFAULT_ALLOWED_ORIGINS = [
 /**
  * Parse origin from URL string
  */
-function parseOrigin(url) {
+function normalizeAuthoritativeOrigin(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null') {
+    return null;
+  }
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
     return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return null;
   }
+}
+
+function parseOrigin(url) {
+  return normalizeAuthoritativeOrigin(url);
 }
 
 /**
@@ -132,12 +146,13 @@ export function csrfProtection(options = {}) {
     
     // Get Origin header (most reliable)
     const origin = c.req.header('Origin');
-    
+
     // Get Referer header (fallback for older browsers)
     const referer = c.req.header('Referer');
-    
-    // Extract origin from referer if Origin header is not present
-    const requestOrigin = origin || (referer ? parseOrigin(referer) : null);
+
+    // Origin-like values such as "null", extension schemes, and malformed strings are non-authoritative.
+    // For those cases we fall back to Referer parsing, then strict no-origin handling.
+    const requestOrigin = normalizeAuthoritativeOrigin(origin) || parseOrigin(referer);
     
     // If no origin/referer is provided
     if (!requestOrigin) {
