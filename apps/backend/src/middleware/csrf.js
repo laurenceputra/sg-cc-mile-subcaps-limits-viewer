@@ -123,17 +123,16 @@ export function csrfProtection(options = {}) {
   } = options;
 
   const hasTrustedNoOriginBypass = (c) => {
-    if (!trustedNoOriginHeaderName) {
+    // Bypass is only allowed when both a trusted header name and a non-empty
+    // expected value are configured, and the request's header value matches.
+    if (!trustedNoOriginHeaderName || !trustedNoOriginHeaderValue) {
       return false;
     }
     const headerValue = c.req.header(trustedNoOriginHeaderName);
     if (typeof headerValue !== 'string' || !headerValue) {
       return false;
     }
-    if (trustedNoOriginHeaderValue) {
-      return headerValue === trustedNoOriginHeaderValue;
-    }
-    return true;
+    return headerValue === trustedNoOriginHeaderValue;
   };
   
   return async (c, next) => {
