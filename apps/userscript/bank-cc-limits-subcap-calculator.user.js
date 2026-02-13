@@ -878,6 +878,7 @@
   };
 
   const SYNC_UNLOCK_CACHE_KEY = 'ccSubcapSyncUnlockCache';
+  const SYNC_UNLOCK_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
   function getJwtTokenExpiryMs(token) {
     if (!token || typeof token !== 'string') {
@@ -939,31 +940,83 @@
       }
     }
 
-    loadRememberedUnlockCache() {
-      const raw = this.storage.get(SYNC_UNLOCK_CACHE_KEY, '');
+    getRememberedUnlockCacheKey() {
+      const hostname = typeof window?.location?.hostname === 'string' && window.location.hostname
+        ? window.location.hostname
+        : 'unknown-host';
+      return `${SYNC_UNLOCK_CACHE_KEY}:${hostname}`;
+    }
+
+    loadRememberedUnlockCacheEntry(key) {
+      const raw = this.storage.get(key, '');
       if (!raw) {
-        return null;
+        return { status: 'missing', cache: null };
       }
 
       try {
         const cache = JSON.parse(raw);
         if (!cache || typeof cache !== 'object') {
-          return null;
+          return { status: 'malformed', cache: null };
         }
-        if (typeof cache.expiresAt !== 'number' || cache.expiresAt <= Date.now()) {
-          this.clearRememberedUnlockCache(true);
-          return null;
+        if (typeof cache.expiresAt !== 'number' || !Number.isFinite(cache.expiresAt)) {
+          return { status: 'malformed', cache: null };
         }
         if (!cache.encrypted || typeof cache.encrypted !== 'object') {
-          return null;
+          return { status: 'malformed', cache: null };
         }
         if (typeof cache.encrypted.ciphertext !== 'string' || typeof cache.encrypted.iv !== 'string') {
-          return null;
+          return { status: 'malformed', cache: null };
         }
-        return cache;
+        if (cache.expiresAt <= Date.now()) {
+          return { status: 'expired', cache: null };
+        }
+        return { status: 'valid', cache };
       } catch (error) {
-        return null;
+        return { status: 'malformed', cache: null };
       }
+    }
+
+    isConfirmedRememberedUnlockAuthFailure(message) {
+      const normalized = typeof message === 'string' ? message.toLowerCase() : '';
+      return normalized.includes('invalid credentials') || normalized.includes('unauthorized');
+    }
+
+    isMalformedRememberedUnlockError(error) {
+      const message = typeof error?.message === 'string' ? error.message : '';
+      if (message.includes('Invalid encrypted local secret payload')) {
+        return true;
+      }
+      if (error?.name === 'OperationError') {
+        return true;
+      }
+      return false;
+    }
+
+    loadRememberedUnlockCache() {
+      const hostScopedKey = this.getRememberedUnlockCacheKey();
+      const hostScopedResult = this.loadRememberedUnlockCacheEntry(hostScopedKey);
+      if (hostScopedResult.status === 'valid') {
+        this.clearStorageKey(SYNC_UNLOCK_CACHE_KEY);
+        return hostScopedResult.cache;
+      }
+
+      const legacyResult = this.loadRememberedUnlockCacheEntry(SYNC_UNLOCK_CACHE_KEY);
+      if (legacyResult.status === 'valid') {
+        this.storage.set(hostScopedKey, JSON.stringify(legacyResult.cache));
+        this.clearStorageKey(SYNC_UNLOCK_CACHE_KEY);
+        return legacyResult.cache;
+      }
+
+      const hasInvalidCacheEntry = (
+        hostScopedResult.status === 'expired'
+        || hostScopedResult.status === 'malformed'
+        || legacyResult.status === 'expired'
+        || legacyResult.status === 'malformed'
+      );
+      if (hasInvalidCacheEntry) {
+        this.clearRememberedUnlockCache(true);
+      }
+      return null;
     }
 
     hasRememberedUnlockCache() {
@@ -971,6 +1024,7 @@
     }
 
     clearRememberedUnlockCache(updateConfig = false) {
+      this.clearStorageKey(this.getRememberedUnlockCacheKey());
       this.clearStorageKey(SYNC_UNLOCK_CACHE_KEY);
       if (updateConfig && this.config?.rememberUnlock) {
         this.saveSyncConfig({
@@ -980,28 +1034,24 @@
       }
     }
 
-    async rememberUnlockPassphrase(passphrase, token = null) {
+    async rememberUnlockPassphrase(passphrase) {
       if (!this.secretVault.isAvailable()) {
         throw new Error('Secure local unlock cache is unavailable in this browser');
       }
 
-      const sourceToken = token || this.config.token;
-      const tokenExpiresAt = getJwtTokenExpiryMs(sourceToken);
-      if (!tokenExpiresAt || tokenExpiresAt <= Date.now()) {
-        throw new Error('Cannot remember unlock because session token is missing or expired');
-      }
-
       const encrypted = await this.secretVault.encryptText(passphrase);
+      const now = Date.now();
       const cache = {
         version: 1,
         email: this.config.email || '',
         serverUrl: this.config.serverUrl || SYNC_CONFIG.serverUrl,
-        createdAt: Date.now(),
-        expiresAt: tokenExpiresAt,
+        createdAt: now,
+        expiresAt: now + SYNC_UNLOCK_CACHE_TTL_MS,
         encrypted
       };
 
-      this.storage.set(SYNC_UNLOCK_CACHE_KEY, JSON.stringify(cache));
+      this.storage.set(this.getRememberedUnlockCacheKey(), JSON.stringify(cache));
+      this.clearStorageKey(SYNC_UNLOCK_CACHE_KEY);
     }
 
     async forgetRememberedUnlock() {
@@ -1065,13 +1115,17 @@
           fromRememberedCache: true
         });
         if (!result.success) {
-          this.clearRememberedUnlockCache(true);
+          if (this.isConfirmedRememberedUnlockAuthFailure(result.error)) {
+            this.clearRememberedUnlockCache(true);
+          }
           return false;
         }
         return true;
       } catch (error) {
         console.warn('[SyncManager] Remembered unlock cache is unusable:', error);
-        this.clearRememberedUnlockCache(true);
+        if (this.isMalformedRememberedUnlockError(error)) {
+          this.clearRememberedUnlockCache(true);
+        }
         return false;
       }
     }
@@ -1114,7 +1168,7 @@
 
           if (remember) {
             try {
-              await this.rememberUnlockPassphrase(passphrase, this.config.token);
+              await this.rememberUnlockPassphrase(passphrase);
               this.saveSyncConfig({
                 ...this.config,
                 rememberUnlock: true
@@ -1185,7 +1239,7 @@
 
         if (rememberUnlock) {
           try {
-            await this.rememberUnlockPassphrase(passphrase, authResult.token);
+            await this.rememberUnlockPassphrase(passphrase);
             this.saveSyncConfig({
               ...this.config,
               rememberUnlock: true
@@ -2683,6 +2737,12 @@
         if (pattern.test(normalizedRaw)) {
           return name;
         }
+      }
+      const includesKey = Object.keys(CARD_CONFIGS).find(
+        (name) => upperRaw.includes(name.toUpperCase())
+      );
+      if (includesKey) {
+        return includesKey;
       }
       return '';
     }
@@ -4489,21 +4549,23 @@
     }
 
     let mainInProgress = false;
-    let mainRunId = 0;
+    let mainRerunPending = false;
 
     const runMainSafe = () => {
       if (mainInProgress) {
+        mainRerunPending = true;
         return;
       }
       mainInProgress = true;
-      const currentRunId = ++mainRunId;
       main()
         .catch((error) => {
           console.error('[Subcap] Failed to initialize on current page:', error);
         })
         .finally(() => {
-          if (currentRunId === mainRunId) {
-            mainInProgress = false;
+          mainInProgress = false;
+          if (mainRerunPending) {
+            mainRerunPending = false;
+            runMainSafe();
           }
         });
     };
