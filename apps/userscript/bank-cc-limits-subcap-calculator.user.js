@@ -2646,6 +2646,11 @@
       return null;
     }
 
+    /**
+     * Escapes special regex characters in a string for safe use in RegExp constructor.
+     * @param {string} string - The string to escape
+     * @returns {string} The escaped string
+     */
     function escapeRegExp(string) {
       return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
