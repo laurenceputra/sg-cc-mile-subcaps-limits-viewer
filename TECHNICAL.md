@@ -43,7 +43,8 @@
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
 - After page reload/login, sync can remain configured as enabled but runtime crypto stays locked until password is re-entered for that browser session.
-- Users can opt in to "Remember sync on this device": the local unlock cache stays available until JWT token expiry or explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
+- Users can opt in to "Remember sync on this device": the local unlock cache is stored per host (`ccSubcapSyncUnlockCache:<hostname>`) with a 30-day rolling TTL, independent of JWT access-token expiry, and is cleared on explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
+- Legacy unlock cache entries from `ccSubcapSyncUnlockCache` are read for backward compatibility and migrated to the host-scoped key.
 - Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
 - Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
 
@@ -113,9 +114,9 @@ Use this section to understand why totals might look off.
 - **Script doesn’t appear**: Ensure the current page URL matches a supported UOB PIB or Maybank2u SG pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
-- **Maybank button missing on cards page**: Ensure URL host/path matches `https://cib.maybank2u.com.sg/m2u/accounts/cards...`; the button now appears after card match even before table rows finish loading.
+- **Maybank button missing on cards page**: Ensure URL host/path matches `https://cib.maybank2u.com.sg/m2u/accounts/cards...`; URL-change init calls are queued and replayed after any in-flight init, and the button appears after card match even before table rows finish loading.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
-- **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or your JWT session may have expired. Re-enter password and re-enable remembered sync.
+- **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or the local remember window may have expired (30-day rolling TTL). Re-enter password and re-enable remembered sync.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
 - **`Unlock failed: CSRF validation failed: Invalid origin`**:
   - Verify backend `ALLOWED_ORIGINS` includes both `https://pib.uob.com.sg` and `https://cib.maybank2u.com.sg` in preview/prod.
