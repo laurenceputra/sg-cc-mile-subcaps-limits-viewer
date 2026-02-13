@@ -2827,6 +2827,39 @@
       return (cardSettings.selectedCategories || []).slice();
     }
 
+    function moveOthersToEnd(categories) {
+      const ordered = [];
+      let hasOthers = false;
+      const seen = new Set();
+      categories.forEach((category) => {
+        if (typeof category !== 'string' || !category || seen.has(category)) {
+          return;
+        }
+        seen.add(category);
+        if (category === 'Others') {
+          hasOthers = true;
+          return;
+        }
+        ordered.push(category);
+      });
+      if (hasOthers) {
+        ordered.push('Others');
+      }
+      return ordered;
+    }
+
+    function getCategoryDisplayOrder(cardSettings, availableCategories = []) {
+      const selected = getSelectedCategories(cardSettings).filter(
+        (category) => typeof category === 'string' && category
+      );
+      const baseOrder = selected.concat('Others');
+      const knownCategories = new Set(baseOrder);
+      const extras = availableCategories.filter(
+        (category) => typeof category === 'string' && category && !knownCategories.has(category)
+      );
+      return moveOthersToEnd(baseOrder.concat(extras));
+    }
+
     function getDefaultCategoryOptions(cardSettings) {
       const options = getSelectedCategories(cardSettings).filter(Boolean);
       options.push('Others');
@@ -3319,11 +3352,8 @@
       list.style.rowGap = '6px';
       list.style.columnGap = '16px';
 
-      const selected = getSelectedCategories(cardSettings).filter(Boolean);
-      const order = [...selected, 'Others'];
       const totals = data.summary.totals || {};
-      const extras = Object.keys(totals).filter((key) => !order.includes(key));
-      order.push(...extras);
+      const order = getCategoryDisplayOrder(cardSettings, Object.keys(totals));
 
       order.forEach((category) => {
         if (!totals.hasOwnProperty(category)) {
@@ -4012,12 +4042,7 @@
           grouped[category].transactions.push(tx);
         });
 
-        const baseCategories = getSelectedCategories(cardSettings).filter(Boolean);
-        baseCategories.push('Others');
-        const extraCategories = Object.keys(grouped).filter(
-          (category) => !baseCategories.includes(category)
-        );
-        const categoryOrder = baseCategories.concat(extraCategories);
+        const categoryOrder = getCategoryDisplayOrder(cardSettings, Object.keys(grouped));
 
         const card = document.createElement('div');
         card.classList.add(UI_CLASSES.card, UI_CLASSES.stack);

@@ -827,6 +827,39 @@ web.get('/dashboard', (c) => {
         return monthNames[monthIndex] ? monthNames[monthIndex] + ' ' + year : monthKey;
       }
 
+      function moveOthersToEnd(categories) {
+        const ordered = [];
+        let hasOthers = false;
+        const seen = new Set();
+        categories.forEach((category) => {
+          if (typeof category !== 'string' || !category || seen.has(category)) {
+            return;
+          }
+          seen.add(category);
+          if (category === 'Others') {
+            hasOthers = true;
+            return;
+          }
+          ordered.push(category);
+        });
+        if (hasOthers) {
+          ordered.push('Others');
+        }
+        return ordered;
+      }
+
+      function getCategoryDisplayOrder(cardSettings, totals) {
+        const selected = Array.isArray(cardSettings?.selectedCategories)
+          ? cardSettings.selectedCategories.filter((category) => typeof category === 'string' && category)
+          : [];
+        const baseOrder = selected.concat('Others');
+        const knownCategories = new Set(baseOrder);
+        const extras = Object.keys(isObjectRecord(totals) ? totals : {}).filter(
+          (category) => !knownCategories.has(category)
+        );
+        return moveOthersToEnd(baseOrder.concat(extras));
+      }
+
       function normalizeCapPolicy(policy) {
         const fallback = EMBEDDED_CAP_POLICY;
         if (!isObjectRecord(policy)) {
@@ -990,7 +1023,10 @@ web.get('/dashboard', (c) => {
             header.appendChild(total);
             section.appendChild(header);
 
-            const entries = Object.entries(monthData.totals || {}).sort((a, b) => b[1] - a[1]);
+            const totals = isObjectRecord(monthData.totals) ? monthData.totals : {};
+            const entries = getCategoryDisplayOrder(cardSettings, totals)
+              .filter((category) => typeof totals[category] === 'number' && Number.isFinite(totals[category]))
+              .map((category) => [category, totals[category]]);
             if (!entries.length) {
               const empty = document.createElement('div');
               empty.className = 'muted';

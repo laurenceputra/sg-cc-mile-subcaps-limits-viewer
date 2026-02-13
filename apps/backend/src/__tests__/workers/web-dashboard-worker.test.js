@@ -71,6 +71,8 @@ describe('Workers web dashboard pages', () => {
       assert.ok(html.includes('cap-pill'));
       assert.ok(html.includes("category !== 'Others'"));
       assert.ok(html.includes("amount.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);"));
+      assert.ok(html.includes('function moveOthersToEnd(categories)'));
+      assert.ok(html.includes('function getCategoryDisplayOrder(cardSettings, totals)'));
       assert.ok(html.includes('No synced monthly totals yet.'));
     } finally {
       await disposeTestDatabase(mf);
