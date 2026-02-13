@@ -29,6 +29,13 @@ Design test plans and cases that cover happy paths, edge cases, contract compati
 4. Define expected outcomes and test data.
 5. Report results, gaps, and release-blocking failures.
 
+## Card/UI Parity Requirements (Mandatory for card-affecting UI changes)
+- Validate each affected surface independently (userscript and dashboard) without assuming shared runtime code.
+- Include assertions for:
+  - no duplicated cap text in totals displays
+  - `Others` rendered last where the ordering policy applies
+  - chevron visible and stateful for expandable transaction lists.
+
 ## Output Format
 - Test plan
 - Contract compatibility matrix (when relevant)

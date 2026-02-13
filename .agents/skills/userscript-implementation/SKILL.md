@@ -58,6 +58,8 @@ Implement userscript changes with strict focus on runtime compatibility, privacy
 - Card differences must be explicit in `CARD_CONFIGS` (for example: `showManageTab`).
 - Do not silently apply one card's UX restriction to all cards.
 - Keep shared functions card-aware via explicit parameters, not hidden globals.
+- For repeated userscript UI behavior, use shared helpers (for example details/chevron toggle renderer, category ordering helper with `Others` last, and cap text formatter with single-value display).
+- Declare card-specific differences via config/policy when feasible instead of ad-hoc branching.
 
 ### Sync Privacy Model
 - Raw transaction rows remain local unless the requirement explicitly changes that policy.
@@ -79,6 +81,7 @@ Implement userscript changes with strict focus on runtime compatibility, privacy
 - Button appears on target page(s).
 - Primary click path works (open overlay, switch tabs, close).
 - Card-specific tab behavior is correct (for example UOB manage visible, XL hidden).
+- UOB and Maybank parity checks pass for impacted UI paths (chevron visibility/state, cap text format, and `Others` ordering where applicable).
 - Sync setup/login/sync now flow works on affected portal(s).
 - Browser console has no new CSP/connect/ReferenceError failures.
 

@@ -90,6 +90,24 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 
 **When to use skills:** skills are selected based on task needs. Situational skills are optional and only apply when the task includes that concern.
 
+## UI/Card Change Design Gates (Mandatory)
+
+For any change that affects card-specific or shared UI behavior in userscript and/or dashboard:
+
+1. **Config-First Gate**
+   - Identify whether behavior differences are config-driven (for example cap mode/value, category exceptions, ordering rules).
+   - If config-driven, update config inputs first, then apply rendering changes.
+
+2. **Per-Surface Reuse Gate**
+   - Reuse UI helpers/components within each surface independently:
+     - userscript UI reuse stays in userscript
+     - dashboard UI reuse stays in dashboard
+   - Cross-surface runtime code sharing is **not required**.
+
+3. **Card Parity Checklist Gate**
+   - Include explicit parity checks for every affected card (minimum: UOB and Maybank when both are in scope).
+   - Verify cap text format, chevron/details behavior, and category ordering policy (`Others` last where applicable).
+
 ## Workflow Tightening (Mandatory for Backend/Auth/Schema Changes)
 
 For any change that touches database schema, auth/session flows, deployment configuration, or cross-app API contract:
