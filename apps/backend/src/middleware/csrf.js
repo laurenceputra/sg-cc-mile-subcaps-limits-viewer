@@ -18,6 +18,7 @@
  */
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://pib.uob.com.sg',
+  'https://cib.maybank2u.com.sg',
   // Add self-hosted domain when available
   // 'https://your-domain.com',
 ];
@@ -25,13 +26,27 @@ const DEFAULT_ALLOWED_ORIGINS = [
 /**
  * Parse origin from URL string
  */
-function parseOrigin(url) {
+function normalizeAuthoritativeOrigin(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null') {
+    return null;
+  }
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
     return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return null;
   }
+}
+
+function parseOrigin(url) {
+  return normalizeAuthoritativeOrigin(url);
 }
 
 /**
@@ -102,8 +117,23 @@ export function csrfProtection(options = {}) {
     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
     requireOrigin = false,
     methods = ['POST', 'PUT', 'PATCH', 'DELETE'],
-    isDevelopment = false
+    isDevelopment = false,
+    trustedNoOriginHeaderName = '',
+    trustedNoOriginHeaderValue = ''
   } = options;
+
+  const hasTrustedNoOriginBypass = (c) => {
+    // Bypass is only allowed when both a trusted header name and a non-empty
+    // expected value are configured, and the request's header value matches.
+    if (!trustedNoOriginHeaderName || !trustedNoOriginHeaderValue) {
+      return false;
+    }
+    const headerValue = c.req.header(trustedNoOriginHeaderName);
+    if (typeof headerValue !== 'string' || !headerValue) {
+      return false;
+    }
+    return headerValue === trustedNoOriginHeaderValue;
+  };
   
   return async (c, next) => {
     const method = c.req.method;
@@ -115,17 +145,21 @@ export function csrfProtection(options = {}) {
     
     // Get Origin header (most reliable)
     const origin = c.req.header('Origin');
-    
+
     // Get Referer header (fallback for older browsers)
     const referer = c.req.header('Referer');
-    
-    // Extract origin from referer if Origin header is not present
-    const requestOrigin = origin || (referer ? parseOrigin(referer) : null);
+
+    // Origin-like values such as "null", extension schemes, and malformed strings are non-authoritative.
+    // For those cases we fall back to Referer parsing, then strict no-origin handling.
+    const requestOrigin = normalizeAuthoritativeOrigin(origin) || parseOrigin(referer);
     
     // If no origin/referer is provided
     if (!requestOrigin) {
       // In strict mode, reject requests without origin
       if (requireOrigin) {
+        if (hasTrustedNoOriginBypass(c)) {
+          return next();
+        }
         console.warn('[CSRF] Request rejected: No Origin or Referer header');
         return c.json({ 
           error: 'Forbidden',
@@ -191,7 +225,7 @@ export function configureCors(options = {}) {
       }
       
       c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CC-Userscript');
       c.header('Access-Control-Max-Age', '86400'); // 24 hours
     }
     
@@ -220,7 +254,9 @@ export function getCSRFDocumentation() {
       allowedOrigins: 'Array of allowed origin URLs',
       requireOrigin: 'Reject requests without Origin header (strict mode)',
       methods: 'HTTP methods to protect (default: POST, PUT, PATCH, DELETE)',
-      isDevelopment: 'Enable localhost/127.0.0.1 for testing'
+      isDevelopment: 'Enable localhost/127.0.0.1 for testing',
+      trustedNoOriginHeaderName: 'Optional header name that can bypass strict no-origin rejection',
+      trustedNoOriginHeaderValue: 'Required header value for trusted no-origin bypass'
     },
     usage_example: {
       production: {

@@ -31,6 +31,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 | requirements-researcher | Requirements discovery, constraints, and feasibility analysis. | [.agents/skills/requirements-researcher/SKILL.md](.agents/skills/requirements-researcher/SKILL.md) |
 | security-risk | Security and privacy risk identification with mitigations, including auth/session/token lifecycle review. | [.agents/skills/security-risk/SKILL.md](.agents/skills/security-risk/SKILL.md) |
 | spec-writer | Specifications/plans with tasks, acceptance criteria, and verification steps. | [.agents/skills/spec-writer/SKILL.md](.agents/skills/spec-writer/SKILL.md) |
+| userscript-implementation | Tampermonkey userscript implementation and hardening with CSP-safe UI, GM transport, and sync-privacy guardrails. | [.agents/skills/userscript-implementation/SKILL.md](.agents/skills/userscript-implementation/SKILL.md) |
 | ux-accessibility | Accessibility checks for UI changes (keyboard, focus, contrast, semantics). | [.agents/skills/ux-accessibility/SKILL.md](.agents/skills/ux-accessibility/SKILL.md) |
 
 ## Simplified Workflow (6 Agents)
@@ -80,7 +81,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 ## Phase ↔ Skills Mapping
 
 - **Phase 0: Requirements & Safety Gate** → `requirements-researcher`, `security-risk`
-- **Phase 1: Implementation** → `implementation-engineer` (primary), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
+- **Phase 1: Implementation** → `implementation-engineer` (primary), `userscript-implementation` (userscript-focused), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
 - **Phase 2: Code Review** → `code-review`, `security-risk`
 - **Phase 3: Quality Validation** → `qa-testing`, `performance-optimization`, `ux-accessibility`
 - **Phase 4: Security Testing** → `security-risk`
@@ -88,6 +89,24 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - **Phase 6: Maintenance & Release Readiness** → `release-management` (primary), `code-review` (as needed), `debugging-assistant` (incident triage)
 
 **When to use skills:** skills are selected based on task needs. Situational skills are optional and only apply when the task includes that concern.
+
+## UI/Card Change Design Gates (Mandatory)
+
+For any change that affects card-specific or shared UI behavior in userscript and/or dashboard:
+
+1. **Config-First Gate**
+   - Identify whether behavior differences are config-driven (for example cap mode/value, category exceptions, ordering rules).
+   - If config-driven, update config inputs first, then apply rendering changes.
+
+2. **Per-Surface Reuse Gate**
+   - Reuse UI helpers/components within each surface independently:
+     - userscript UI reuse stays in userscript
+     - dashboard UI reuse stays in dashboard
+   - Cross-surface runtime code sharing is **not required**.
+
+3. **Card Parity Checklist Gate**
+   - Include explicit parity checks for every affected card (minimum: UOB and Maybank when both are in scope).
+   - Verify cap text format, chevron/details behavior, and category ordering policy (`Others` last where applicable).
 
 ## Workflow Tightening (Mandatory for Backend/Auth/Schema Changes)
 
@@ -263,6 +282,15 @@ Each agent should provide:
 - Deliverables (code, docs, reports)
 - Risks and recommended mitigations
 - Security sign-off (for security-reviewer)
+- Scope-move audit (list functions moved across scopes/modules)
+- External-symbol audit (list non-local symbols referenced by moved/rewired code paths)
+- Interaction proof for changed UI paths (minimum: entry action + one primary click path verified)
+
+## Local Quality Gates
+
+- Enable repository hooks once per clone: `git config core.hooksPath .githooks`
+- Pre-push gate (required): runs userscript lint via `npm run prepush:verify`
+- CI gate: userscript lint workflow must pass (`.github/workflows/userscript-lint.yml`)
 
 ---
 
@@ -302,4 +330,4 @@ Each agent should provide:
 
 **Questions?** Consult the security-reviewer agent or refer to the security docs above.
 
-**Last Updated:** 2026-02-12 (Workflow tightening + merged skill responsibilities)
+**Last Updated:** 2026-02-12 (Workflow tightening + lint/handoff gates)

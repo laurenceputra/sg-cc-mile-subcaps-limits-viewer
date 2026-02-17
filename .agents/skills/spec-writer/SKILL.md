@@ -43,6 +43,16 @@ Write clear, executable specifications/plan documents that other contributors ca
 - Keep formatting consistent and scannable (headings + lists).
 - Avoid implementation details that aren’t required for execution.
 
+## UI/Card Spec Requirements (Mandatory when applicable)
+- Include these sections for UI/card-related specs:
+  - `Config Delta` (new/changed config keys, defaults, fallback behavior)
+  - `Surface Scope` (userscript, dashboard, or both)
+  - `Reuse Plan (Per Surface)` (reused helpers/components inside each surface)
+  - `Card Parity Matrix` (expected behavior per affected card)
+- Acceptance criteria must explicitly call out:
+  - cap text format expectations (when applicable)
+  - category ordering policy, especially `Others` last when applicable.
+
 ## Required Sections (minimum)
 - **Goal**
 - **Work Size** (`small` | `medium` | `large`) with a brief rationale.

@@ -48,7 +48,7 @@ export function createTestEnv(overrides = {}) {
     ADMIN_LOGIN_PASSWORD_HASH: TEST_ADMIN_PASSWORD_HASH,
     ADMIN_LOGIN_PEPPER: TEST_ADMIN_PEPPER,
     DUMMY_PASSWORD_HASH: '0'.repeat(64),
-    ALLOWED_ORIGINS: 'https://pib.uob.com.sg',
+    ALLOWED_ORIGINS: 'https://pib.uob.com.sg,https://cib.maybank2u.com.sg',
     ENVIRONMENT: 'development',
     NODE_ENV: 'test',
     ...overrides

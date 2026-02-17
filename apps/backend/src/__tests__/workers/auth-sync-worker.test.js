@@ -16,7 +16,7 @@ function createEncryptedData() {
   };
 }
 
-async function registerAndLogin(env) {
+async function registerAndLogin(env, origin = 'https://pib.uob.com.sg') {
   const email = randomEmail();
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
@@ -24,7 +24,7 @@ async function registerAndLogin(env) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
+      'Origin': origin
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
@@ -35,7 +35,7 @@ async function registerAndLogin(env) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
+      'Origin': origin
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
@@ -101,6 +101,102 @@ describe('Workers auth + sync flow', () => {
       assert.equal(secondGet.status, 200);
       assert.equal(secondData.version, 1);
       assert.deepEqual(secondData.encryptedData, encryptedData);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('accepts maybank origin for auth and sync', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const maybankOrigin = 'https://cib.maybank2u.com.sg';
+      const { token } = await registerAndLogin(env, maybankOrigin);
+      const encryptedData = createEncryptedData();
+
+      const putRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Origin': maybankOrigin
+        },
+        body: JSON.stringify({ encryptedData, version: 1 })
+      }), env);
+
+      assert.equal(putRes.status, 200);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('allows trusted userscript login with Origin null in production', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+      assert.equal(registerRes.status, 200);
+
+      const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CC-Userscript': 'tampermonkey-v1',
+          'Origin': 'null'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(loginRes.status, 200);
+      const loginData = await loginRes.json();
+      assert.equal(typeof loginData.token, 'string');
+      assert.ok(loginData.token.length > 0);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('allows trusted userscript login with non-http(s) origin in production', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+      assert.equal(registerRes.status, 200);
+
+      const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CC-Userscript': 'tampermonkey-v1',
+          'Origin': 'chrome-extension://abcdefghijklmnop'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(loginRes.status, 200);
+      const loginData = await loginRes.json();
+      assert.equal(typeof loginData.token, 'string');
+      assert.ok(loginData.token.length > 0);
     } finally {
       await disposeTestDatabase(mf);
     }

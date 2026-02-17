@@ -11,7 +11,7 @@ enabled = true
 crons = ["0 2 * * *"]
 
 [env.preview]
-vars = { ENVIRONMENT = "preview", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg" }
+vars = { ENVIRONMENT = "preview", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg,https://cib.maybank2u.com.sg" }
 
 [[env.preview.d1_databases]]
 binding = "DB"
@@ -19,7 +19,7 @@ database_name = "bank_cc_sync_prod"
 database_id = "YOUR_D1_PROD_DATABASE_ID"
 
 [env.production]
-vars = { ENVIRONMENT = "production", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg" }
+vars = { ENVIRONMENT = "production", NODE_ENV = "production", ALLOWED_ORIGINS = "https://pib.uob.com.sg,https://cib.maybank2u.com.sg" }
 
 [[env.production.d1_databases]]
 binding = "DB"

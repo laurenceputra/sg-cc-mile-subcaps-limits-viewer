@@ -43,6 +43,29 @@ Behavior notes:
 - Rotates the refresh token on every refresh and extends expiry by 30 days.
 - Returns `401` if the refresh token is missing, expired, revoked, or reused.
 
+### `GET /meta/cap-policy`
+Response body:
+- `version` (number)
+- `thresholds` (object)
+  - `warningRatio` (number)
+  - `criticalRatio` (number)
+- `styles` (object)
+  - `normal` / `warning` / `critical` (objects)
+    - `background` (string color token)
+    - `border` (string color token)
+    - `text` (string color token)
+- `cards` (object, keyed by card name)
+  - each entry has:
+    - `mode` (`per-category` or `combined`)
+    - `cap` (number)
+
+Behavior notes:
+- This endpoint is the backend-owned source of truth for cap display policy.
+- Current policy includes:
+  - `LADY'S SOLITAIRE CARD`: per-category cap of `750`
+  - `XL Rewards Card`: combined cap of `1000`
+- Clients may cache the last successful policy and fallback to embedded defaults if unavailable.
+
 ### `GET /sync/data` (auth required)
 Response body:
 - `encryptedData` (object or `null`)
@@ -71,6 +94,9 @@ Conflict response body (`409`):
 Behavior notes:
 - This endpoint only persists encrypted sync blobs (`sync_blobs`).
 - It does not create shared mapping contributions.
+- Userscript sync payload remains under `data.cards` and is card-keyed.
+- Current client behavior syncs only the active card from the current portal page, while preserving other remote card keys.
+- Synced card data is minimized to settings + aggregates (`selectedCategories`, `defaultCategory`, `merchantMap`, `monthlyTotals`) and excludes raw `transactions`.
 
 ### `GET /shared/mappings/:cardType` (auth required)
 Path param:

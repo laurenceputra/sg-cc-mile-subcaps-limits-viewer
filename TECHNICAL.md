@@ -8,15 +8,18 @@
 
 ## Supported scope
 
-- **Bank/portal**: UOB Personal Internet Banking (PIB)
-- **Page**: Credit card transaction listing (`https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*`)
-- **Card**: `LADY'S SOLITAIRE CARD`
+- **UOB Personal Internet Banking (PIB)**
+  - **Page**: Credit card transaction listing (`https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*`)
+  - **Card**: `LADY'S SOLITAIRE CARD`
+- **Maybank2u SG**
+  - **Page**: Cards transaction listing (`https://cib.maybank2u.com.sg/m2u/accounts/cards*`)
+  - **Card**: `XL Rewards Card` (debit-only rows, with `... SGP` auto-categorized as `Local` else `Forex`)
 
 ## Installation details
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension.
 2. Create a new userscript and paste the contents of `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
-3. Save the script and visit the supported UOB PIB card transaction page.
+3. Save the script and visit a supported UOB PIB or Maybank2u SG card transaction page.
 4. Click **Subcap Tools** to open the UI.
 
 ## Privacy and safety
@@ -26,22 +29,30 @@
 - **No remote telemetry**: The script does not send analytics or logs to external services.
 - **Optional sync**: If the user explicitly enables sync, encrypted settings are sent to the configured sync backend.
 - **Retention**: Stored transactions are kept for the last 3 calendar months to support monthly summaries.
+- **Sync minimization**: Raw transactions remain local; sync payloads include card settings + monthly totals only.
 
 ## Sync behavior notes
 
 - `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
+- Sync payload remains card-keyed under a `cards` envelope (`{ cards: { [cardName]: ... } }`), so adding new cards (e.g., `XL Rewards Card`) is backward-compatible and requires no backend schema/API changes.
+- `Sync Now` updates only the active card key from the current page and preserves other remote card keys.
+- Each synced card payload includes `selectedCategories`, `defaultCategory`, `merchantMap`, and `monthlyTotals`; it excludes raw `transactions`.
+- On bank pages with strict `connect-src`, sync/auth network requests use Tampermonkey transport (`GM_xmlhttpRequest`) with `fetch` fallback.
+- Userscript auth/sync transport identifies trusted requests with `X-CC-Userscript: tampermonkey-v1`; it does not rely on forcing `Origin`/`Referer` headers.
 - `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
 - Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
 - Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
 - After page reload/login, sync can remain configured as enabled but runtime crypto stays locked until password is re-entered for that browser session.
-- Users can opt in to "Remember sync on this device": the local unlock cache stays available until JWT token expiry or explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
+- Users can opt in to "Remember sync on this device": the local unlock cache is stored per host (`ccSubcapSyncUnlockCache:<hostname>`) with a 30-day rolling TTL, independent of JWT access-token expiry, and is cleared on explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
+- Legacy unlock cache entries from `ccSubcapSyncUnlockCache` are read for backward compatibility and migrated to the host-scoped key.
 - Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
 - Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
 
 ## Web dashboard
 
 - `GET /login` serves a login page that accepts the same sync credentials as the userscript (`username` == `email`).
-- `GET /dashboard` shows up to 2 recent months of totals for `LADY'S SOLITAIRE CARD` with `Refresh` and `Logout` actions.
+- `GET /dashboard` shows up to 2 recent months of totals for supported cards (`LADY'S SOLITAIRE CARD`, `XL Rewards Card`) with `Refresh` and `Logout` actions.
+- `GET /meta/cap-policy` exposes backend-owned cap + severity style policy used by dashboard and userscript visuals.
 - Dashboard data is fetched from `GET /sync/data` and decrypted client-side; the backend never receives plaintext.
 - Access tokens are short-lived and refreshed via `POST /auth/refresh` using an HttpOnly cookie.
 - Session metadata (`token`, `email`, `lastActiveAt`) is stored in browser localStorage; passphrases are not persisted.
@@ -49,57 +60,44 @@
 
 ## Data extraction details
 
-- **Card name XPath** (must match `TARGET_CARD_NAME`):
-  - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3`
-- **Transactions table body XPath**:
-  - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
+- **UOB PIB**
+  - **Card name XPath**:
+    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3`
+  - **Transactions table body XPath**:
+    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
+
+- **Maybank2u SG (XL Rewards Card)**
+  - **Card name XPaths** (ordered fallback):
+    - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span`
+    - `//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]`
+  - **Transactions table body XPaths** (ordered fallback):
+    - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody`
+    - `(//table//tbody)[1]`
+  - **Extraction notes**:
+    - Only rows where amount text starts with `-` are ingested (debit spend rows).
+    - Description ending with `SGP` is categorized as `Local`; other suffixes are categorized as `Forex`.
+    - Maybank rows do not expose UOB-style reference numbers, so a deterministic synthetic key is generated for storage dedupe.
 
 If the portal markup changes, update these selectors in `main()`.
 
-## Category mapping with wildcard support
+## Category mapping behavior
 
-The script allows you to assign merchants to categories manually. As of version 0.6.0, **wildcard matching** is supported for flexible merchant categorization:
+- UOB (`LADY'S SOLITAIRE CARD`) tabs are ordered: **Spend Totals**, **Manage Transactions**, **Sync**.
+- Maybank (`XL Rewards Card`) tabs are ordered: **Spend Totals**, **Sync** (Manage tab intentionally hidden).
+- Spend Totals transaction expansion uses a shared `details/summary` chevron renderer on both UOB and Maybank cards.
+- Existing merchant/category mappings in local storage are still respected during categorization.
+- Wildcard matching support remains in the underlying categorization logic for previously stored mappings.
 
-### How to use wildcards
+## Cap policy behavior
 
-**Method 1: Add wildcard pattern manually (recommended)**
-1. Open the **Subcap Tools** panel
-2. Navigate to the **Manage Transactions** tab
-3. Scroll to the **"Add Wildcard Pattern"** section at the bottom
-4. Enter a pattern (e.g., `STARBUCKS*` or `*GRAB*`)
-5. Select the category to assign
-6. Click **Add**
-
-**Method 2: Categorize existing merchants**
-1. Wait for a transaction from the merchant to appear on the page
-2. Find the merchant in the categorization list
-3. Select a category - the pattern can then be edited to use wildcards via browser console or by re-adding it with the wildcard form
-
-### Pattern syntax
-
-- Use `*` as a wildcard character to match any sequence of characters except literal `*`
-- Escape literal asterisks with `\*` (e.g., `KrisPay\*Paradise*`)
-- Wildcards can appear at the beginning, middle, or end of a pattern
-- Matching is **case-insensitive**
-
-### Examples
-
-| Pattern | Matches | Does not match |
-|---------|---------|----------------|
-| `STARBUCKS*` | STARBUCKS SINGAPORE, STARBUCKS ORCHARD | MCDONALDS |
-| `*STARBUCKS` | SINGAPORE STARBUCKS, THE STARBUCKS | STARBUCKS DOWNTOWN |
-| `STARBUCKS*CAFE` | STARBUCKS SINGAPORE CAFE | STARBUCKS SINGAPORE |
-| `*GRAB*` | GRAB SINGAPORE, GRABTAXI, THE GRAB APP, MY GRAB RIDE | UBER, GOJEK |
-| `KrisPay\*Paradise*` | KrisPay*Paradise C Singapore SG | KrisPay Paradise C Singapore SG |
-
-### Matching priority
-
-1. **Exact match** (case-sensitive) is checked first (for backward compatibility and performance)
-2. **Case-insensitive exact match** for non-wildcard patterns is checked second
-3. **Wildcard patterns** are checked if no exact match is found
-4. **Default category** is used if no match is found
-
-This allows you to create flexible rules like `GRAB*` to categorize all Grab-related merchants as "Transport" without having to add each variant individually.
+- Cap/severity display policy is backend-owned (`/meta/cap-policy`) and cached client-side.
+- Userscript policy loading order:
+  1. fetch from configured sync backend (GM transport when available),
+  2. use last successful cached policy,
+  3. fallback to embedded defaults.
+- UOB Spend Totals uses per-category cap indicators (`750`).
+- Maybank Spend Totals uses combined monthly cap indicator (`1000`).
+- Raw transactions remain local-only; synced payload remains settings + monthly totals only.
 
 ## Diagnostics and data issues
 
@@ -113,17 +111,22 @@ Use this section to understand why totals might look off.
 
 ## Troubleshooting
 
-- **Script doesn’t appear**: Ensure the current page URL matches the UOB PIB pattern in the script.
+- **Script doesn’t appear**: Ensure the current page URL matches a supported UOB PIB or Maybank2u SG pattern in the script.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
+- **Maybank button missing on cards page**: Ensure URL host/path matches `https://cib.maybank2u.com.sg/m2u/accounts/cards...`; URL-change init calls are queued and replayed after any in-flight init, and the button appears after card match even before table rows finish loading.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
-- **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or your JWT session may have expired. Re-enter password and re-enable remembered sync.
+- **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or the local remember window may have expired (30-day rolling TTL). Re-enter password and re-enable remembered sync.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
+- **`Unlock failed: CSRF validation failed: Invalid origin`**:
+  - Verify backend `ALLOWED_ORIGINS` includes both `https://pib.uob.com.sg` and `https://cib.maybank2u.com.sg` in preview/prod.
+  - Confirm request carries trusted userscript header (`X-CC-Userscript: tampermonkey-v1`).
+  - `Origin: null`/extension-style origins are treated as non-authoritative and rely on the trusted userscript path; disallowed valid web origins remain blocked.
 
 ## Extending to new cards
 
 1. Add a new entry to `CARD_CONFIGS` with categories and subcap slots.
-2. Update the card name match in `TARGET_CARD_NAME` (or adjust logic to allow multiple cards).
+2. Add/update a `PORTAL_PROFILES` entry (URL prefix + XPaths) and ensure `main()` can match the detected card name to your new `CARD_CONFIGS` key.
 
 ## Maintenance checklist
 

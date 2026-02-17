@@ -49,6 +49,7 @@ Implement production-ready code changes aligned with this repo's standards.
 
 ## Verification
 - Run relevant tests for touched areas, at minimum:
+  - `npm run lint:userscript` for userscript changes (required; catches undefined globals/scope regressions)
   - `npm --prefix apps/backend test` for backend changes
   - `npm test` when change spans shared behavior or multiple apps
 - For userscript changes, include manual checks on supported UOB PIB pages and confirm error paths.
