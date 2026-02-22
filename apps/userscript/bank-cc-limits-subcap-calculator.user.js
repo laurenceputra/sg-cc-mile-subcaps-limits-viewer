@@ -2782,7 +2782,7 @@
       for (const xpath of cardNameXPaths) {
         const node = evalXPath(xpath);
         const resolved = selectFromNode(node, xpath);
-        if (resolved) {
+        if (resolved && resolved.name) {
           return resolved;
         }
       }
@@ -2869,6 +2869,7 @@
       const getVisibleMatch = () => findActiveCardName(profile, { requireVisible });
 
       return new Promise((resolve) => {
+        let timeoutHandle = null;
         const existing = getVisibleMatch();
         if (existing) {
           resolve(existing);
@@ -2879,12 +2880,15 @@
           const match = getVisibleMatch();
           if (match) {
             observer.disconnect();
+            if (timeoutHandle) {
+              window.clearTimeout(timeoutHandle);
+            }
             resolve(match);
           }
         });
 
         observer.observe(document.documentElement, { childList: true, subtree: true });
-        window.setTimeout(() => {
+        timeoutHandle = window.setTimeout(() => {
           observer.disconnect();
           resolve({ name: '', raw: '', node: null, xpath: '' });
         }, waitTimeoutMs);

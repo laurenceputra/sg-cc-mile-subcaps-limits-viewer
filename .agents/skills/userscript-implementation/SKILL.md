@@ -60,6 +60,12 @@ Implement userscript changes with strict focus on runtime compatibility, privacy
 - Keep shared functions card-aware via explicit parameters, not hidden globals.
 - For repeated userscript UI behavior, use shared helpers (for example details/chevron toggle renderer, category ordering helper with `Others` last, and cap text formatter with single-value display).
 - Declare card-specific differences via config/policy when feasible instead of ad-hoc branching.
+- For multi-selector extraction (`cardNameXPaths`/table XPath arrays), continue fallback evaluation until semantic validation passes (for example recognized card key), not just until a node exists.
+
+### Async/Observer Hygiene
+- In Promise + `MutationObserver` wait helpers, store timeout handles and clear them on successful early resolve.
+- Ensure all observer teardown paths also clear pending timers.
+- For SPA card-switch flows, re-validate card context before writes/renders so stale contexts cannot persist data.
 
 ### Sync Privacy Model
 - Raw transaction rows remain local unless the requirement explicitly changes that policy.
@@ -82,6 +88,7 @@ Implement userscript changes with strict focus on runtime compatibility, privacy
 - Primary click path works (open overlay, switch tabs, close).
 - Card-specific tab behavior is correct (for example UOB manage visible, XL hidden).
 - UOB and Maybank parity checks pass for impacted UI paths (chevron visibility/state, cap text format, and `Others` ordering where applicable).
+- For fallback selector arrays, verify behavior when the first selector is stale/unrecognized but a later selector is valid.
 - Sync setup/login/sync now flow works on affected portal(s).
 - Browser console has no new CSP/connect/ReferenceError failures.
 
