@@ -2086,9 +2086,10 @@
         allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
-          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards")][1]'
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span'
         ],
+        requireVisibleCardName: true,
+        observeCardContext: true,
         tableBodyXPaths: [
           '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody',
           '(//table//tbody)[1]'
@@ -2410,6 +2411,13 @@
     // Phase 3: Initialize sync manager
     const syncManager = new SyncManager(storage);
     let stopTableObserver = null;
+    let stopCardContextObserver = null;
+    let activeCardContext = {
+      profileId: '',
+      cardName: '',
+      rawCardName: '',
+      cardNameXPath: ''
+    };
 
     function loadSettings() {
       const raw = storage.get(STORAGE_KEY, '{}');
@@ -2468,11 +2476,22 @@
       return cardSettings;
     }
 
-    function removeUI() {
+    function removeUI(options = {}) {
+      const preserveCardContextObserver = options.preserveCardContextObserver === true;
       if (stopTableObserver) {
         stopTableObserver();
         stopTableObserver = null;
       }
+      if (stopCardContextObserver && !preserveCardContextObserver) {
+        stopCardContextObserver();
+        stopCardContextObserver = null;
+      }
+      activeCardContext = {
+        profileId: '',
+        cardName: '',
+        rawCardName: '',
+        cardNameXPath: ''
+      };
       const button = document.getElementById(UI_IDS.button);
       if (button) {
         button.remove();
@@ -2669,8 +2688,105 @@
       };
     }
 
+    function observeCardContextChanges(profile, options, onChange, debounceMs = 600) {
+      if (!profile || typeof onChange !== 'function') {
+        return () => {};
+      }
+      let refreshTimer = null;
+      const resolveSnapshot = () => {
+        const match = findActiveCardName(profile, options);
+        if (!match) {
+          return { name: '', raw: '', xpath: '' };
+        }
+        return { name: match.name, raw: match.raw, xpath: match.xpath || '' };
+      };
+      let lastSnapshot = resolveSnapshot();
+      const scheduleRefresh = () => {
+        if (refreshTimer) {
+          window.clearTimeout(refreshTimer);
+        }
+        refreshTimer = window.setTimeout(() => {
+          const nextSnapshot = resolveSnapshot();
+          const hasChanged = !(
+            nextSnapshot.name === lastSnapshot.name &&
+            nextSnapshot.raw === lastSnapshot.raw &&
+            nextSnapshot.xpath === lastSnapshot.xpath
+          );
+          if (!hasChanged) {
+            return;
+          }
+          lastSnapshot = { ...nextSnapshot };
+          onChange();
+        }, debounceMs);
+      };
+      const observer = new MutationObserver(() => {
+        scheduleRefresh();
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      return () => {
+        observer.disconnect();
+        if (refreshTimer) {
+          window.clearTimeout(refreshTimer);
+        }
+      };
+    }
+
     function normalizeText(value) {
       return (value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isSameCardContext(nextContext) {
+      if (!nextContext || typeof nextContext !== 'object') {
+        return false;
+      }
+      return (
+        nextContext.profileId === activeCardContext.profileId &&
+        nextContext.cardName === activeCardContext.cardName &&
+        nextContext.rawCardName === activeCardContext.rawCardName &&
+        nextContext.cardNameXPath === activeCardContext.cardNameXPath
+      );
+    }
+
+    function isElementVisible(element) {
+      if (!element || !(element instanceof Element)) {
+        return false;
+      }
+      if (!element.isConnected) {
+        return false;
+      }
+      const style = window.getComputedStyle(element);
+      if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+        return false;
+      }
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    function findActiveCardName(profile, options = {}) {
+      const requireVisible = options.requireVisible === true;
+      const cardNameXPaths = profile?.cardNameXPaths || (profile?.cardNameXPath ? [profile.cardNameXPath] : []);
+      if (!cardNameXPaths.length) {
+        return null;
+      }
+      const selectFromNode = (node, xpath) => {
+        if (!node) {
+          return null;
+        }
+        if (requireVisible && !isElementVisible(node)) {
+          return null;
+        }
+        const raw = normalizeText(node.textContent);
+        const name = resolveSupportedCardName(raw);
+        return { name, raw, node, xpath };
+      };
+      for (const xpath of cardNameXPaths) {
+        const node = evalXPath(xpath);
+        const resolved = selectFromNode(node, xpath);
+        if (resolved) {
+          return resolved;
+        }
+      }
+      return null;
     }
 
     function matchesProfile(profile) {
@@ -2745,6 +2861,34 @@
         return includesKey;
       }
       return '';
+    }
+
+    function getActiveCardName(profile, options = {}) {
+      const requireVisible = options.requireVisible === true;
+      const waitTimeoutMs = Number.isFinite(options.waitTimeoutMs) ? options.waitTimeoutMs : 15000;
+      const getVisibleMatch = () => findActiveCardName(profile, { requireVisible });
+
+      return new Promise((resolve) => {
+        const existing = getVisibleMatch();
+        if (existing) {
+          resolve(existing);
+          return;
+        }
+
+        const observer = new MutationObserver(() => {
+          const match = getVisibleMatch();
+          if (match) {
+            observer.disconnect();
+            resolve(match);
+          }
+        });
+
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        window.setTimeout(() => {
+          observer.disconnect();
+          resolve({ name: '', raw: '', node: null, xpath: '' });
+        }, waitTimeoutMs);
+      });
     }
 
     function extractMerchantInfo(cell) {
@@ -4438,29 +4582,28 @@
       const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
       const allowOverlayWithoutRows = profile.allowOverlayWithoutRows === true;
 
-      const cardNameMatch = await waitForAnyXPath(
-        profile.cardNameXPaths || [profile.cardNameXPath],
-        waitTimeoutMs
-      );
-      const cardNameNode = cardNameMatch?.node || null;
-      if (!cardNameNode) {
+      const cardContext = await getActiveCardName(profile, {
+        waitTimeoutMs,
+        requireVisible: profile.requireVisibleCardName === true
+      });
+      if (!cardContext?.name) {
         removeUI();
         return;
       }
 
-      const rawCardName = normalizeText(cardNameNode.textContent);
-      const matchedCardName = resolveSupportedCardName(rawCardName);
-      if (!matchedCardName) {
-        removeUI();
-        return;
-      }
-
-      const cardName = matchedCardName;
+      const cardName = cardContext.name;
       const cardConfig = CARD_CONFIGS[cardName];
       if (!cardConfig) {
         removeUI();
         return;
       }
+
+      activeCardContext = {
+        profileId: profile.id,
+        cardName,
+        rawCardName: cardContext.raw,
+        cardNameXPath: cardContext.xpath || ''
+      };
 
       const tableBodyXPaths = profile.tableBodyXPaths || [profile.tableBodyXPath];
       const initialTableBodyMatch = allowOverlayWithoutRows
@@ -4493,13 +4636,32 @@
           return;
         }
         refreshInProgress = true;
-        const latestTableBodyMatch = await waitForAnyTableBodyRows(
-          observedTableBodyXPaths,
-          allowOverlayWithoutRows ? 1500 : waitTimeoutMs,
-          allowOverlayWithoutRows ? 0 : 2000
-        );
-        const latestTableBody = latestTableBodyMatch?.tbody || null;
         try {
+          const latestContext = await getActiveCardName(profile, {
+            waitTimeoutMs,
+            requireVisible: profile.requireVisibleCardName === true
+          });
+          if (!latestContext?.name) {
+            removeUI({ preserveCardContextObserver: true });
+            return;
+          }
+          const nextContext = {
+            profileId: profile.id,
+            cardName: latestContext.name,
+            rawCardName: latestContext.raw,
+            cardNameXPath: latestContext.xpath || ''
+          };
+          if (!isSameCardContext(nextContext)) {
+            removeUI({ preserveCardContextObserver: true });
+            runMainSafe();
+            return;
+          }
+          const latestTableBodyMatch = await waitForAnyTableBodyRows(
+            observedTableBodyXPaths,
+            allowOverlayWithoutRows ? 1500 : waitTimeoutMs,
+            allowOverlayWithoutRows ? 0 : 2000
+          );
+          const latestTableBody = latestTableBodyMatch?.tbody || null;
           if (!latestTableBody && !allowOverlayWithoutRows) {
             return;
           }
@@ -4545,6 +4707,17 @@
         stopTableObserver();
       }
       stopTableObserver = observeTableBody(observedTableBodyXPaths, refreshOverlay, waitTimeoutMs);
+      if (stopCardContextObserver) {
+        stopCardContextObserver();
+      }
+      if (profile.observeCardContext) {
+        stopCardContextObserver = observeCardContextChanges(
+          profile,
+          { requireVisible: profile.requireVisibleCardName === true },
+          () => refreshOverlay(),
+          600
+        );
+      }
       ensureCapPolicyLoaded().catch(() => {});
     }
 
