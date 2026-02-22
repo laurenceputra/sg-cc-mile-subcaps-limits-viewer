@@ -4671,6 +4671,25 @@
           let data;
           if (latestTableBody) {
             data = buildData(latestTableBody, cardName, cardSettings);
+            const writeTimeContext = findActiveCardName(profile, {
+              requireVisible: profile.requireVisibleCardName === true
+            });
+            if (!writeTimeContext?.name) {
+              removeUI({ preserveCardContextObserver: true });
+              runMainSafe();
+              return;
+            }
+            const nextWriteContext = {
+              profileId: profile.id,
+              cardName: writeTimeContext.name,
+              rawCardName: writeTimeContext.raw,
+              cardNameXPath: writeTimeContext.xpath || ''
+            };
+            if (!isSameCardContext(nextWriteContext)) {
+              removeUI({ preserveCardContextObserver: true });
+              runMainSafe();
+              return;
+            }
             updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           } else {
             data = buildFallbackData(cardName, cardSettings);
