@@ -115,6 +115,9 @@ Use this section to understand why totals might look off.
 - **No data or wrong data**: The portal DOM may have changed. Update the XPath selectors above.
 - **Incorrect totals**: Check the “Data issues” panel for skipped rows or parsing failures.
 - **Maybank button missing on cards page**: Ensure URL host/path matches `https://cib.maybank2u.com.sg/m2u/accounts/cards...`; URL-change init calls are queued and replayed after any in-flight init, and the button appears after card match even before table rows finish loading.
+- **Button hides after card switch**: The button is hidden whenever card context is invalid/unresolved. Wait for the card name to resolve or return to a supported card and the button will reappear.
+- **Button click feels immediate but hides**: Clicks re-check card context immediately; if the card cannot be resolved quickly, the button hides until context is valid again.
+- **Maybank XL table updates not reflected**: On XL, table pagination/update rows are auto-ingested while the card context remains valid. If not updating, verify the card name is resolved and selectors still match the transaction table.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
 - **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or the local remember window may have expired (30-day rolling TTL). Re-enter password and re-enable remembered sync.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.

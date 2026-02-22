@@ -12,7 +12,7 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.2.0
+  version: 1.3.0
 ---
 
 # Spec Writer
@@ -21,6 +21,7 @@ Write clear, executable specifications/plan documents that other contributors ca
 
 ## Defaults
 - **Target file**: `spec/plan.md` unless the user specifies a different path.
+- **Do not default to hidden spec dirs**: Never choose `.spec/plan.md` unless the user explicitly asks for that path.
 - **Update behavior**: Overwrite the target file by default. Append only if the user explicitly asks to “add to” or “append to” the existing plan.
 - **Template**: If `spec/plan.md` already exists, use its structure as the template and keep section ordering unless the user asks otherwise.
 - **Legacy compatibility**: If `spec/plan.md` does not exist but `.spec/plan.md` or `.specifications/plan.md` does, use the legacy file as reference and prefer writing the new output to `spec/plan.md`.
