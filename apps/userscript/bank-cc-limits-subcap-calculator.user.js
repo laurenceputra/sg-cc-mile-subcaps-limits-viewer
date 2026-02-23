@@ -2053,363 +2053,10 @@
     document.body.appendChild(overlay);
   }
 
-  // ─── TEST-SEAM: pure helper duplicates (outer scope) ───────────────────────
-  // These definitions mirror the inner-IIFE versions so tests can access them
-  // without executing any DOM or runtime code. The inner IIFE shadows them with
-  // its own const declarations, so production behaviour is completely unchanged.
-
-  const _TEST_CARD_CONFIGS = {
-    "LADY'S SOLITAIRE CARD": {
-      categories: [
-        'Beauty & Wellness',
-        'Dining',
-        'Entertainment',
-        'Family',
-        'Fashion',
-        'Transport',
-        'Travel'
-      ],
-      subcapSlots: 2,
-      showManageTab: true
-    },
-    'XL Rewards Card': {
-      categories: ['Local', 'Forex'],
-      subcapSlots: 2,
-      showManageTab: false
-    }
-  };
-
-  const _TEST_EMBEDDED_CAP_POLICY = Object.freeze({
-    version: 1,
-    thresholds: {
-      warningRatio: 0.9333333333,
-      criticalRatio: 1
-    },
-    styles: {
-      normal: { background: '#f1f5f9', border: '#cbd5e1', text: '#334155' },
-      warning: { background: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-      critical: { background: '#fee2e2', border: '#ef4444', text: '#991b1b' }
-    },
-    cards: {
-      "LADY'S SOLITAIRE CARD": {
-        mode: 'per-category',
-        cap: 750
-      },
-      'XL Rewards Card': {
-        mode: 'combined',
-        cap: 1000
-      }
-    }
-  });
-
-  function _testNormalizeCapPolicy(policy) {
-    const fallback = _TEST_EMBEDDED_CAP_POLICY;
-    if (!isObjectRecord(policy)) {
-      return fallback;
-    }
-    const normalized = {
-      version: typeof policy.version === 'number' ? policy.version : fallback.version,
-      thresholds: {
-        warningRatio:
-          typeof policy.thresholds?.warningRatio === 'number'
-            ? policy.thresholds.warningRatio
-            : fallback.thresholds.warningRatio,
-        criticalRatio:
-          typeof policy.thresholds?.criticalRatio === 'number'
-            ? policy.thresholds.criticalRatio
-            : fallback.thresholds.criticalRatio
-      },
-      styles: {
-        normal: {
-          ...fallback.styles.normal,
-          ...(isObjectRecord(policy.styles?.normal) ? policy.styles.normal : {})
-        },
-        warning: {
-          ...fallback.styles.warning,
-          ...(isObjectRecord(policy.styles?.warning) ? policy.styles.warning : {})
-        },
-        critical: {
-          ...fallback.styles.critical,
-          ...(isObjectRecord(policy.styles?.critical) ? policy.styles.critical : {})
-        }
-      },
-      cards: {}
-    };
-    const sourceCards = isObjectRecord(policy.cards) ? policy.cards : fallback.cards;
-    Object.entries(sourceCards).forEach(([cardName, cardPolicy]) => {
-      if (!isObjectRecord(cardPolicy)) {
-        return;
-      }
-      const mode = cardPolicy.mode === 'combined' ? 'combined' : 'per-category';
-      const cap = typeof cardPolicy.cap === 'number' && Number.isFinite(cardPolicy.cap) ? cardPolicy.cap : 0;
-      normalized.cards[cardName] = { mode, cap };
-    });
-    if (!Object.keys(normalized.cards).length) {
-      normalized.cards = fallback.cards;
-    }
-    return normalized;
-  }
-
-  function _testGetCapSeverity(value, cap, policy) {
-    const activePolicy = policy || _TEST_EMBEDDED_CAP_POLICY;
-    if (typeof value !== 'number' || !Number.isFinite(value) || typeof cap !== 'number' || cap <= 0) {
-      return 'normal';
-    }
-    const ratio = value / cap;
-    const warningRatio = activePolicy.thresholds?.warningRatio ?? _TEST_EMBEDDED_CAP_POLICY.thresholds.warningRatio;
-    const criticalRatio = activePolicy.thresholds?.criticalRatio ?? _TEST_EMBEDDED_CAP_POLICY.thresholds.criticalRatio;
-    if (ratio >= criticalRatio) {
-      return 'critical';
-    }
-    if (ratio >= warningRatio) {
-      return 'warning';
-    }
-    return 'normal';
-  }
-
-  function _testGetCardCapPolicy(cardName, policy) {
-    const activePolicy = policy || _TEST_EMBEDDED_CAP_POLICY;
-    return activePolicy.cards?.[cardName] || { mode: 'per-category', cap: 0 };
-  }
-
-  function _testNormalizeText(value) {
-    return (value || '').replace(/\s+/g, ' ').trim();
-  }
-
-  function _testParseAmount(amountText) {
-    if (!amountText) {
-      return null;
-    }
-    const normalized = amountText.replace(/[^0-9.-]/g, '');
-    if (!normalized) {
-      return null;
-    }
-    const number = Number(normalized);
-    return Number.isNaN(number) ? null : number;
-  }
-
-  function _testHashFNV1a(value) {
-    const text = String(value || '');
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < text.length; i += 1) {
-      hash ^= text.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
-  }
-
-  function _testBuildMaybankSyntheticRefNo(postingDateIso, description, amountValue) {
-    const normalizedDate = _testNormalizeText(postingDateIso);
-    const normalizedDesc = _testNormalizeText(description).toUpperCase();
-    const normalizedAmount =
-      typeof amountValue === 'number' && Number.isFinite(amountValue) ? amountValue.toFixed(2) : '';
-    const base = `${normalizedDate}|${normalizedDesc}|${normalizedAmount}`;
-    const hash = _testHashFNV1a(base);
-    return `MB:${normalizedDate}:${normalizedAmount}:${hash}`;
-  }
-
-  function _testHasUnescapedWildcard(pattern) {
-    if (typeof pattern !== 'string') {
-      return false;
-    }
-    let escapeNext = false;
-    for (let i = 0; i < pattern.length; i += 1) {
-      const char = pattern[i];
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
-      }
-      if (char === '\\') {
-        escapeNext = true;
-        continue;
-      }
-      if (char === '*') {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function _testEscapeRegexChar(char) {
-    return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
-  }
-
-  function _testBuildWildcardRegex(pattern) {
-    let regexSource = '';
-    let escapeNext = false;
-    for (let i = 0; i < pattern.length; i += 1) {
-      const char = pattern[i];
-      if (escapeNext) {
-        regexSource += _testEscapeRegexChar(char);
-        escapeNext = false;
-        continue;
-      }
-      if (char === '\\') {
-        escapeNext = true;
-        continue;
-      }
-      if (char === '*') {
-        regexSource += '[^*]*';
-        continue;
-      }
-      regexSource += _testEscapeRegexChar(char);
-    }
-    if (escapeNext) {
-      regexSource += '\\\\';
-    }
-    return new RegExp(`^${regexSource}$`, 'i');
-  }
-
-  function _testMatchesWildcard(merchantName, pattern) {
-    if (typeof merchantName !== 'string' || typeof pattern !== 'string') {
-      return false;
-    }
-    if (!_testHasUnescapedWildcard(pattern)) {
-      return false;
-    }
-    const regex = _testBuildWildcardRegex(pattern);
-    return regex.test(merchantName);
-  }
-
-  function _testEscapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function _testResolveSupportedCardName(rawCardName) {
-    if (!rawCardName) {
-      return '';
-    }
-    if (_TEST_CARD_CONFIGS[rawCardName]) {
-      return rawCardName;
-    }
-    const normalizedRaw = rawCardName.trim();
-    const upperRaw = normalizedRaw.toUpperCase();
-    const exactKey = Object.keys(_TEST_CARD_CONFIGS).find(
-      (name) => name.toUpperCase() === upperRaw
-    );
-    if (exactKey) {
-      return exactKey;
-    }
-    if (/\bXL\s*REWARDS\b/i.test(normalizedRaw)) {
-      return 'XL Rewards Card';
-    }
-    for (const name of Object.keys(_TEST_CARD_CONFIGS)) {
-      const escapedName = _testEscapeRegExp(name);
-      const pattern = new RegExp('\\b' + escapedName + '\\b', 'i');
-      if (pattern.test(normalizedRaw)) {
-        return name;
-      }
-    }
-    const includesKey = Object.keys(_TEST_CARD_CONFIGS).find(
-      (name) => upperRaw.includes(name.toUpperCase())
-    );
-    if (includesKey) {
-      return includesKey;
-    }
-    return '';
-  }
-
-  function _testIsSameCardContextPair(left, right) {
-    if (!left || typeof left !== 'object' || !right || typeof right !== 'object') {
-      return false;
-    }
-    return (
-      left.profileId === right.profileId &&
-      left.cardName === right.cardName &&
-      left.rawCardName === right.rawCardName &&
-      left.cardNameXPath === right.cardNameXPath
-    );
-  }
-
-  function _testGetSelectedCategories(cardSettings) {
-    return (cardSettings.selectedCategories || []).slice();
-  }
-
-  function _testMoveOthersToEnd(categories) {
-    const ordered = [];
-    let hasOthers = false;
-    const seen = new Set();
-    categories.forEach((category) => {
-      if (typeof category !== 'string' || !category || seen.has(category)) {
-        return;
-      }
-      seen.add(category);
-      if (category === 'Others') {
-        hasOthers = true;
-        return;
-      }
-      ordered.push(category);
-    });
-    if (hasOthers) {
-      ordered.push('Others');
-    }
-    return ordered;
-  }
-
-  function _testGetCategoryDisplayOrder(cardSettings, availableCategories) {
-    const avail = availableCategories || [];
-    const selected = _testGetSelectedCategories(cardSettings).filter(
-      (category) => typeof category === 'string' && category
-    );
-    const baseOrder = selected.concat('Others');
-    const knownCategories = new Set(baseOrder);
-    const extras = avail.filter(
-      (category) => typeof category === 'string' && category && !knownCategories.has(category)
-    );
-    return _testMoveOthersToEnd(baseOrder.concat(extras));
-  }
-
-  function _testResolveCategory(merchantName, cardSettings, cardName) {
-    const cName = cardName || '';
-    if (!merchantName) {
-      return cardSettings.defaultCategory || 'Others';
-    }
-    if (cardSettings.merchantMap) {
-      if (cardSettings.merchantMap[merchantName]) {
-        return cardSettings.merchantMap[merchantName];
-      }
-      const normalizedName = merchantName.toUpperCase();
-      const hasLiteralAsterisk = merchantName.includes('*');
-      for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-        if ((!_testHasUnescapedWildcard(pattern) || hasLiteralAsterisk) && pattern.toUpperCase() === normalizedName) {
-          return category;
-        }
-      }
-      for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-        if (_testHasUnescapedWildcard(pattern) && _testMatchesWildcard(merchantName, pattern)) {
-          return category;
-        }
-      }
-    }
-    if (cName === 'XL Rewards Card') {
-      const normalized = _testNormalizeText(merchantName);
-      return /\bSGP$/i.test(normalized) ? 'Local' : 'Forex';
-    }
-    return cardSettings.defaultCategory || 'Others';
-  }
-
-  function _testCalculateSummary(transactions, cardSettings) {
-    const totals = {};
-    let totalAmount = 0;
-    transactions.forEach((transaction) => {
-      if (typeof transaction.amount_value !== 'number') {
-        return;
-      }
-      const category = transaction.category || cardSettings.defaultCategory || 'Others';
-      totals[category] = (totals[category] || 0) + transaction.amount_value;
-      totalAmount += transaction.amount_value;
-    });
-    return {
-      totals,
-      total_amount: totalAmount,
-      transaction_count: transactions.length
-    };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  const isTestEnv = typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true;
-  if (isTestEnv) {
+  // ── Test seam (outer scope: sync/storage classes only) ───────────────────
+  // Pure helpers that live inside the inner IIFE are exported from there (see
+  // the seam block just before runMainSafe() below).
+  if (typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true) {
     globalThis.__CC_SUBCAP_TEST_EXPORTS__ = {
       parseSyncPayload,
       toSyncErrorMessage,
@@ -2419,29 +2066,10 @@
       getJwtTokenExpiryMs,
       SyncEngine,
       SyncManager,
-      StorageAdapter,
-      CARD_CONFIGS: _TEST_CARD_CONFIGS,
-      EMBEDDED_CAP_POLICY: _TEST_EMBEDDED_CAP_POLICY,
-      normalizeCapPolicy: _testNormalizeCapPolicy,
-      getCapSeverity: _testGetCapSeverity,
-      getCardCapPolicy: _testGetCardCapPolicy,
-      normalizeText: _testNormalizeText,
-      parseAmount: _testParseAmount,
-      hashFNV1a: _testHashFNV1a,
-      buildMaybankSyntheticRefNo: _testBuildMaybankSyntheticRefNo,
-      hasUnescapedWildcard: _testHasUnescapedWildcard,
-      buildWildcardRegex: _testBuildWildcardRegex,
-      matchesWildcard: _testMatchesWildcard,
-      escapeRegExp: _testEscapeRegExp,
-      resolveSupportedCardName: _testResolveSupportedCardName,
-      isSameCardContextPair: _testIsSameCardContextPair,
-      getSelectedCategories: _testGetSelectedCategories,
-      moveOthersToEnd: _testMoveOthersToEnd,
-      getCategoryDisplayOrder: _testGetCategoryDisplayOrder,
-      resolveCategory: _testResolveCategory,
-      calculateSummary: _testCalculateSummary
+      StorageAdapter
     };
-    return;
+    // Do NOT return here — the inner IIFE must still run to register the
+    // pure-helper exports from its own scope.
   }
 
   // Phase 3: Sync integration (imports added)
@@ -5390,6 +5018,37 @@
       );
       ensureCapPolicyLoaded().catch(() => {});
     }
+
+    // ── Test seam (inner IIFE: pure helpers) ────────────────────────────────
+    // Exports real functions from this scope so tests can import them without
+    // running any DOM or network code. The return below short-circuits the rest
+    // of the inner IIFE (runMainSafe etc.) in test mode.
+    if (typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true) {
+      Object.assign(globalThis.__CC_SUBCAP_TEST_EXPORTS__, {
+        CARD_CONFIGS,
+        EMBEDDED_CAP_POLICY,
+        normalizeCapPolicy,
+        getCapSeverity,
+        getCardCapPolicy,
+        normalizeText,
+        parseAmount,
+        hashFNV1a,
+        buildMaybankSyntheticRefNo,
+        hasUnescapedWildcard,
+        buildWildcardRegex,
+        matchesWildcard,
+        escapeRegExp,
+        resolveSupportedCardName,
+        isSameCardContextPair,
+        getSelectedCategories,
+        moveOthersToEnd,
+        getCategoryDisplayOrder,
+        resolveCategory,
+        calculateSummary
+      });
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     let mainInProgress = false;
     let mainRerunPending = false;
