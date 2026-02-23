@@ -36,6 +36,11 @@ Design test plans and cases that cover happy paths, edge cases, contract compati
   - `Others` rendered last where the ordering policy applies
   - chevron visible and stateful for expandable transaction lists.
 
+## SPA/Observer Regression Cases (Mandatory for userscript SPA fixes)
+- Include a case where first card-name selector resolves to stale/unrecognized text while a later selector is valid; expected outcome: later selector wins.
+- Include a case where observer-driven updates resolve before timeout; expected outcome: no late timeout side-effects (timer cleared).
+- Include at least one rapid card-switch scenario to ensure no stale overlay/data write occurs during context transitions.
+
 ## Output Format
 - Test plan
 - Contract compatibility matrix (when relevant)

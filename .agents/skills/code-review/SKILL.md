@@ -25,6 +25,11 @@ Provide structured, actionable review feedback focused on correctness, security,
 3. Check repo-specific constraints and testing coverage.
 4. Summarize findings using the output template.
 
+## Mandatory Heuristics (Userscript/SPA)
+- For fallback selector arrays, verify the code only accepts semantically valid matches (for example known card name) and does not short-circuit on the first visible node.
+- For Promise + observer wait patterns, verify timeout handles are cleared on success and cleanup paths disconnect observers + timers.
+- For context-preserving teardown paths, verify state resets and observer preservation cannot create stale-write or stale-overlay windows.
+
 ## Output Format
 - Summary
 - Critical Issues

@@ -36,9 +36,11 @@ Implement production-ready code changes aligned with this repo's standards.
 ### Userscript
 - Preserve read-only portal behavior (no form submits or transaction actions).
 - Use stable selectors with fallbacks and handle DOM drift/parsing failures gracefully.
+- For fallback selector arrays, require semantic validation before accepting a match; do not stop at first present node if resolved card identity is empty/unknown.
 - Keep data local-first; sync remains explicit opt-in.
 - Do not log sensitive data; avoid exposing tokens, secrets, or decrypted payloads.
 - Prefer Tampermonkey storage APIs for sensitive state. Use browser storage fallback only for non-sensitive data.
+- In observer-based wait helpers, keep timeout handles and clear them on early resolve to avoid late callback side-effects.
 
 ### Backend
 - Follow existing Hono + middleware composition patterns.
