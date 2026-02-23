@@ -31,6 +31,30 @@ jobs:
           set -o pipefail
           npm run test:userscript:coverage | tee userscript-coverage.txt
 
+      - name: Enforce userscript coverage thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY=$(grep '^# all files' userscript-coverage.txt || true)
+          if [ -z "$SUMMARY" ]; then
+            echo "ERROR: Coverage summary line not found in output."
+            exit 1
+          fi
+          # Summary format: # all files | line % | branch % | funcs % | ...
+          LINE_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $2}' | tr -d ' %')
+          BRANCH_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $3}' | tr -d ' %')
+          FUNC_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $4}' | tr -d ' %')
+          echo "Coverage — lines: ${LINE_PCT}%  branches: ${BRANCH_PCT}%  funcs: ${FUNC_PCT}%"
+          FAIL=0
+          awk -v v="$LINE_PCT"   'BEGIN { if (v+0 < 30) { print "FAIL: line coverage " v "% < 30% threshold"; exit 1 } }' || FAIL=1
+          awk -v v="$BRANCH_PCT" 'BEGIN { if (v+0 < 60) { print "FAIL: branch coverage " v "% < 60% threshold"; exit 1 } }' || FAIL=1
+          awk -v v="$FUNC_PCT"   'BEGIN { if (v+0 < 35) { print "FAIL: function coverage " v "% < 35% threshold"; exit 1 } }' || FAIL=1
+          if [ "$FAIL" -eq 1 ]; then
+            echo "One or more coverage thresholds not met."
+            exit 1
+          fi
+          echo "All coverage thresholds met."
+
       - name: Run backend coverage
         shell: bash
         run: |
