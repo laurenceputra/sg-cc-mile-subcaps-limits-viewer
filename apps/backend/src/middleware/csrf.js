@@ -57,7 +57,7 @@ function parseOrigin(url) {
  * - Wildcard subdomains (*.example.com)
  * - Development environments (localhost, 127.0.0.1)
  */
-function isOriginAllowed(origin, allowedOrigins, isDevelopment = false) {
+export function isOriginAllowed(origin, allowedOrigins, isDevelopment = false) {
   if (!origin) return false;
   
   // Development mode: allow localhost and 127.0.0.1
@@ -99,6 +99,10 @@ function isOriginAllowed(origin, allowedOrigins, isDevelopment = false) {
   }
   
   return false;
+}
+
+export function getAuthoritativeOrigin(originHeader, refererHeader) {
+  return normalizeAuthoritativeOrigin(originHeader) || parseOrigin(refererHeader);
 }
 
 /**
@@ -151,7 +155,7 @@ export function csrfProtection(options = {}) {
 
     // Origin-like values such as "null", extension schemes, and malformed strings are non-authoritative.
     // For those cases we fall back to Referer parsing, then strict no-origin handling.
-    const requestOrigin = normalizeAuthoritativeOrigin(origin) || parseOrigin(referer);
+  const requestOrigin = getAuthoritativeOrigin(origin, referer);
     
     // If no origin/referer is provided
     if (!requestOrigin) {

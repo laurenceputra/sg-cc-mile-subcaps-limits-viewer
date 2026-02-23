@@ -16,7 +16,7 @@ async function registerAndLogin(env) {
   const email = `user-${crypto.randomBytes(6).toString('hex')}@example.com`;
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
-  await app.fetch(new Request('http://localhost/auth/register', {
+  const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -24,6 +24,7 @@ async function registerAndLogin(env) {
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
+  assert.equal(registerRes.status, 200);
 
   const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
     method: 'POST',
@@ -34,6 +35,7 @@ async function registerAndLogin(env) {
     body: JSON.stringify({ email, passwordHash })
   }), env);
 
+  assert.equal(loginRes.status, 200);
   const loginData = await loginRes.json();
   return { token: loginData.token };
 }
@@ -153,44 +155,11 @@ describe('Workers user + admin flow', () => {
     }
   });
 
-  test('admin endpoints require admin role', async () => {
+  test('admin endpoints enforce authorization', async () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv(), db };
-      const { token } = await registerAndLogin(env);
-      const res = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        }
-      }), env);
-      assert.equal(res.status, 403);
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
-
-  test('admin endpoints reject missing token', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv(), db };
-      const res = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
-        method: 'GET',
-        headers: {
-          'Origin': 'https://pib.uob.com.sg'
-        }
-      }), env);
-      assert.equal(res.status, 401);
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
-
-  test('revoked admin token blocks access', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv(), db };
+      const { token: userToken } = await registerAndLogin(env);
       const { adminLoginRes, adminData } = await loginAdmin(env);
       assert.equal(adminLoginRes.status, 200);
 
@@ -203,14 +172,39 @@ describe('Workers user + admin flow', () => {
       }), env);
       assert.equal(logoutRes.status, 200);
 
-      const adminRes = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${adminData.token}`,
-          'Origin': 'https://pib.uob.com.sg'
+      const cases = [
+        {
+          name: 'missing token',
+          headers: {
+            'Origin': 'https://pib.uob.com.sg'
+          },
+          expectedStatus: 401
+        },
+        {
+          name: 'non-admin token',
+          headers: {
+            'Authorization': `Bearer ${userToken}`,
+            'Origin': 'https://pib.uob.com.sg'
+          },
+          expectedStatus: 403
+        },
+        {
+          name: 'revoked admin token',
+          headers: {
+            'Authorization': `Bearer ${adminData.token}`,
+            'Origin': 'https://pib.uob.com.sg'
+          },
+          expectedStatus: 401
         }
-      }), env);
-      assert.equal(adminRes.status, 401);
+      ];
+
+      for (const testCase of cases) {
+        const res = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
+          method: 'GET',
+          headers: testCase.headers
+        }), env);
+        assert.equal(res.status, testCase.expectedStatus, `admin access should block ${testCase.name}`);
+      }
     } finally {
       await disposeTestDatabase(mf);
     }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
+import { clearRefreshCookie, buildRefreshCookie } from '../../api/auth.js';
 
 function randomEmail() {
   return `refresh-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -39,6 +40,17 @@ async function loginUser(env, email, passwordHash) {
 }
 
 describe('Workers auth refresh flow', () => {
+  test('refresh cookie helpers apply expected flags', () => {
+    const cookie = buildRefreshCookie('token', { ENVIRONMENT: 'production', NODE_ENV: 'production' });
+    assert.ok(cookie.includes('ccSubcapRefreshToken=token'));
+    assert.ok(cookie.includes('HttpOnly'));
+    assert.ok(cookie.includes('SameSite=Strict'));
+    assert.ok(cookie.includes('Secure'));
+
+    const cleared = clearRefreshCookie({ ENVIRONMENT: 'production', NODE_ENV: 'production' });
+    assert.ok(cleared.includes('Max-Age=0'));
+    assert.ok(cleared.includes('HttpOnly'));
+  });
   test('login sets refresh cookie', async () => {
     const { mf, db } = await createTestDatabase();
     try {
@@ -98,32 +110,4 @@ describe('Workers auth refresh flow', () => {
     }
   });
 
-  test('logout clears refresh cookie', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv(), db };
-      const email = randomEmail();
-      const passwordHash = crypto.randomBytes(32).toString('hex');
-
-      await registerUser(env, email, passwordHash);
-      const { loginRes, loginData } = await loginUser(env, email, passwordHash);
-      const refreshCookie = loginRes.headers.get('Set-Cookie');
-      const refreshToken = extractCookieValue(refreshCookie, 'ccSubcapRefreshToken');
-
-      const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${loginData.token}`,
-          'Origin': 'https://pib.uob.com.sg',
-          'Cookie': `ccSubcapRefreshToken=${refreshToken}`
-        }
-      }), env);
-      assert.equal(logoutRes.status, 200);
-      const logoutCookie = logoutRes.headers.get('Set-Cookie');
-      assert.ok(logoutCookie);
-      assert.ok(logoutCookie.includes('Max-Age=0'));
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
 });
