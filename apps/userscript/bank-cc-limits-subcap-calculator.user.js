@@ -2053,6 +2053,20 @@
     document.body.appendChild(overlay);
   }
 
+  const isTestEnv = typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true;
+  if (isTestEnv) {
+    globalThis.__CC_SUBCAP_TEST_EXPORTS__ = {
+      parseSyncPayload,
+      toSyncErrorMessage,
+      validateServerUrl,
+      calculateMonthlyTotalsForSync,
+      buildSyncCardSnapshot,
+      getJwtTokenExpiryMs,
+      SyncEngine
+    };
+    return;
+  }
+
   // Phase 3: Sync integration (imports added)
 
   (() => {

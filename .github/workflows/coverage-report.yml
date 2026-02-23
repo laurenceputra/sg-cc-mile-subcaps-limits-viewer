@@ -1,0 +1,83 @@
+name: Coverage Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  coverage:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run userscript coverage
+        run: npm run test:userscript:coverage | tee userscript-coverage.txt
+
+      - name: Run backend coverage
+        run: npm --prefix apps/backend run test:coverage | tee backend-coverage.txt
+
+      - name: Comment coverage summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- coverage-report -->';
+            const userscriptText = fs.readFileSync('userscript-coverage.txt', 'utf8');
+            const backendText = fs.readFileSync('backend-coverage.txt', 'utf8');
+
+            const extractTable = (text) => {
+              const start = text.indexOf('start of coverage report');
+              const end = text.indexOf('end of coverage report');
+              if (start === -1 || end === -1) return null;
+              return text.slice(start, end + 'end of coverage report'.length);
+            };
+
+            const userscriptTable = extractTable(userscriptText) || 'Coverage report not found.';
+            const backendTable = extractTable(backendText) || 'Coverage report not found.';
+
+            const body = [
+              marker,
+              '### Coverage report',
+              '',
+              '**Userscript**',
+              '```',
+              userscriptTable.trim(),
+              '```',
+              '',
+              '**Backend**',
+              '```',
+              backendTable.trim(),
+              '```'
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
