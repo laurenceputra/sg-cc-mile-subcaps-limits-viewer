@@ -2100,7 +2100,8 @@
         allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span'
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
+          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
         ],
         requireVisibleCardName: true,
         observeCardContext: true,

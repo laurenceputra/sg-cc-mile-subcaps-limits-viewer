@@ -26,10 +26,16 @@ jobs:
         run: npm ci
 
       - name: Run userscript coverage
-        run: npm run test:userscript:coverage | tee userscript-coverage.txt
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:userscript:coverage | tee userscript-coverage.txt
 
       - name: Run backend coverage
-        run: npm --prefix apps/backend run test:coverage | tee backend-coverage.txt
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --prefix apps/backend run test:coverage | tee backend-coverage.txt
 
       - name: Comment coverage summary
         if: github.event_name == 'pull_request'
