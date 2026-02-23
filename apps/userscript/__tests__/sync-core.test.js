@@ -1,46 +1,41 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
 
 const USERSCRIPT_PATH = new URL('../bank-cc-limits-subcap-calculator.user.js', import.meta.url);
+let cachedExports = null;
 
 async function loadExports() {
-  const code = await readFile(USERSCRIPT_PATH, 'utf8');
-  const sandbox = {
-    console,
-    URL,
-    window: {
-      localStorage: {
-        getItem: () => null,
-        setItem: () => {},
-        removeItem: () => {}
-      },
-      location: { origin: 'https://pib.uob.com.sg', hostname: 'pib.uob.com.sg' }
+  if (cachedExports) {
+    return cachedExports;
+  }
+
+  globalThis.window = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
     },
-    document: {
-      head: { appendChild: () => {} },
-      createElement: () => ({ setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } })
-    },
-    crypto: globalThis.crypto,
-    TextEncoder,
-    TextDecoder,
-    btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
-    atob: (value) => Buffer.from(value, 'base64').toString('binary'),
-    fetch: async () => ({ ok: true, status: 200, statusText: 'OK', text: async () => '' }),
-    GM_getValue: undefined,
-    GM_setValue: undefined,
-    GM_addStyle: undefined,
-    GM_xmlhttpRequest: undefined,
-    __CC_SUBCAP_TEST__: true
+    location: { origin: 'https://pib.uob.com.sg', hostname: 'pib.uob.com.sg' }
   };
+  globalThis.document = {
+    head: { appendChild: () => {} },
+    createElement: () => ({ setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } })
+  };
+  globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
+  globalThis.atob = (value) => Buffer.from(value, 'base64').toString('binary');
+  globalThis.fetch = async () => ({ ok: true, status: 200, statusText: 'OK', text: async () => '' });
+  globalThis.GM_getValue = undefined;
+  globalThis.GM_setValue = undefined;
+  globalThis.GM_addStyle = undefined;
+  globalThis.GM_xmlhttpRequest = undefined;
+  globalThis.__CC_SUBCAP_TEST__ = true;
 
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, { filename: 'bank-cc-limits-subcap-calculator.user.js' });
+  await import(`${USERSCRIPT_PATH.href}?test=${Date.now()}`);
 
-  const exports = sandbox.__CC_SUBCAP_TEST_EXPORTS__;
+  const exports = globalThis.__CC_SUBCAP_TEST_EXPORTS__;
   assert.ok(exports, 'Expected test exports to be registered');
-  return exports;
+  cachedExports = exports;
+  return cachedExports;
 }
 
 function normalizeValue(value) {
