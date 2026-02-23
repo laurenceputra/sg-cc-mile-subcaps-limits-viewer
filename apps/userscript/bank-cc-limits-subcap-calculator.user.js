@@ -2437,15 +2437,8 @@
 
     // Phase 3: Initialize sync manager
     const syncManager = new SyncManager(storage);
-    let stopTableObserver = null;
-    let stopCardContextObserver = null;
-    let stopButtonStateObserver = null;
-    let activeCardContext = {
-      profileId: '',
-      cardName: '',
-      rawCardName: '',
-      cardNameXPath: ''
-    };
+    const observerCoordinator = createObserverCoordinator();
+    let activeCardContext = buildEmptyCardContext();
     let mainCardContext = null;
     let shouldShowButton = false;
     let isButtonActionable = false;
@@ -2511,24 +2504,8 @@
     function removeUI(options = {}) {
       const preserveCardContextObserver = options.preserveCardContextObserver === true;
       const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
-      if (stopTableObserver) {
-        stopTableObserver();
-        stopTableObserver = null;
-      }
-      if (stopCardContextObserver && !preserveCardContextObserver) {
-        stopCardContextObserver();
-        stopCardContextObserver = null;
-      }
-      if (stopButtonStateObserver && !preserveButtonStateObserver) {
-        stopButtonStateObserver();
-        stopButtonStateObserver = null;
-      }
-      activeCardContext = {
-        profileId: '',
-        cardName: '',
-        rawCardName: '',
-        cardNameXPath: ''
-      };
+      observerCoordinator.stopAll({ preserveCardContextObserver, preserveButtonStateObserver });
+      activeCardContext = buildEmptyCardContext();
       mainCardContext = null;
       shouldShowButton = false;
       isButtonActionable = false;
@@ -2816,19 +2793,97 @@
       };
     }
 
+    function createObserverCoordinator() {
+      let stopTableObserver = null;
+      let stopCardContextObserver = null;
+      let stopButtonStateObserver = null;
+
+      const stopObserver = (stopper) => {
+        if (typeof stopper === 'function') {
+          stopper();
+        }
+      };
+
+      const stopAll = (options = {}) => {
+        const preserveCardContextObserver = options.preserveCardContextObserver === true;
+        const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
+        stopObserver(stopTableObserver);
+        stopTableObserver = null;
+        if (!preserveCardContextObserver) {
+          stopObserver(stopCardContextObserver);
+          stopCardContextObserver = null;
+        }
+        if (!preserveButtonStateObserver) {
+          stopObserver(stopButtonStateObserver);
+          stopButtonStateObserver = null;
+        }
+      };
+
+      const startTableObserver = (tableBodyXPaths, onChange, waitTimeoutMs, debounceMs) => {
+        stopObserver(stopTableObserver);
+        stopTableObserver = observeTableBody(tableBodyXPaths, onChange, waitTimeoutMs, debounceMs);
+      };
+
+      const startCardContextObserver = (profile, options, onChange, debounceMs) => {
+        stopObserver(stopCardContextObserver);
+        stopCardContextObserver = null;
+        if (profile?.observeCardContext) {
+          stopCardContextObserver = observeCardContextChanges(profile, options, onChange, debounceMs);
+        }
+      };
+
+      const startButtonStateObserver = (profile, options, onChange, debounceMs) => {
+        stopObserver(stopButtonStateObserver);
+        stopButtonStateObserver = observeButtonActionability(profile, options, onChange, debounceMs);
+      };
+
+      return {
+        stopAll,
+        startTableObserver,
+        startCardContextObserver,
+        startButtonStateObserver
+      };
+    }
+
     function normalizeText(value) {
       return (value || '').replace(/\s+/g, ' ').trim();
     }
 
-    function isSameCardContext(nextContext) {
+    function buildEmptyCardContext(profileId = '') {
+      return {
+        profileId: profileId || '',
+        cardName: '',
+        rawCardName: '',
+        cardNameXPath: ''
+      };
+    }
+
+    function buildCardContext(profile, match) {
+      const profileId = profile?.id || '';
+      if (!match?.name) {
+        return buildEmptyCardContext(profileId);
+      }
+      return {
+        profileId,
+        cardName: match.name,
+        rawCardName: match.raw,
+        cardNameXPath: match.xpath || ''
+      };
+    }
+
+    function isSameCardContext(nextContext, referenceContext = activeCardContext) {
       if (!nextContext || typeof nextContext !== 'object') {
         return false;
       }
+      const baseline = referenceContext && typeof referenceContext === 'object' ? referenceContext : null;
+      if (!baseline) {
+        return false;
+      }
       return (
-        nextContext.profileId === activeCardContext.profileId &&
-        nextContext.cardName === activeCardContext.cardName &&
-        nextContext.rawCardName === activeCardContext.rawCardName &&
-        nextContext.cardNameXPath === activeCardContext.cardNameXPath
+        nextContext.profileId === baseline.profileId &&
+        nextContext.cardName === baseline.cardName &&
+        nextContext.rawCardName === baseline.rawCardName &&
+        nextContext.cardNameXPath === baseline.cardNameXPath
       );
     }
 
@@ -2925,15 +2980,7 @@
       }
       const requireVisible = options.requireVisible === true;
       const match = findActiveCardName(profile, { requireVisible });
-      if (!match?.name) {
-        return { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
-      }
-      return {
-        profileId: profile.id,
-        cardName: match.name,
-        rawCardName: match.raw,
-        cardNameXPath: match.xpath || ''
-      };
+      return buildCardContext(profile, match);
     }
 
     function findAnyTableBody(xpaths) {
@@ -4757,12 +4804,7 @@
         return;
       }
 
-      activeCardContext = {
-        profileId: profile.id,
-        cardName,
-        rawCardName: cardContext.raw,
-        cardNameXPath: cardContext.xpath || ''
-      };
+      activeCardContext = buildCardContext(profile, cardContext);
       mainCardContext = { ...activeCardContext };
       shouldShowButton = true;
       isButtonActionable = true;
@@ -4814,14 +4856,7 @@
             waitTimeoutMs: reason === 'button' ? RUNTIME_LIMITS.clickContextTimeoutMs : waitTimeoutMs,
             requireVisible: profile.requireVisibleCardName === true
           });
-          const nextContext = latestContext?.name
-            ? {
-                profileId: profile.id,
-                cardName: latestContext.name,
-                rawCardName: latestContext.raw,
-                cardNameXPath: latestContext.xpath || ''
-              }
-            : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+          const nextContext = buildCardContext(profile, latestContext);
 
           if (!isSupportedCardContext(profile, nextContext, allowUnresolved)) {
             shouldShowButton = false;
@@ -4866,14 +4901,7 @@
             const writeTimeContext = findActiveCardName(profile, {
               requireVisible: profile.requireVisibleCardName === true
             });
-            const nextWriteContext = writeTimeContext?.name
-              ? {
-                  profileId: profile.id,
-                  cardName: writeTimeContext.name,
-                  rawCardName: writeTimeContext.raw,
-                  cardNameXPath: writeTimeContext.xpath || ''
-                }
-              : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+            const nextWriteContext = buildCardContext(profile, writeTimeContext);
             if (!isSameCardContext(nextWriteContext)) {
               shouldShowButton = Boolean(nextWriteContext.cardName);
               isButtonActionable = shouldShowButton;
@@ -4926,14 +4954,7 @@
           waitTimeoutMs: RUNTIME_LIMITS.clickContextTimeoutMs,
           requireVisible: profile.requireVisibleCardName === true
         });
-        const nextContext = quickContext?.name
-          ? {
-              profileId: profile.id,
-              cardName: quickContext.name,
-              rawCardName: quickContext.raw,
-              cardNameXPath: quickContext.xpath || ''
-            }
-          : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+        const nextContext = buildCardContext(profile, quickContext);
 
         if (!nextContext.cardName) {
           shouldShowButton = false;
@@ -4987,30 +5008,19 @@
 
       createButton(handleButtonClick, { enabled: isButtonActionable });
       setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
-      if (stopTableObserver) {
-        stopTableObserver();
-      }
-      stopTableObserver = observeTableBody(
+      observerCoordinator.startTableObserver(
         observedTableBodyXPaths,
         () => scheduleRefresh('table'),
         waitTimeoutMs,
         RUNTIME_LIMITS.tableRefreshDebounceMs
       );
-      if (stopCardContextObserver) {
-        stopCardContextObserver();
-      }
-      if (profile.observeCardContext) {
-        stopCardContextObserver = observeCardContextChanges(
-          profile,
-          { requireVisible: profile.requireVisibleCardName === true },
-          () => scheduleRefresh('card-context'),
-          RUNTIME_LIMITS.cardContextDebounceMs
-        );
-      }
-      if (stopButtonStateObserver) {
-        stopButtonStateObserver();
-      }
-      stopButtonStateObserver = observeButtonActionability(
+      observerCoordinator.startCardContextObserver(
+        profile,
+        { requireVisible: profile.requireVisibleCardName === true },
+        () => scheduleRefresh('card-context'),
+        RUNTIME_LIMITS.cardContextDebounceMs
+      );
+      observerCoordinator.startButtonStateObserver(
         profile,
         { requireVisible: profile.requireVisibleCardName === true },
         refreshButtonState,
@@ -5030,6 +5040,8 @@
         normalizeCapPolicy,
         getCapSeverity,
         getCardCapPolicy,
+        buildCardContext,
+        buildEmptyCardContext,
         normalizeText,
         parseAmount,
         hashFNV1a,

@@ -105,6 +105,35 @@ describe('SPA observers and card context helpers', () => {
     });
   });
 
+  // ── buildCardContext ─────────────────────────────────────────────────────
+
+  describe('buildCardContext', () => {
+    it('builds empty context when match is missing', async () => {
+      const { buildCardContext } = await loadExports();
+      const profile = { id: 'uob-pib' };
+      const result = buildCardContext(profile, null);
+      assert.deepEqual(result, {
+        profileId: 'uob-pib',
+        cardName: '',
+        rawCardName: '',
+        cardNameXPath: ''
+      });
+    });
+
+    it('builds populated context when match is present', async () => {
+      const { buildCardContext } = await loadExports();
+      const profile = { id: 'maybank2u-sg' };
+      const match = { name: 'XL Rewards Card', raw: 'XL Rewards Card', xpath: '/path' };
+      const result = buildCardContext(profile, match);
+      assert.deepEqual(result, {
+        profileId: 'maybank2u-sg',
+        cardName: 'XL Rewards Card',
+        rawCardName: 'XL Rewards Card',
+        cardNameXPath: '/path'
+      });
+    });
+  });
+
   // ── Rapid card-switch scenario ────────────────────────────────────────────
 
   describe('rapid card-switch context stability', () => {
