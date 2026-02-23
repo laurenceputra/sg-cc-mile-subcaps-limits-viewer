@@ -41,29 +41,31 @@ jobs:
             const userscriptText = fs.readFileSync('userscript-coverage.txt', 'utf8');
             const backendText = fs.readFileSync('backend-coverage.txt', 'utf8');
 
-            const extractTable = (text) => {
-              const start = text.indexOf('start of coverage report');
-              const end = text.indexOf('end of coverage report');
-              if (start === -1 || end === -1) return null;
-              return text.slice(start, end + 'end of coverage report'.length);
+            const extractSummary = (text) => {
+              const summaryRow = text
+                .split('\n')
+                .find((line) => line.startsWith('# all files'));
+              if (!summaryRow) return 'Coverage summary not found.';
+
+              const parts = summaryRow
+                .replace(/^#\s*/, '')
+                .split('|')
+                .map((part) => part.trim())
+                .filter(Boolean);
+
+              if (parts.length < 4) return 'Coverage summary parse failed.';
+              return `lines ${parts[1]}% | branches ${parts[2]}% | funcs ${parts[3]}%`;
             };
 
-            const userscriptTable = extractTable(userscriptText) || 'Coverage report not found.';
-            const backendTable = extractTable(backendText) || 'Coverage report not found.';
+            const userscriptSummary = extractSummary(userscriptText);
+            const backendSummary = extractSummary(backendText);
 
             const body = [
               marker,
-              '### Coverage report',
+              '### Coverage summary',
               '',
-              '**Userscript**',
-              '```',
-              userscriptTable.trim(),
-              '```',
-              '',
-              '**Backend**',
-              '```',
-              backendTable.trim(),
-              '```'
+              `- Userscript: ${userscriptSummary}`,
+              `- Backend: ${backendSummary}`
             ].join('\n');
 
             const { owner, repo } = context.repo;
