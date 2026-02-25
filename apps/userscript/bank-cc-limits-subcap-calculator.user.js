@@ -2591,6 +2591,7 @@
       };
 
       return new Promise((resolve) => {
+        let timeoutHandle = null;
         const existingMatch = getMatch();
         if (existingMatch) {
           resolve(existingMatch);
@@ -2601,12 +2602,15 @@
           const match = getMatch();
           if (match) {
             observer.disconnect();
+            if (timeoutHandle) {
+              window.clearTimeout(timeoutHandle);
+            }
             resolve(match);
           }
         });
 
         observer.observe(document.documentElement, { childList: true, subtree: true });
-        window.setTimeout(() => {
+        timeoutHandle = window.setTimeout(() => {
           observer.disconnect();
           resolve(null);
         }, timeoutMs);
@@ -3307,6 +3311,34 @@
       return false;
     }
 
+    function normalizeExactPattern(pattern) {
+      if (typeof pattern !== 'string') {
+        return '';
+      }
+      if (hasUnescapedWildcard(pattern)) {
+        return pattern;
+      }
+      let result = '';
+      let escapeNext = false;
+      for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escapeNext) {
+          result += char;
+          escapeNext = false;
+          continue;
+        }
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        result += char;
+      }
+      if (escapeNext) {
+        result += '\\';
+      }
+      return result;
+    }
+
     function escapeRegexChar(char) {
       return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
     }
@@ -3374,7 +3406,8 @@
         const normalizedName = merchantName.toUpperCase();
         const hasLiteralAsterisk = merchantName.includes('*');
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && pattern.toUpperCase() === normalizedName) {
+          const normalizedPattern = normalizeExactPattern(pattern).toUpperCase();
+          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && normalizedPattern === normalizedName) {
             return category;
           }
         }
@@ -4869,11 +4902,13 @@
           if (!isSameCardContext(nextContext)) {
             shouldShowButton = Boolean(nextContext.cardName);
             isButtonActionable = shouldShowButton;
+            activeCardContext = { ...nextContext };
             mainCardContext = nextContext.cardName ? { ...nextContext } : null;
             setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
             if (reason === 'table') {
               return;
             }
+            refreshPending = false;
             removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
             runMainSafe();
             return;
@@ -4905,10 +4940,12 @@
             if (!isSameCardContext(nextWriteContext)) {
               shouldShowButton = Boolean(nextWriteContext.cardName);
               isButtonActionable = shouldShowButton;
+              activeCardContext = { ...nextWriteContext };
               setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
               if (reason === 'table') {
                 return;
               }
+              refreshPending = false;
               removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
               runMainSafe();
               return;
@@ -4965,6 +5002,7 @@
         }
 
         if (!isSameCardContext(nextContext)) {
+          activeCardContext = { ...nextContext };
           mainCardContext = { ...nextContext };
           shouldShowButton = true;
           isButtonActionable = true;
@@ -4993,6 +5031,7 @@
           return;
         }
         if (!isSameCardContextPair(mainCardContext, resolvedContext)) {
+          activeCardContext = { ...resolvedContext };
           mainCardContext = { ...resolvedContext };
           shouldShowButton = true;
           isButtonActionable = true;

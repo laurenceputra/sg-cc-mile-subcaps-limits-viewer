@@ -155,7 +155,7 @@ export function csrfProtection(options = {}) {
 
     // Origin-like values such as "null", extension schemes, and malformed strings are non-authoritative.
     // For those cases we fall back to Referer parsing, then strict no-origin handling.
-  const requestOrigin = getAuthoritativeOrigin(origin, referer);
+    const requestOrigin = getAuthoritativeOrigin(origin, referer);
     
     // If no origin/referer is provided
     if (!requestOrigin) {

@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SUMMARY=$(grep '^# all files' userscript-coverage.txt || true)
+          SUMMARY=$(grep -E '^(#\s+)?all files' userscript-coverage.txt || true)
           if [ -z "$SUMMARY" ]; then
             echo "ERROR: Coverage summary line not found in output."
             exit 1
@@ -72,9 +72,9 @@ jobs:
             const backendText = fs.readFileSync('backend-coverage.txt', 'utf8');
 
             const extractSummary = (text) => {
-              const summaryRow = text
-                .split('\n')
-                .find((line) => line.startsWith('# all files'));
+            const summaryRow = text
+              .split('\n')
+              .find((line) => /^(#\s+)?all files/i.test(line));
               if (!summaryRow) return 'Coverage summary not found.';
 
               const parts = summaryRow

@@ -110,4 +110,39 @@ describe('Workers auth refresh flow', () => {
     }
   });
 
+  test('logout clears refresh cookie', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      await registerUser(env, email, passwordHash);
+      const { loginRes, loginData } = await loginUser(env, email, passwordHash);
+      const loginCookie = loginRes.headers.get('Set-Cookie');
+      const refreshToken = extractCookieValue(loginCookie, 'ccSubcapRefreshToken');
+      assert.ok(refreshToken);
+
+      const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${loginData.token}`,
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${refreshToken}`
+        }
+      }), env);
+
+      assert.equal(logoutRes.status, 200);
+      const logoutData = await logoutRes.json();
+      assert.equal(logoutData.success, true);
+      const setCookie = logoutRes.headers.get('Set-Cookie');
+      assert.ok(setCookie.includes('ccSubcapRefreshToken='));
+      assert.ok(setCookie.includes('Max-Age=0'));
+      assert.ok(setCookie.includes('HttpOnly'));
+      assert.ok(setCookie.includes('SameSite=Strict'));
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
 });

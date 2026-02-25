@@ -144,6 +144,15 @@ describe('parsing and categorization helpers', () => {
       assert.equal(resolveCategory('GRAB FOOD', settings), 'Transport');
     });
 
+    it('exact match unescapes literal asterisk', async () => {
+      const { resolveCategory } = await loadExports();
+      const settings = {
+        defaultCategory: 'Others',
+        merchantMap: { 'KrisPay\\*Paradise': 'Dining' }
+      };
+      assert.equal(resolveCategory('KrisPay*Paradise', settings), 'Dining');
+    });
+
     it('first matching wildcard pattern wins (insertion order)', async () => {
       const { resolveCategory } = await loadExports();
       const settings = {
