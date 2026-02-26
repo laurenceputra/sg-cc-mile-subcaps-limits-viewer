@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase, TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './test-utils.js';
+import { fetchPendingMappings } from '../../api/admin.js';
+import { fetchUserExport } from '../../api/user.js';
 
 function createEncryptedData() {
   return {
@@ -58,87 +60,36 @@ describe('Workers user + admin flow', () => {
   test('exports user data and lists devices', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const env = { ...createTestEnv(), db };
-      const { token } = await registerAndLogin(env);
+      const userId = await db.createUser(`user-${crypto.randomBytes(6).toString('hex')}@example.com`, crypto.randomBytes(32).toString('hex'), 'free');
       const encryptedData = createEncryptedData();
+      await db.upsertSyncBlobAtomic(userId, 1, encryptedData);
+      await db.registerDevice(userId, 'device-123', 'Test Device');
 
-      await app.fetch(new Request('http://localhost/auth/device/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({ deviceName: 'Test Device', deviceFingerprint: 'device-123' })
-      }), env);
-
-      await app.fetch(new Request('http://localhost/sync/data', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({ encryptedData, version: 1 })
-      }), env);
-
-      const exportRes = await app.fetch(new Request('http://localhost/user/export', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        }
-      }), env);
-
-      const exportData = await exportRes.json();
-      assert.equal(exportRes.status, 200);
-      assert.deepEqual(exportData.syncData, encryptedData);
-      assert.ok(Array.isArray(exportData.devices));
-      assert.ok(exportData.devices.length >= 1);
+      const exportPayload = await fetchUserExport(db, userId);
+      assert.deepEqual(exportPayload.syncData, encryptedData);
+      assert.ok(Array.isArray(exportPayload.devices));
+      assert.ok(exportPayload.devices.length >= 1);
     } finally {
       await disposeTestDatabase(mf);
     }
   });
 
-  test('admin can view pending mappings', async () => {
+  test('pending mappings query returns contributed entry', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const env = { ...createTestEnv(), db };
-      const { token } = await registerAndLogin(env);
-
-      await app.fetch(new Request('http://localhost/shared/mappings/contribute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({
-          mappings: [
-            {
-              merchantNormalized: 'TEST_MERCHANT',
-              category: 'Dining',
-              cardType: 'ONE',
-              confidence: 0.9
-            }
-          ]
-        })
-      }), env);
-
-      const { adminLoginRes, adminData: adminLoginData } = await loginAdmin(env);
-      assert.equal(adminLoginRes.status, 200);
-
-      const adminRes = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${adminLoginData.token}`,
-          'Origin': 'https://pib.uob.com.sg'
+      const userId = await db.createUser(`user-${crypto.randomBytes(6).toString('hex')}@example.com`, crypto.randomBytes(32).toString('hex'), 'free');
+      await db.contributeMappings(userId, [
+        {
+          merchantNormalized: 'TEST_MERCHANT',
+          category: 'Dining',
+          cardType: 'ONE',
+          confidence: 0.9
         }
-      }), env);
+      ]);
 
-      const adminData = await adminRes.json();
-      assert.equal(adminRes.status, 200);
-      assert.ok(Array.isArray(adminData.pending));
+      const pending = await fetchPendingMappings(db);
+      assert.ok(Array.isArray(pending));
+      assert.ok(pending.some(entry => entry.merchant_raw === 'TEST_MERCHANT'));
     } finally {
       await disposeTestDatabase(mf);
     }

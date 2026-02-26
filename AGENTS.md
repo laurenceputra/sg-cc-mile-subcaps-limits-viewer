@@ -132,6 +132,10 @@ For any change that touches database schema, auth/session flows, deployment conf
    - Monitor endpoint-level error rates for changed auth/session/data paths.
    - Treat unexplained 5xx increases as release blockers until triaged.
 
+## Verification Default (Mandatory)
+
+For any code change, run the most relevant verification commands by default and report the results. Do not ask permission to run tests. Only skip verification if the user explicitly requests it. If verification is long-running or destructive, still proceed unless the user has said not to. Always include the exact command(s) and a short outcome summary.
+
 ## Agents
 
 ### 📋 Requirements-Analyst

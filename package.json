@@ -2,6 +2,7 @@
   "name": "bank-cc-subcap-calculator",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Credit card subcap calculator with optional sync",
   "workspaces": [
     "apps/backend"

@@ -3,22 +3,25 @@ import { validateFields } from '../middleware/validation.js';
 
 const sync = new Hono();
 
+export async function fetchSyncSnapshot(db, userId) {
+  const blob = await db.getSyncBlob(userId);
+  if (!blob) {
+    return { encryptedData: null, version: 0 };
+  }
+
+  return {
+    encryptedData: JSON.parse(blob.encrypted_data),
+    version: blob.version,
+    updatedAt: blob.updated_at
+  };
+}
+
 sync.get('/data', async (c) => {
   const user = c.get('user');
   const db = c.get('db');
   
   try {
-    const blob = await db.getSyncBlob(user.userId);
-    
-    if (!blob) {
-      return c.json({ encryptedData: null, version: 0 });
-    }
-
-    return c.json({
-      encryptedData: JSON.parse(blob.encrypted_data),
-      version: blob.version,
-      updatedAt: blob.updated_at
-    });
+    return c.json(await fetchSyncSnapshot(db, user.userId));
   } catch (error) {
     console.error('[Sync] Get data error:', error);
     return c.json({ error: 'Failed to fetch sync data' }, 500);

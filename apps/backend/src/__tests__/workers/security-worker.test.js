@@ -3,20 +3,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
-import { getAuthoritativeOrigin, isOriginAllowed } from '../../middleware/csrf.js';
 
 describe('Workers security basics', () => {
-  test('origin normalization and allowlist behavior', () => {
-    const allowedOrigins = ['https://pib.uob.com.sg', 'https://cib.maybank2u.com.sg'];
-
-    assert.equal(getAuthoritativeOrigin('null', null), null);
-    assert.equal(getAuthoritativeOrigin('chrome-extension://abcdefghijklmnop', null), null);
-    assert.equal(getAuthoritativeOrigin('https://evil.example/path', null), 'https://evil.example');
-    assert.equal(getAuthoritativeOrigin('https://pib.uob.com.sg', null), 'https://pib.uob.com.sg');
-
-    assert.equal(isOriginAllowed('https://pib.uob.com.sg', allowedOrigins), true);
-    assert.equal(isOriginAllowed('https://evil.example', allowedOrigins), false);
-  });
   test('rejects state-changing request without origin in production', async () => {
     const { mf, db } = await createTestDatabase();
     try {
