@@ -11,7 +11,8 @@ describe('validation utils', () => {
 
   it('validates encrypted data and device ids', () => {
     const encryptedError = validateInput({ iv: 'a', ciphertext: 'b', tag: 123 }, 'encryptedData');
-    assert.equal(typeof encryptedError, 'string');
+    assert.strictEqual(typeof encryptedError, 'string', 'should return error string for invalid encrypted data');
+    assert.match(encryptedError, /tag/, 'error should mention the invalid tag field');
 
     assert.equal(validateInput('device-123', 'deviceId'), null);
     assert.equal(validateInput('device 123', 'deviceId'), 'Invalid device ID format');

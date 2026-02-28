@@ -3,28 +3,6 @@ import assert from 'node:assert/strict';
 import { loadExports, normalizeValue } from './helpers/load-userscript-exports.js';
 
 describe('userscript sync core', () => {
-  it('parses canonical and legacy payloads', async () => {
-    const { parseSyncPayload } = await loadExports();
-    const canonical = parseSyncPayload({
-      version: 1,
-      deviceId: 'device-1',
-      timestamp: Date.now(),
-      data: { cards: { UOB: { selectedCategories: [] } } }
-    });
-    assert.equal(canonical.ok, true);
-    assert.equal(canonical.format, 'canonical');
-    assert.deepEqual(normalizeValue(canonical.normalizedData), { cards: { UOB: { selectedCategories: [] } } });
-
-    const legacyRoot = parseSyncPayload({ cards: { MAYBANK: { selectedCategories: ['Dining'] } } });
-    assert.equal(legacyRoot.ok, true);
-    assert.equal(legacyRoot.format, 'legacy-cards-root');
-    assert.deepEqual(normalizeValue(legacyRoot.normalizedData), { cards: { MAYBANK: { selectedCategories: ['Dining'] } } });
-
-    const invalid = parseSyncPayload({ version: 1, deviceId: 'device-1', data: 'nope' });
-    assert.equal(invalid.ok, false);
-    assert.equal(invalid.format, 'invalid');
-  });
-
   it('derives sync totals and snapshot defaults', async () => {
     const { calculateMonthlyTotalsForSync, buildSyncCardSnapshot } = await loadExports();
     const transactions = [
@@ -50,37 +28,25 @@ describe('userscript sync core', () => {
     assert.deepEqual(normalizeValue(snapshot.selectedCategories), []);
   });
 
-  it('converts errors to sync messages', async () => {
-    const { toSyncErrorMessage } = await loadExports();
-    const cryptoError = new Error('Operation failed');
-    cryptoError.name = 'OperationError';
-    assert.equal(
-      toSyncErrorMessage(cryptoError),
-      'Unable to decrypt synced data. Verify your password and reconnect sync if needed.'
-    );
+  it('parses canonical and legacy payloads', async () => {
+    const { parseSyncPayload } = await loadExports();
+    const canonical = parseSyncPayload({
+      version: 1,
+      deviceId: 'device-1',
+      timestamp: Date.now(),
+      data: { cards: { UOB: { selectedCategories: [] } } }
+    });
+    assert.equal(canonical.ok, true);
+    assert.equal(canonical.format, 'canonical');
+    assert.deepEqual(normalizeValue(canonical.normalizedData), { cards: { UOB: { selectedCategories: [] } } });
 
-    const payloadError = new Error('Invalid sync payload structure');
-    payloadError.name = 'SyncPayloadError';
-    assert.equal(
-      toSyncErrorMessage(payloadError),
-      'Remote sync data format is unsupported or corrupted. Reconnect sync if this persists.'
-    );
-  });
+    const legacyRoot = parseSyncPayload({ cards: { MAYBANK: { selectedCategories: ['Dining'] } } });
+    assert.equal(legacyRoot.ok, true);
+    assert.equal(legacyRoot.format, 'legacy-cards-root');
+    assert.deepEqual(normalizeValue(legacyRoot.normalizedData), { cards: { MAYBANK: { selectedCategories: ['Dining'] } } });
 
-  it('validates server urls and jwt expiry parsing', async () => {
-    const { validateServerUrl, getJwtTokenExpiryMs } = await loadExports();
-    assert.throws(() => validateServerUrl(''), /Server URL is required/);
-    assert.throws(() => validateServerUrl('ftp://example.com'), /must use HTTP or HTTPS/);
-    assert.doesNotThrow(() => validateServerUrl('https://example.com'));
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const payload = Buffer.from(JSON.stringify({ exp: nowSeconds + 60 }), 'utf8')
-      .toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-    const token = `header.${payload}.signature`;
-    const expiryMs = getJwtTokenExpiryMs(token);
-    assert.ok(typeof expiryMs === 'number');
+    const invalid = parseSyncPayload({ version: 1, deviceId: 'device-1', data: 'nope' });
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.format, 'invalid');
   });
 });

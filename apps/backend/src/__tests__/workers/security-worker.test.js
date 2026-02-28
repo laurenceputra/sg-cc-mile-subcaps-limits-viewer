@@ -69,8 +69,8 @@ describe('Workers security basics', () => {
 
         assert.equal(res.status, 200, `trusted userscript should allow ${testCase.name}`);
         const data = await res.json();
-        assert.equal(typeof data.token, 'string');
-        assert.ok(data.token.length > 0);
+        assert.strictEqual(typeof data.token, 'string', `${testCase.name}: token should be a string`);
+        assert.match(data.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, `${testCase.name}: token should be valid JWT format`);
       }
     } finally {
       await disposeTestDatabase(mf);

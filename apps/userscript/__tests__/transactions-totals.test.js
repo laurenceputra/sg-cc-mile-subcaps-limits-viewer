@@ -144,7 +144,7 @@ describe('transactions and totals helpers', () => {
         { posting_date_iso: '2024-03-15', amount_value: 8.0, category: 'Fashion' }
       ];
       const totals = calculateMonthlyTotalsForSync(transactions, { defaultCategory: 'Others' });
-      assert.ok(totals['2024-03']);
+      assert.notEqual(totals['2024-03'], undefined, 'should create entry for month derived from posting_date_iso');
       assert.equal(totals['2024-03'].totals.Fashion, 8.0);
     });
 
@@ -196,13 +196,13 @@ describe('transactions and totals helpers', () => {
       const { moveOthersToEnd } = await loadExports();
       const result = moveOthersToEnd(['Others', 'Dining', 'Travel']);
       assert.equal(result[result.length - 1], 'Others');
-      assert.ok(result.indexOf('Dining') < result.indexOf('Others'));
+      assert.equal(result.indexOf('Dining') < result.indexOf('Others'), true, 'Dining should come before Others');
     });
 
     it('does not add Others if not in input', async () => {
       const { moveOthersToEnd } = await loadExports();
       const result = moveOthersToEnd(['Dining', 'Travel']);
-      assert.ok(!result.includes('Others'));
+      assert.equal(result.includes('Others'), false, 'Others should not be added if not in input');
     });
 
     it('deduplicates categories', async () => {

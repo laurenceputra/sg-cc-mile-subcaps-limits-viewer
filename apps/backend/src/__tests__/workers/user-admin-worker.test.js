@@ -67,8 +67,8 @@ describe('Workers user + admin flow', () => {
 
       const exportPayload = await fetchUserExport(db, userId);
       assert.deepEqual(exportPayload.syncData, encryptedData);
-      assert.ok(Array.isArray(exportPayload.devices));
-      assert.ok(exportPayload.devices.length >= 1);
+      assert.strictEqual(Array.isArray(exportPayload.devices), true, 'devices should be an array');
+      assert.strictEqual(exportPayload.devices.length, 1, 'should contain exactly the one registered device');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -88,8 +88,9 @@ describe('Workers user + admin flow', () => {
       ]);
 
       const pending = await fetchPendingMappings(db);
-      assert.ok(Array.isArray(pending));
-      assert.ok(pending.some(entry => entry.merchant_raw === 'TEST_MERCHANT'));
+      assert.strictEqual(Array.isArray(pending), true, 'pending mappings should be an array');
+      const testEntry = pending.find(entry => entry.merchant_raw === 'TEST_MERCHANT');
+      assert.notStrictEqual(testEntry, undefined, 'pending mappings should contain the contributed TEST_MERCHANT entry');
     } finally {
       await disposeTestDatabase(mf);
     }

@@ -13,8 +13,16 @@ describe('UI card parity (logic layer)', () => {
   describe('EMBEDDED_CAP_POLICY', () => {
     it('defines both UOB and Maybank cards', async () => {
       const { EMBEDDED_CAP_POLICY } = await loadExports();
-      assert.ok(Object.prototype.hasOwnProperty.call(EMBEDDED_CAP_POLICY.cards, "LADY'S SOLITAIRE CARD"));
-      assert.ok(Object.prototype.hasOwnProperty.call(EMBEDDED_CAP_POLICY.cards, 'XL Rewards Card'));
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(EMBEDDED_CAP_POLICY.cards, "LADY'S SOLITAIRE CARD"),
+        true,
+        'EMBEDDED_CAP_POLICY should define UOB card'
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(EMBEDDED_CAP_POLICY.cards, 'XL Rewards Card'),
+        true,
+        'EMBEDDED_CAP_POLICY should define Maybank card'
+      );
     });
 
     it('UOB uses per-category mode with 750 cap', async () => {
@@ -177,9 +185,9 @@ describe('UI card parity (logic layer)', () => {
     it('defines categories for UOB Lady\'s Solitaire Card', async () => {
       const { CARD_CONFIGS } = await loadExports();
       const config = CARD_CONFIGS["LADY'S SOLITAIRE CARD"];
-      assert.ok(Array.isArray(config.categories));
-      assert.ok(config.categories.includes('Dining'));
-      assert.ok(config.categories.includes('Travel'));
+      assert.equal(Array.isArray(config.categories), true, 'UOB categories should be an array');
+      assert.equal(config.categories.includes('Dining'), true, 'UOB should include Dining category');
+      assert.equal(config.categories.includes('Travel'), true, 'UOB should include Travel category');
       assert.equal(config.subcapSlots, 2);
       assert.equal(config.showManageTab, true);
     });
@@ -187,9 +195,9 @@ describe('UI card parity (logic layer)', () => {
     it('defines categories for Maybank XL Rewards Card', async () => {
       const { CARD_CONFIGS } = await loadExports();
       const config = CARD_CONFIGS['XL Rewards Card'];
-      assert.ok(Array.isArray(config.categories));
-      assert.ok(config.categories.includes('Local'));
-      assert.ok(config.categories.includes('Forex'));
+      assert.equal(Array.isArray(config.categories), true, 'Maybank categories should be an array');
+      assert.equal(config.categories.includes('Local'), true, 'Maybank should include Local category');
+      assert.equal(config.categories.includes('Forex'), true, 'Maybank should include Forex category');
       assert.equal(config.subcapSlots, 2);
       assert.equal(config.showManageTab, false);
     });

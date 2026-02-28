@@ -53,7 +53,7 @@ describe('Workers auth + sync flow', () => {
     try {
       const env = { ...createTestEnv(), db };
       const { token } = await registerAndLogin(env);
-      assert.ok(token);
+      assert.strictEqual(typeof token, 'string', 'login should return a JWT token');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -69,7 +69,7 @@ describe('Workers auth + sync flow', () => {
       const snapshot = await fetchSyncSnapshot(db, userId);
       assert.equal(snapshot.version, 1);
       assert.deepEqual(snapshot.encryptedData, encryptedData);
-      assert.ok(typeof snapshot.updatedAt !== 'undefined');
+      assert.strictEqual(typeof snapshot.updatedAt, 'number', 'updatedAt should be a Unix timestamp');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -128,7 +128,7 @@ describe('Workers auth + sync flow', () => {
 
       assert.equal(loginRes.status, 200);
       const loginData = await loginRes.json();
-      assert.ok(loginData.token);
+      assert.strictEqual(typeof loginData.token, 'string', 'trusted userscript login should return a token');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -163,7 +163,7 @@ describe('Workers auth + sync flow', () => {
 
       assert.equal(loginRes.status, 200);
       const loginData = await loginRes.json();
-      assert.ok(loginData.token);
+      assert.strictEqual(typeof loginData.token, 'string', 'trusted userscript login should return a token');
     } finally {
       await disposeTestDatabase(mf);
     }

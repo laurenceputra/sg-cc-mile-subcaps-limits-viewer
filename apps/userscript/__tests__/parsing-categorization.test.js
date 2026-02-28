@@ -44,33 +44,33 @@ describe('parsing and categorization helpers', () => {
     it('builds case-insensitive regex anchored at both ends', async () => {
       const { buildWildcardRegex } = await loadExports();
       const re = buildWildcardRegex('GRAB*');
-      assert.ok(re instanceof RegExp);
-      assert.ok(re.flags.includes('i'));
-      assert.ok(re.test('GRAB TRANSPORT'));
-      assert.ok(re.test('grab transport'));
-      assert.ok(!re.test('COFFEE'));
+      assert.equal(re instanceof RegExp, true, 'buildWildcardRegex should return a RegExp');
+      assert.match(re.flags, /i/, 'regex should be case-insensitive');
+      assert.equal(re.test('GRAB TRANSPORT'), true, 'should match GRAB TRANSPORT');
+      assert.equal(re.test('grab transport'), true, 'should match case-insensitively');
+      assert.equal(re.test('COFFEE'), false, 'should not match unrelated string');
     });
 
     it('wildcard does not match literal asterisk', async () => {
       const { buildWildcardRegex } = await loadExports();
       const re = buildWildcardRegex('A*B');
-      assert.ok(!re.test('A*B'));
-      assert.ok(re.test('AXXXB'));
-      assert.ok(re.test('AB'));
+      assert.equal(re.test('A*B'), false, 'wildcard should not match literal asterisk');
+      assert.equal(re.test('AXXXB'), true, 'wildcard should match intervening characters');
+      assert.equal(re.test('AB'), true, 'wildcard should match zero characters');
     });
 
     it('escaped asterisk matches literal asterisk', async () => {
       const { buildWildcardRegex } = await loadExports();
       const re = buildWildcardRegex('GRAB\\*FOOD');
-      assert.ok(re.test('GRAB*FOOD'));
-      assert.ok(!re.test('GRABFOOD'));
+      assert.equal(re.test('GRAB*FOOD'), true, 'escaped asterisk should match literal asterisk');
+      assert.equal(re.test('GRABFOOD'), false, 'escaped asterisk should not match empty string');
     });
 
     it('special regex chars in pattern are escaped', async () => {
       const { buildWildcardRegex } = await loadExports();
       const re = buildWildcardRegex('A.B*');
-      assert.ok(re.test('A.BXYZ'));
-      assert.ok(!re.test('AXBXYZ'));
+      assert.equal(re.test('A.BXYZ'), true, 'should match literal dot followed by wildcard');
+      assert.equal(re.test('AXBXYZ'), false, 'dot should be literal, not regex any-char');
     });
   });
 

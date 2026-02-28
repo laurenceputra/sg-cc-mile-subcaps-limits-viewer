@@ -1,16 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
-
-function makeStorage(initial = {}) {
-  const store = { ...initial };
-  return {
-    get: (k, d = null) => k in store ? store[k] : d,
-    set: (k, v) => { store[k] = v; },
-    remove: (k) => { delete store[k]; },
-    _store: store
-  };
-}
+import { makeMemoryStorage } from './helpers/test-doubles.js';
 
 function makeValidCacheEntry(overrides = {}) {
   return JSON.stringify({
@@ -30,7 +21,7 @@ describe('SyncManager', () => {
   describe('loadRememberedUnlockCacheEntry', () => {
     it('returns missing status when storage key is empty', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({});
+      const storage = makeMemoryStorage({});
       const manager = new SyncManager(storage);
       const result = manager.loadRememberedUnlockCacheEntry('nonexistent-key');
       assert.equal(result.status, 'missing');
@@ -39,7 +30,7 @@ describe('SyncManager', () => {
 
     it('returns malformed when value is not valid JSON', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({ 'mykey': 'not-json' });
+      const storage = makeMemoryStorage({ 'mykey': 'not-json' });
       const manager = new SyncManager(storage);
       const result = manager.loadRememberedUnlockCacheEntry('mykey');
       assert.equal(result.status, 'malformed');
@@ -47,7 +38,7 @@ describe('SyncManager', () => {
 
     it('returns malformed when cache has no expiresAt field', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({ 'mykey': JSON.stringify({ encrypted: { ciphertext: 'x', iv: 'y' } }) });
+      const storage = makeMemoryStorage({ 'mykey': JSON.stringify({ encrypted: { ciphertext: 'x', iv: 'y' } }) });
       const manager = new SyncManager(storage);
       const result = manager.loadRememberedUnlockCacheEntry('mykey');
       assert.equal(result.status, 'malformed');
@@ -55,7 +46,7 @@ describe('SyncManager', () => {
 
     it('returns malformed when encrypted field is missing', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({ 'mykey': JSON.stringify({ expiresAt: Date.now() + 10000 }) });
+      const storage = makeMemoryStorage({ 'mykey': JSON.stringify({ expiresAt: Date.now() + 10000 }) });
       const manager = new SyncManager(storage);
       const result = manager.loadRememberedUnlockCacheEntry('mykey');
       assert.equal(result.status, 'malformed');
@@ -63,7 +54,7 @@ describe('SyncManager', () => {
 
     it('returns malformed when encrypted.ciphertext is not a string', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({
+      const storage = makeMemoryStorage({
         'mykey': JSON.stringify({ expiresAt: Date.now() + 10000, encrypted: { ciphertext: 42, iv: 'x' } })
       });
       const manager = new SyncManager(storage);
@@ -73,7 +64,7 @@ describe('SyncManager', () => {
 
     it('returns expired when expiresAt is in the past', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({
+      const storage = makeMemoryStorage({
         'mykey': JSON.stringify({
           expiresAt: Date.now() - 1000,
           encrypted: { ciphertext: 'abc', iv: 'xyz' }
@@ -87,11 +78,11 @@ describe('SyncManager', () => {
 
     it('returns valid status with cache for a well-formed future entry', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({ 'mykey': makeValidCacheEntry() });
+      const storage = makeMemoryStorage({ 'mykey': makeValidCacheEntry() });
       const manager = new SyncManager(storage);
       const result = manager.loadRememberedUnlockCacheEntry('mykey');
       assert.equal(result.status, 'valid');
-      assert.ok(result.cache !== null);
+      assert.notEqual(result.cache, null, 'valid cache entry should return non-null cache');
       assert.equal(result.cache.encrypted.ciphertext, 'abc123');
     });
   });
@@ -101,21 +92,21 @@ describe('SyncManager', () => {
   describe('isConfirmedRememberedUnlockAuthFailure', () => {
     it('returns true for "invalid credentials" message', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Invalid credentials'), true);
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('INVALID CREDENTIALS'), true);
     });
 
     it('returns true for "unauthorized" message', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Unauthorized'), true);
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Request unauthorized'), true);
     });
 
     it('returns false for unrelated messages', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Network error'), false);
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure(''), false);
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure(null), false);
@@ -127,21 +118,21 @@ describe('SyncManager', () => {
   describe('isMalformedRememberedUnlockError', () => {
     it('returns true for OperationError', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const err = Object.assign(new Error('Operation failed'), { name: 'OperationError' });
       assert.equal(manager.isMalformedRememberedUnlockError(err), true);
     });
 
     it('returns true for "Invalid encrypted local secret payload" message', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const err = new Error('Invalid encrypted local secret payload');
       assert.equal(manager.isMalformedRememberedUnlockError(err), true);
     });
 
     it('returns false for other errors', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       assert.equal(manager.isMalformedRememberedUnlockError(new Error('Some error')), false);
       assert.equal(manager.isMalformedRememberedUnlockError(null), false);
     });
@@ -152,14 +143,14 @@ describe('SyncManager', () => {
   describe('isEnabled and isUnlocked', () => {
     it('isEnabled returns false when config has no enabled flag', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({ ccSubcapSyncConfig: JSON.stringify({}) });
+      const storage = makeMemoryStorage({ ccSubcapSyncConfig: JSON.stringify({}) });
       const manager = new SyncManager(storage);
       assert.equal(manager.isEnabled(), false);
     });
 
     it('isEnabled returns true when config has enabled: true', async () => {
       const { SyncManager } = await loadExports();
-      const storage = makeStorage({
+      const storage = makeMemoryStorage({
         ccSubcapSyncConfig: JSON.stringify({ enabled: true, serverUrl: 'https://example.com' })
       });
       const manager = new SyncManager(storage);
@@ -169,7 +160,7 @@ describe('SyncManager', () => {
 
     it('isUnlocked returns false when syncClient is null', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       assert.equal(manager.isUnlocked(), false);
     });
   });
@@ -179,25 +170,25 @@ describe('SyncManager', () => {
   describe('loadRememberedUnlockCache', () => {
     it('returns null when no cache entries exist', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const result = manager.loadRememberedUnlockCache();
       assert.equal(result, null);
     });
 
     it('returns valid host-scoped cache when present', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const cacheKey = manager.getRememberedUnlockCacheKey();
       manager.storage.set(cacheKey, makeValidCacheEntry());
 
       const result = manager.loadRememberedUnlockCache();
-      assert.ok(result !== null);
+      assert.notEqual(result, null, 'host-scoped cache should be returned');
       assert.equal(result.encrypted.ciphertext, 'abc123');
     });
 
     it('clears malformed host-scoped cache and returns null', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const cacheKey = manager.getRememberedUnlockCacheKey();
       manager.storage.set(cacheKey, 'malformed-json');
 
@@ -213,7 +204,7 @@ describe('SyncManager', () => {
   describe('clearRememberedUnlockCache', () => {
     it('removes host-scoped and legacy cache keys', async () => {
       const { SyncManager } = await loadExports();
-      const manager = new SyncManager(makeStorage());
+      const manager = new SyncManager(makeMemoryStorage());
       const hostKey = manager.getRememberedUnlockCacheKey();
       manager.storage.set(hostKey, makeValidCacheEntry());
       manager.storage.set('ccSubcapSyncUnlockCache', makeValidCacheEntry());
@@ -225,7 +216,7 @@ describe('SyncManager', () => {
     it('updates config rememberUnlock flag when updateConfig is true', async () => {
       const { SyncManager } = await loadExports();
       const config = { enabled: false, rememberUnlock: true };
-      const storage = makeStorage({ ccSubcapSyncConfig: JSON.stringify(config) });
+      const storage = makeMemoryStorage({ ccSubcapSyncConfig: JSON.stringify(config) });
       const manager = new SyncManager(storage);
       // Force config to have rememberUnlock
       manager.config = { ...manager.config, rememberUnlock: true };

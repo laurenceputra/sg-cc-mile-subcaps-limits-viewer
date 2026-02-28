@@ -16,7 +16,7 @@ function extractCookieValue(setCookieHeader, name) {
 }
 
 async function registerUser(env, email, passwordHash) {
-  await app.fetch(new Request('http://localhost/auth/register', {
+  const res = await app.fetch(new Request('http://localhost/auth/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -24,6 +24,7 @@ async function registerUser(env, email, passwordHash) {
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
+  assert.equal(res.status, 200, 'registration should succeed');
 }
 
 async function loginUser(env, email, passwordHash) {
@@ -42,14 +43,14 @@ async function loginUser(env, email, passwordHash) {
 describe('Workers auth refresh flow', () => {
   test('refresh cookie helpers apply expected flags', () => {
     const cookie = buildRefreshCookie('token', { ENVIRONMENT: 'production', NODE_ENV: 'production' });
-    assert.ok(cookie.includes('ccSubcapRefreshToken=token'));
-    assert.ok(cookie.includes('HttpOnly'));
-    assert.ok(cookie.includes('SameSite=Strict'));
-    assert.ok(cookie.includes('Secure'));
+    assert.match(cookie, /ccSubcapRefreshToken=token/, 'cookie should contain refresh token value');
+    assert.match(cookie, /HttpOnly/, 'cookie should include HttpOnly flag');
+    assert.match(cookie, /SameSite=Strict/, 'cookie should enforce SameSite=Strict');
+    assert.match(cookie, /Secure/, 'cookie should include Secure flag');
 
     const cleared = clearRefreshCookie({ ENVIRONMENT: 'production', NODE_ENV: 'production' });
-    assert.ok(cleared.includes('Max-Age=0'));
-    assert.ok(cleared.includes('HttpOnly'));
+    assert.match(cleared, /Max-Age=0/, 'cleared cookie should expire immediately');
+    assert.match(cleared, /HttpOnly/, 'cleared cookie should retain HttpOnly flag');
   });
   test('login sets refresh cookie', async () => {
     const { mf, db } = await createTestDatabase();
@@ -61,9 +62,9 @@ describe('Workers auth refresh flow', () => {
       await registerUser(env, email, passwordHash);
       const { loginRes } = await loginUser(env, email, passwordHash);
       const setCookie = loginRes.headers.get('Set-Cookie');
-      assert.ok(setCookie);
-      assert.ok(setCookie.includes('ccSubcapRefreshToken='));
-      assert.ok(setCookie.includes('HttpOnly'));
+      assert.strictEqual(typeof setCookie, 'string', 'login should set a cookie');
+      assert.match(setCookie, /ccSubcapRefreshToken=/, 'cookie should contain refresh token');
+      assert.match(setCookie, /HttpOnly/, 'cookie should include HttpOnly flag');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -80,7 +81,7 @@ describe('Workers auth refresh flow', () => {
       const { loginRes } = await loginUser(env, email, passwordHash);
       const originalCookie = loginRes.headers.get('Set-Cookie');
       const originalRefreshToken = extractCookieValue(originalCookie, 'ccSubcapRefreshToken');
-      assert.ok(originalRefreshToken);
+      assert.strictEqual(typeof originalRefreshToken, 'string', 'login should return a refresh token');
 
       const refreshRes = await app.fetch(new Request('http://localhost/auth/refresh', {
         method: 'POST',
@@ -91,10 +92,10 @@ describe('Workers auth refresh flow', () => {
       }), env);
       assert.equal(refreshRes.status, 200);
       const refreshData = await refreshRes.json();
-      assert.ok(refreshData.token);
+      assert.strictEqual(typeof refreshData.token, 'string', 'refresh should return an access token');
       const rotatedCookie = refreshRes.headers.get('Set-Cookie');
       const rotatedRefreshToken = extractCookieValue(rotatedCookie, 'ccSubcapRefreshToken');
-      assert.ok(rotatedRefreshToken);
+      assert.strictEqual(typeof rotatedRefreshToken, 'string', 'refresh should issue a rotated token');
       assert.notEqual(rotatedRefreshToken, originalRefreshToken);
 
       const reuseRes = await app.fetch(new Request('http://localhost/auth/refresh', {
@@ -121,7 +122,7 @@ describe('Workers auth refresh flow', () => {
       const { loginRes, loginData } = await loginUser(env, email, passwordHash);
       const loginCookie = loginRes.headers.get('Set-Cookie');
       const refreshToken = extractCookieValue(loginCookie, 'ccSubcapRefreshToken');
-      assert.ok(refreshToken);
+      assert.strictEqual(typeof refreshToken, 'string', 'login should return a refresh token');
 
       const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
         method: 'POST',
@@ -136,10 +137,10 @@ describe('Workers auth refresh flow', () => {
       const logoutData = await logoutRes.json();
       assert.equal(logoutData.success, true);
       const setCookie = logoutRes.headers.get('Set-Cookie');
-      assert.ok(setCookie.includes('ccSubcapRefreshToken='));
-      assert.ok(setCookie.includes('Max-Age=0'));
-      assert.ok(setCookie.includes('HttpOnly'));
-      assert.ok(setCookie.includes('SameSite=Strict'));
+      assert.match(setCookie, /ccSubcapRefreshToken=/, 'logout should clear refresh token cookie');
+      assert.match(setCookie, /Max-Age=0/, 'logout cookie should expire immediately');
+      assert.match(setCookie, /HttpOnly/, 'logout cookie should retain HttpOnly flag');
+      assert.match(setCookie, /SameSite=Strict/, 'logout cookie should retain SameSite=Strict');
     } finally {
       await disposeTestDatabase(mf);
     }

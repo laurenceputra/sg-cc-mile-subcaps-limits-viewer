@@ -51,6 +51,17 @@ For this repo, coverage improvement is a primary QA goal. Use this skill to plan
 - Coverage work must include negative/error paths (unauthorized, invalid input, version conflicts, malformed payloads), not only happy paths.
 - For cross-surface changes, validate userscript/backend contract behavior and regression fixtures together.
 
+## Userscript Coverage Requirements (Mandatory)
+- Coverage thresholds (userscript scope): `lines: 30`, `functions: 35`, `branches: 78`.
+- Test location: `apps/userscript/__tests__/*.test.js`.
+- Loader usage: tests must import `apps/userscript/__tests__/helpers/load-userscript-exports.js` and call `await loadExports()` before using exports.
+- Mocking guidance: stub `globalThis.fetch`, `window.localStorage`, `document`, `GM_*` helpers (`GM_getValue`, `GM_setValue`, `GM_addStyle`, `GM_xmlhttpRequest`), and set `globalThis.__CC_SUBCAP_TEST__ = true` when importing the userscript.
+- Test naming & granularity: prefer small unit tests for pure helpers and a few small integration tests for initialization and DOM wiring; avoid large monolithic tests.
+- Coverage enforcement recommendation: add `c8` and a `check-coverage` step to gate thresholds.
+  - Example: `npm i -D c8`
+  - Example: `npx c8 --reporter=text --reporter=lcov node --test --experimental-test-coverage apps/userscript/__tests__/*.test.js`
+  - Example: `npx c8 check-coverage --lines 30 --functions 35 --branches 78`
+
 ## Coverage Targets and Gates
 - Changed files target: >= 90% line coverage and >= 80% branch coverage.
 - Backend floor target: >= 80% line coverage and >= 70% branch coverage.
