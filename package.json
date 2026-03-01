@@ -2,6 +2,7 @@
   "name": "bank-cc-subcap-calculator",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Credit card subcap calculator with optional sync",
   "workspaces": [
     "apps/backend"
@@ -12,6 +13,10 @@
     "lint:userscript": "eslint --max-warnings=0 apps/userscript/bank-cc-limits-subcap-calculator.user.js",
     "prepush:verify": "npm run lint:userscript",
     "test": "npm run test --workspaces --if-present",
+    "test:userscript": "node --test apps/userscript/__tests__/*.test.js",
+    "test:userscript:coverage": "node --test --experimental-test-coverage apps/userscript/__tests__/*.test.js",
+    "test:anti-patterns": "node check-test-antipatterns.mjs",
+    "test:coverage": "npm run test:userscript:coverage && npm --prefix apps/backend run test:coverage",
     "dev": "npm run dev --workspaces --if-present"
   },
   "keywords": [

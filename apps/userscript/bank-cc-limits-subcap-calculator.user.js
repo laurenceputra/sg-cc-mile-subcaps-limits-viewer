@@ -2053,6 +2053,39 @@
     document.body.appendChild(overlay);
   }
 
+  // ── Test seam (outer scope: sync/storage classes only) ───────────────────
+  // Pure helpers that live inside the inner IIFE are exported from there (see
+  // the seam block just before runMainSafe() below).
+  if (typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true) {
+    globalThis.__CC_SUBCAP_TEST_EXPORTS__ = {
+      ApiClient,
+      CryptoManager,
+      SyncClient,
+      SyncSecretVault,
+      arrayBufferToBase64,
+      base64ToArrayBuffer,
+      deriveKey,
+      encrypt,
+      decrypt,
+      generateDeviceId,
+      getPayloadTopLevelKeys,
+      hasValidTimestamp,
+      isObjectRecord,
+      looksLikeCardSettings,
+      parseSyncPayload,
+      toSyncErrorMessage,
+      validateServerUrl,
+      calculateMonthlyTotalsForSync,
+      buildSyncCardSnapshot,
+      getJwtTokenExpiryMs,
+      SyncEngine,
+      SyncManager,
+      StorageAdapter
+    };
+    // Do NOT return here — the inner IIFE must still run to register the
+    // pure-helper exports from its own scope.
+  }
+
   // Phase 3: Sync integration (imports added)
 
   (() => {
@@ -2086,7 +2119,8 @@
         allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span'
+          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
+          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
         ],
         requireVisibleCardName: true,
         observeCardContext: true,
@@ -2417,15 +2451,8 @@
 
     // Phase 3: Initialize sync manager
     const syncManager = new SyncManager(storage);
-    let stopTableObserver = null;
-    let stopCardContextObserver = null;
-    let stopButtonStateObserver = null;
-    let activeCardContext = {
-      profileId: '',
-      cardName: '',
-      rawCardName: '',
-      cardNameXPath: ''
-    };
+    const observerCoordinator = createObserverCoordinator();
+    let activeCardContext = buildEmptyCardContext();
     let mainCardContext = null;
     let shouldShowButton = false;
     let isButtonActionable = false;
@@ -2491,24 +2518,8 @@
     function removeUI(options = {}) {
       const preserveCardContextObserver = options.preserveCardContextObserver === true;
       const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
-      if (stopTableObserver) {
-        stopTableObserver();
-        stopTableObserver = null;
-      }
-      if (stopCardContextObserver && !preserveCardContextObserver) {
-        stopCardContextObserver();
-        stopCardContextObserver = null;
-      }
-      if (stopButtonStateObserver && !preserveButtonStateObserver) {
-        stopButtonStateObserver();
-        stopButtonStateObserver = null;
-      }
-      activeCardContext = {
-        profileId: '',
-        cardName: '',
-        rawCardName: '',
-        cardNameXPath: ''
-      };
+      observerCoordinator.stopAll({ preserveCardContextObserver, preserveButtonStateObserver });
+      activeCardContext = buildEmptyCardContext();
       mainCardContext = null;
       shouldShowButton = false;
       isButtonActionable = false;
@@ -2594,6 +2605,7 @@
       };
 
       return new Promise((resolve) => {
+        let timeoutHandle = null;
         const existingMatch = getMatch();
         if (existingMatch) {
           resolve(existingMatch);
@@ -2604,12 +2616,15 @@
           const match = getMatch();
           if (match) {
             observer.disconnect();
+            if (timeoutHandle) {
+              window.clearTimeout(timeoutHandle);
+            }
             resolve(match);
           }
         });
 
         observer.observe(document.documentElement, { childList: true, subtree: true });
-        window.setTimeout(() => {
+        timeoutHandle = window.setTimeout(() => {
           observer.disconnect();
           resolve(null);
         }, timeoutMs);
@@ -2796,19 +2811,97 @@
       };
     }
 
+    function createObserverCoordinator() {
+      let stopTableObserver = null;
+      let stopCardContextObserver = null;
+      let stopButtonStateObserver = null;
+
+      const stopObserver = (stopper) => {
+        if (typeof stopper === 'function') {
+          stopper();
+        }
+      };
+
+      const stopAll = (options = {}) => {
+        const preserveCardContextObserver = options.preserveCardContextObserver === true;
+        const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
+        stopObserver(stopTableObserver);
+        stopTableObserver = null;
+        if (!preserveCardContextObserver) {
+          stopObserver(stopCardContextObserver);
+          stopCardContextObserver = null;
+        }
+        if (!preserveButtonStateObserver) {
+          stopObserver(stopButtonStateObserver);
+          stopButtonStateObserver = null;
+        }
+      };
+
+      const startTableObserver = (tableBodyXPaths, onChange, waitTimeoutMs, debounceMs) => {
+        stopObserver(stopTableObserver);
+        stopTableObserver = observeTableBody(tableBodyXPaths, onChange, waitTimeoutMs, debounceMs);
+      };
+
+      const startCardContextObserver = (profile, options, onChange, debounceMs) => {
+        stopObserver(stopCardContextObserver);
+        stopCardContextObserver = null;
+        if (profile?.observeCardContext) {
+          stopCardContextObserver = observeCardContextChanges(profile, options, onChange, debounceMs);
+        }
+      };
+
+      const startButtonStateObserver = (profile, options, onChange, debounceMs) => {
+        stopObserver(stopButtonStateObserver);
+        stopButtonStateObserver = observeButtonActionability(profile, options, onChange, debounceMs);
+      };
+
+      return {
+        stopAll,
+        startTableObserver,
+        startCardContextObserver,
+        startButtonStateObserver
+      };
+    }
+
     function normalizeText(value) {
       return (value || '').replace(/\s+/g, ' ').trim();
     }
 
-    function isSameCardContext(nextContext) {
+    function buildEmptyCardContext(profileId = '') {
+      return {
+        profileId: profileId || '',
+        cardName: '',
+        rawCardName: '',
+        cardNameXPath: ''
+      };
+    }
+
+    function buildCardContext(profile, match) {
+      const profileId = profile?.id || '';
+      if (!match?.name) {
+        return buildEmptyCardContext(profileId);
+      }
+      return {
+        profileId,
+        cardName: match.name,
+        rawCardName: match.raw,
+        cardNameXPath: match.xpath || ''
+      };
+    }
+
+    function isSameCardContext(nextContext, referenceContext = activeCardContext) {
       if (!nextContext || typeof nextContext !== 'object') {
         return false;
       }
+      const baseline = referenceContext && typeof referenceContext === 'object' ? referenceContext : null;
+      if (!baseline) {
+        return false;
+      }
       return (
-        nextContext.profileId === activeCardContext.profileId &&
-        nextContext.cardName === activeCardContext.cardName &&
-        nextContext.rawCardName === activeCardContext.rawCardName &&
-        nextContext.cardNameXPath === activeCardContext.cardNameXPath
+        nextContext.profileId === baseline.profileId &&
+        nextContext.cardName === baseline.cardName &&
+        nextContext.rawCardName === baseline.rawCardName &&
+        nextContext.cardNameXPath === baseline.cardNameXPath
       );
     }
 
@@ -2905,15 +2998,7 @@
       }
       const requireVisible = options.requireVisible === true;
       const match = findActiveCardName(profile, { requireVisible });
-      if (!match?.name) {
-        return { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
-      }
-      return {
-        profileId: profile.id,
-        cardName: match.name,
-        rawCardName: match.raw,
-        cardNameXPath: match.xpath || ''
-      };
+      return buildCardContext(profile, match);
     }
 
     function findAnyTableBody(xpaths) {
@@ -3240,6 +3325,34 @@
       return false;
     }
 
+    function normalizeExactPattern(pattern) {
+      if (typeof pattern !== 'string') {
+        return '';
+      }
+      if (hasUnescapedWildcard(pattern)) {
+        return pattern;
+      }
+      let result = '';
+      let escapeNext = false;
+      for (let i = 0; i < pattern.length; i += 1) {
+        const char = pattern[i];
+        if (escapeNext) {
+          result += char;
+          escapeNext = false;
+          continue;
+        }
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        result += char;
+      }
+      if (escapeNext) {
+        result += '\\';
+      }
+      return result;
+    }
+
     function escapeRegexChar(char) {
       return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
     }
@@ -3307,7 +3420,8 @@
         const normalizedName = merchantName.toUpperCase();
         const hasLiteralAsterisk = merchantName.includes('*');
         for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
-          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && pattern.toUpperCase() === normalizedName) {
+          const normalizedPattern = normalizeExactPattern(pattern).toUpperCase();
+          if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && normalizedPattern === normalizedName) {
             return category;
           }
         }
@@ -4737,12 +4851,7 @@
         return;
       }
 
-      activeCardContext = {
-        profileId: profile.id,
-        cardName,
-        rawCardName: cardContext.raw,
-        cardNameXPath: cardContext.xpath || ''
-      };
+      activeCardContext = buildCardContext(profile, cardContext);
       mainCardContext = { ...activeCardContext };
       shouldShowButton = true;
       isButtonActionable = true;
@@ -4794,14 +4903,7 @@
             waitTimeoutMs: reason === 'button' ? RUNTIME_LIMITS.clickContextTimeoutMs : waitTimeoutMs,
             requireVisible: profile.requireVisibleCardName === true
           });
-          const nextContext = latestContext?.name
-            ? {
-                profileId: profile.id,
-                cardName: latestContext.name,
-                rawCardName: latestContext.raw,
-                cardNameXPath: latestContext.xpath || ''
-              }
-            : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+          const nextContext = buildCardContext(profile, latestContext);
 
           if (!isSupportedCardContext(profile, nextContext, allowUnresolved)) {
             shouldShowButton = false;
@@ -4814,11 +4916,13 @@
           if (!isSameCardContext(nextContext)) {
             shouldShowButton = Boolean(nextContext.cardName);
             isButtonActionable = shouldShowButton;
+            activeCardContext = { ...nextContext };
             mainCardContext = nextContext.cardName ? { ...nextContext } : null;
             setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
             if (reason === 'table') {
               return;
             }
+            refreshPending = false;
             removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
             runMainSafe();
             return;
@@ -4846,21 +4950,16 @@
             const writeTimeContext = findActiveCardName(profile, {
               requireVisible: profile.requireVisibleCardName === true
             });
-            const nextWriteContext = writeTimeContext?.name
-              ? {
-                  profileId: profile.id,
-                  cardName: writeTimeContext.name,
-                  rawCardName: writeTimeContext.raw,
-                  cardNameXPath: writeTimeContext.xpath || ''
-                }
-              : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+            const nextWriteContext = buildCardContext(profile, writeTimeContext);
             if (!isSameCardContext(nextWriteContext)) {
               shouldShowButton = Boolean(nextWriteContext.cardName);
               isButtonActionable = shouldShowButton;
+              activeCardContext = { ...nextWriteContext };
               setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
               if (reason === 'table') {
                 return;
               }
+              refreshPending = false;
               removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
               runMainSafe();
               return;
@@ -4906,14 +5005,7 @@
           waitTimeoutMs: RUNTIME_LIMITS.clickContextTimeoutMs,
           requireVisible: profile.requireVisibleCardName === true
         });
-        const nextContext = quickContext?.name
-          ? {
-              profileId: profile.id,
-              cardName: quickContext.name,
-              rawCardName: quickContext.raw,
-              cardNameXPath: quickContext.xpath || ''
-            }
-          : { profileId: profile.id, cardName: '', rawCardName: '', cardNameXPath: '' };
+        const nextContext = buildCardContext(profile, quickContext);
 
         if (!nextContext.cardName) {
           shouldShowButton = false;
@@ -4924,6 +5016,7 @@
         }
 
         if (!isSameCardContext(nextContext)) {
+          activeCardContext = { ...nextContext };
           mainCardContext = { ...nextContext };
           shouldShowButton = true;
           isButtonActionable = true;
@@ -4952,6 +5045,7 @@
           return;
         }
         if (!isSameCardContextPair(mainCardContext, resolvedContext)) {
+          activeCardContext = { ...resolvedContext };
           mainCardContext = { ...resolvedContext };
           shouldShowButton = true;
           isButtonActionable = true;
@@ -4967,30 +5061,19 @@
 
       createButton(handleButtonClick, { enabled: isButtonActionable });
       setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
-      if (stopTableObserver) {
-        stopTableObserver();
-      }
-      stopTableObserver = observeTableBody(
+      observerCoordinator.startTableObserver(
         observedTableBodyXPaths,
         () => scheduleRefresh('table'),
         waitTimeoutMs,
         RUNTIME_LIMITS.tableRefreshDebounceMs
       );
-      if (stopCardContextObserver) {
-        stopCardContextObserver();
-      }
-      if (profile.observeCardContext) {
-        stopCardContextObserver = observeCardContextChanges(
-          profile,
-          { requireVisible: profile.requireVisibleCardName === true },
-          () => scheduleRefresh('card-context'),
-          RUNTIME_LIMITS.cardContextDebounceMs
-        );
-      }
-      if (stopButtonStateObserver) {
-        stopButtonStateObserver();
-      }
-      stopButtonStateObserver = observeButtonActionability(
+      observerCoordinator.startCardContextObserver(
+        profile,
+        { requireVisible: profile.requireVisibleCardName === true },
+        () => scheduleRefresh('card-context'),
+        RUNTIME_LIMITS.cardContextDebounceMs
+      );
+      observerCoordinator.startButtonStateObserver(
         profile,
         { requireVisible: profile.requireVisibleCardName === true },
         refreshButtonState,
@@ -4998,6 +5081,98 @@
       );
       ensureCapPolicyLoaded().catch(() => {});
     }
+
+    // ── Test seam (inner IIFE: pure helpers) ────────────────────────────────
+    // Exports real functions from this scope so tests can import them without
+    // running any DOM or network code. The return below short-circuits the rest
+    // of the inner IIFE (runMainSafe etc.) in test mode.
+    if (typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true) {
+      Object.assign(globalThis.__CC_SUBCAP_TEST_EXPORTS__, {
+        CARD_CONFIGS,
+        EMBEDDED_CAP_POLICY,
+        normalizeCapPolicy,
+        getCapSeverity,
+        getCardCapPolicy,
+        getParsedDate,
+        buildCardContext,
+        buildEmptyCardContext,
+        setStatusMessage,
+        createSyncTab,
+        showSyncSetupDialog,
+        normalizeText,
+        loadSettings,
+        saveSettings,
+        ensureCardSettings,
+        updateStoredTransactions,
+        buildFallbackData,
+        getStoredTransactions,
+        calculateMonthlyTotals,
+        createOverlay,
+        switchTab,
+        createObserverCoordinator,
+        observeTableBody,
+        observeCardContextChanges,
+        observeButtonActionability,
+        evalXPath,
+        waitForXPath,
+        waitForTableBodyRows,
+        waitForAnyXPath,
+        waitForAnyTableBodyRows,
+        main,
+        isElementVisible,
+        findActiveCardName,
+        matchesProfile,
+        isSupportedCardContext,
+        resolveActiveCardContext,
+        findAnyTableBody,
+        getActiveCardName,
+        resolveSupportedCardName,
+        escapeRegExp,
+        parseAmount,
+        hashFNV1a,
+        buildMaybankSyntheticRefNo,
+        hasUnescapedWildcard,
+        buildWildcardRegex,
+        matchesWildcard,
+        isSameCardContextPair,
+        createButton,
+        setButtonState,
+        ensureUiStyles,
+        getSelectedCategories,
+        getDefaultCategoryOptions,
+        getMappingOptions,
+        buildTransactions,
+        buildMaybankTransactions,
+        buildData,
+        renderSummary,
+        renderManageView,
+        renderSpendingView,
+        createSpendDetailsToggle,
+        renderCategorySelectors,
+        renderDefaultCategory,
+        renderMerchantMapping,
+        applyCapToneStyles,
+        readCachedCapPolicy,
+        writeCachedCapPolicy,
+        initializeCachedCapPolicy,
+        getConfiguredPolicyServerUrl,
+        fetchCapPolicyFromBackend,
+        ensureCapPolicyLoaded,
+        formatMonthLabel,
+        parsePostingDate,
+        toISODate,
+        fromISODate,
+        normalizeRefNo,
+        normalizeKey,
+        extractDollarsAndCents,
+        moveOthersToEnd,
+        getCategoryDisplayOrder,
+        resolveCategory,
+        calculateSummary
+      });
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     let mainInProgress = false;
     let mainRerunPending = false;

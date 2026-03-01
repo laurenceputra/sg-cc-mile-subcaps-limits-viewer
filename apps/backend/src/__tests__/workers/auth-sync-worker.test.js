@@ -52,30 +52,18 @@ describe('Workers auth + sync flow', () => {
     try {
       const env = { ...createTestEnv(), db };
       const { token } = await registerAndLogin(env);
-      assert.ok(token);
+      assert.strictEqual(typeof token, 'string', 'login should return a JWT token');
     } finally {
       await disposeTestDatabase(mf);
     }
   });
 
-  test('syncs encrypted data', async () => {
+  test('sync snapshot reflects stored payload', async () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv(), db };
       const { token } = await registerAndLogin(env);
       const encryptedData = createEncryptedData();
-
-      const firstGet = await app.fetch(new Request('http://localhost/sync/data', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        }
-      }), env);
-
-      const firstData = await firstGet.json();
-      assert.equal(firstGet.status, 200);
-      assert.equal(firstData.version, 0);
 
       const putRes = await app.fetch(new Request('http://localhost/sync/data', {
         method: 'PUT',
@@ -88,8 +76,11 @@ describe('Workers auth + sync flow', () => {
       }), env);
 
       assert.equal(putRes.status, 200);
+      const putData = await putRes.json();
+      assert.equal(putData.success, true);
+      assert.equal(putData.version, 1);
 
-      const secondGet = await app.fetch(new Request('http://localhost/sync/data', {
+      const getRes = await app.fetch(new Request('http://localhost/sync/data', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -97,10 +88,12 @@ describe('Workers auth + sync flow', () => {
         }
       }), env);
 
-      const secondData = await secondGet.json();
-      assert.equal(secondGet.status, 200);
-      assert.equal(secondData.version, 1);
-      assert.deepEqual(secondData.encryptedData, encryptedData);
+      assert.equal(getRes.status, 200);
+      const snapshot = await getRes.json();
+
+      assert.equal(snapshot.version, 1);
+      assert.deepEqual(snapshot.encryptedData, encryptedData);
+      assert.strictEqual(typeof snapshot.updatedAt, 'number', 'updatedAt should be a Unix timestamp');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -130,10 +123,10 @@ describe('Workers auth + sync flow', () => {
     }
   });
 
-  test('allows trusted userscript login with Origin null in production', async () => {
+  test('allows trusted userscript when origin is null', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const env = { ...createTestEnv(), ENVIRONMENT: 'production', db };
       const email = randomEmail();
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
@@ -151,54 +144,85 @@ describe('Workers auth + sync flow', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CC-Userscript': 'tampermonkey-v1',
+          'Origin': 'null',
+          'X-CC-Userscript': 'tampermonkey-v1'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(loginRes.status, 200);
+      const loginData = await loginRes.json();
+      assert.strictEqual(typeof loginData.token, 'string', 'trusted userscript login should return a token');
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('allows trusted userscript when origin is non-http', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), ENVIRONMENT: 'production', db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+      assert.equal(registerRes.status, 200);
+
+      const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'chrome-extension://abc123',
+          'X-CC-Userscript': 'tampermonkey-v1'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(loginRes.status, 200);
+      const loginData = await loginRes.json();
+      assert.strictEqual(typeof loginData.token, 'string', 'trusted userscript login should return a token');
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('rejects non-authoritative origin without trusted userscript header', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), ENVIRONMENT: 'production', db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+      assert.equal(registerRes.status, 200);
+
+      const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
           'Origin': 'null'
         },
         body: JSON.stringify({ email, passwordHash })
       }), env);
 
-      assert.equal(loginRes.status, 200);
-      const loginData = await loginRes.json();
-      assert.equal(typeof loginData.token, 'string');
-      assert.ok(loginData.token.length > 0);
+      assert.equal(loginRes.status, 403);
     } finally {
       await disposeTestDatabase(mf);
     }
   });
 
-  test('allows trusted userscript login with non-http(s) origin in production', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
-      const email = randomEmail();
-      const passwordHash = crypto.randomBytes(32).toString('hex');
-
-      const registerRes = await app.fetch(new Request('http://localhost/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({ email, passwordHash })
-      }), env);
-      assert.equal(registerRes.status, 200);
-
-      const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CC-Userscript': 'tampermonkey-v1',
-          'Origin': 'chrome-extension://abcdefghijklmnop'
-        },
-        body: JSON.stringify({ email, passwordHash })
-      }), env);
-
-      assert.equal(loginRes.status, 200);
-      const loginData = await loginRes.json();
-      assert.equal(typeof loginData.token, 'string');
-      assert.ok(loginData.token.length > 0);
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
 });

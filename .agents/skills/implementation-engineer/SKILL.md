@@ -50,6 +50,10 @@ Implement production-ready code changes aligned with this repo's standards.
 - Never hardcode secrets, credentials, or environment defaults that weaken production safety.
 
 ## Verification
+- Run the most relevant verification commands by default and report results; do not ask permission to run tests.
+- Only skip verification if the user explicitly requests it.
+- If verification is long-running or destructive, proceed unless the user has said not to.
+- Always include the exact command(s) and a short outcome summary.
 - Run relevant tests for touched areas, at minimum:
   - `npm run lint:userscript` for userscript changes (required; catches undefined globals/scope regressions)
   - `npm --prefix apps/backend test` for backend changes

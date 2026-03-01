@@ -1,0 +1,115 @@
+name: Coverage Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  coverage:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run userscript coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:userscript:coverage | tee userscript-coverage.txt
+
+      - name: Enforce userscript coverage thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY=$(grep -E '^(#\s+)?all files' userscript-coverage.txt || true)
+          if [ -z "$SUMMARY" ]; then
+            echo "ERROR: Coverage summary line not found in output."
+            exit 1
+          fi
+          # Summary format: # all files | line % | branch % | funcs % | ...
+          LINE_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $2}' | tr -d ' %')
+          BRANCH_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $3}' | tr -d ' %')
+          FUNC_PCT=$(echo "$SUMMARY" | awk -F'|' '{print $4}' | tr -d ' %')
+          echo "Coverage — lines: ${LINE_PCT}%  branches: ${BRANCH_PCT}%  funcs: ${FUNC_PCT}%"
+          FAIL=0
+          awk -v v="$LINE_PCT"   'BEGIN { if (v+0 < 30) { print "FAIL: line coverage " v "% < 30% threshold"; exit 1 } }' || FAIL=1
+          awk -v v="$BRANCH_PCT" 'BEGIN { if (v+0 < 60) { print "FAIL: branch coverage " v "% < 60% threshold"; exit 1 } }' || FAIL=1
+          awk -v v="$FUNC_PCT"   'BEGIN { if (v+0 < 35) { print "FAIL: function coverage " v "% < 35% threshold"; exit 1 } }' || FAIL=1
+          if [ "$FAIL" -eq 1 ]; then
+            echo "One or more coverage thresholds not met."
+            exit 1
+          fi
+          echo "All coverage thresholds met."
+
+      - name: Run backend coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --prefix apps/backend run test:coverage | tee backend-coverage.txt
+
+      - name: Comment coverage summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- coverage-report -->';
+            const userscriptText = fs.readFileSync('userscript-coverage.txt', 'utf8');
+            const backendText = fs.readFileSync('backend-coverage.txt', 'utf8');
+
+            const extractSummary = (text) => {
+            const summaryRow = text
+              .split('\n')
+              .find((line) => /^(#\s+)?all files/i.test(line));
+              if (!summaryRow) return 'Coverage summary not found.';
+
+              const parts = summaryRow
+                .replace(/^#\s*/, '')
+                .split('|')
+                .map((part) => part.trim())
+                .filter(Boolean);
+
+              if (parts.length < 4) return 'Coverage summary parse failed.';
+              return `lines ${parts[1]}% | branches ${parts[2]}% | funcs ${parts[3]}%`;
+            };
+
+            const userscriptSummary = extractSummary(userscriptText);
+            const backendSummary = extractSummary(backendText);
+
+            const body = [
+              marker,
+              '### Coverage summary',
+              '',
+              `- Userscript: ${userscriptSummary}`,
+              `- Backend: ${backendSummary}`
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

@@ -6,6 +6,10 @@ import { getCleanupHealth } from '../auth/cleanup.js';
 
 const admin = new Hono();
 
+export async function fetchPendingMappings(db) {
+  return db.getPendingContributions();
+}
+
 admin.use('/*', adminAuthMiddleware);
 
 // Health check for cleanup jobs
@@ -33,7 +37,7 @@ admin.get('/mappings/pending', async (c) => {
   const db = c.get('db');
   
   try {
-    const pending = await db.getPendingContributions();
+    const pending = await fetchPendingMappings(db);
     
     // Audit log admin viewing pending mappings
     await logAuditEvent(db, {

@@ -4,6 +4,15 @@ import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const user = new Hono();
 
+export async function fetchUserExport(db, userId) {
+  const blob = await db.getSyncBlob(userId);
+  const devices = await db.getDevicesByUser(userId);
+  return {
+    syncData: blob ? JSON.parse(blob.encrypted_data) : null,
+    devices
+  };
+}
+
 user.delete('/data', async (c) => {
   const userAuth = c.get('user');
   const db = c.get('db');
@@ -31,20 +40,18 @@ user.get('/export', async (c) => {
   const db = c.get('db');
   
   try {
-    const blob = await db.getSyncBlob(userAuth.userId);
-    const devices = await db.getDevicesByUser(userAuth.userId);
+    const exportPayload = await fetchUserExport(db, userAuth.userId);
     
     // Audit log data export
     await logAuditEvent(db, {
       eventType: AuditEventType.DATA_EXPORT,
       request: c.req.raw,
       userId: userAuth.userId,
-      details: { deviceCount: devices.length }
+      details: { deviceCount: exportPayload.devices.length }
     });
     
     return c.json({
-      syncData: blob ? JSON.parse(blob.encrypted_data) : null,
-      devices,
+      ...exportPayload,
       exportedAt: Date.now()
     });
   } catch (error) {

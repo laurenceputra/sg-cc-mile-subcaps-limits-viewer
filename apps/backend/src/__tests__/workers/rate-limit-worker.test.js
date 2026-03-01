@@ -48,6 +48,6 @@ describe('Workers rate limiter adapter', () => {
     const res = await limiter(c, async () => ({ ok: true }));
 
     assert.equal(res.status, 429);
-    assert.ok(res.payload.error.includes('Too many'));
+    assert.match(res.payload.error, /Too many/, 'rate limit error should mention "Too many"');
   });
 });
