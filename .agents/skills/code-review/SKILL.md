@@ -30,6 +30,15 @@ Provide structured, actionable review feedback focused on correctness, security,
 - For Promise + observer wait patterns, verify timeout handles are cleared on success and cleanup paths disconnect observers + timers.
 - For context-preserving teardown paths, verify state resets and observer preservation cannot create stale-write or stale-overlay windows.
 
+## Test Anti-Pattern Gate (Mandatory when tests change)
+- Run `npm run test:anti-patterns` and treat failures as blockers.
+- Review and report manual-only anti-patterns even when the script passes:
+  - coverage-only assertions that do not verify behavior
+  - permissive defaults in mocks/stubs that hide missing setup
+  - order-dependent behavior from shared module state
+  - broad/ambiguous error assertions when specific contracts exist
+- If an exception is proposed, require rationale + blast radius + follow-up mitigation.
+
 ## Output Format
 - Summary
 - Critical Issues

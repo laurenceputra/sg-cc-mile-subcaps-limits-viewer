@@ -6,18 +6,24 @@ const rootDir = process.cwd();
 const checks = [
   {
     name: 'Listener callback execution during registration',
-    regex: /addEventListener\s*:\s*\([^)]*\)\s*=>\s*\{[^}]*\bfn\(/gms,
+    regex: /addEventListener\s*:\s*\([^)]*?\b([A-Za-z_$][\w$]*)\s*\)\s*=>\s*(\{[\s\S]*?\b\1\s*\(|\b\1\s*\()/gms,
     scope: (filePath) => filePath.includes('apps/userscript/__tests__/')
   },
   {
     name: 'Synchronous timer shortcut stub',
-    regex: /setTimeout\s*:\s*\([^)]*\)\s*=>\s*(\{[^}]*\bfn\(|\bfn\()/gms,
+    regex: /setTimeout\s*:\s*\([^)]*?\b([A-Za-z_$][\w$]*)\s*(?:,[^)]*)?\)\s*=>\s*(\{[\s\S]*?\b\1\s*\(|\b\1\s*\()/gms,
     scope: (filePath) => filePath.includes('apps/userscript/__tests__/')
   },
   {
     name: 'Direct API helper import in worker integration test',
-    regex: /from\s+['"]\.\.\/\.\.\/api\/(sync|admin|user)\.js['"]/g,
+    regex: /from\s+['"]\.\.\/\.\.\/api\/[a-z-]+\.js['"]/g,
     scope: (filePath) => filePath.includes('apps/backend/src/__tests__/workers/')
+  },
+  {
+    name: 'Broad assert.rejects alternation regex',
+    regex: /assert\.rejects\([\s\S]*?,\s*\/[^/\n]*\|[^/\n]*\/[dgimsuvy]*\s*\)/g,
+    scope: (filePath) => filePath.includes('apps/backend/src/__tests__/workers/')
+      || filePath.includes('apps/userscript/__tests__/')
   }
 ];
 

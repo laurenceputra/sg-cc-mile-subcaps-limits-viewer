@@ -85,7 +85,7 @@ describe('ApiClient', () => {
     const client = new exports.ApiClient('https://example.com');
     await assert.rejects(
       () => client.request('/auth/login', { method: 'POST' }),
-      /nope|Server Error|HTTP 500/
+      /nope/
     );
   });
 

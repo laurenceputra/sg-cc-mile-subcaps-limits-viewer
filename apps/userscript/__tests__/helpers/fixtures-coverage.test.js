@@ -26,10 +26,14 @@ describe('test helper coverage', () => {
     const first = await loadExports();
     assert.strictEqual(typeof first, 'object', 'loadExports should return an object');
     assert.notEqual(first, null, 'loadExports should not return null');
+    assert.equal(typeof first.ApiClient, 'function', 'ApiClient export should be available');
+    assert.equal(typeof first.waitForXPath, 'function', 'waitForXPath export should be available');
     resetExportsCache();
     const second = await loadExports();
     assert.strictEqual(typeof second, 'object', 'loadExports after reset should return an object');
     assert.notEqual(second, null, 'loadExports after reset should not return null');
+    assert.equal(typeof second.createOverlay, 'function', 'createOverlay export should be available');
+    assert.equal(typeof second.observeTableBody, 'function', 'observeTableBody export should be available');
 
     const fresh = await loadExports({ fresh: true });
     assert.notEqual(fresh, second, 'fresh mode should force a new module instance');

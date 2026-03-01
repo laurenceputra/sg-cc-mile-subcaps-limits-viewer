@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
-import { clearRefreshCookie, buildRefreshCookie } from '../../api/auth.js';
 
 function randomEmail() {
   return `refresh-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -41,17 +40,6 @@ async function loginUser(env, email, passwordHash) {
 }
 
 describe('Workers auth refresh flow', () => {
-  test('refresh cookie helpers apply expected flags', () => {
-    const cookie = buildRefreshCookie('token', { ENVIRONMENT: 'production', NODE_ENV: 'production' });
-    assert.match(cookie, /ccSubcapRefreshToken=token/, 'cookie should contain refresh token value');
-    assert.match(cookie, /HttpOnly/, 'cookie should include HttpOnly flag');
-    assert.match(cookie, /SameSite=Strict/, 'cookie should enforce SameSite=Strict');
-    assert.match(cookie, /Secure/, 'cookie should include Secure flag');
-
-    const cleared = clearRefreshCookie({ ENVIRONMENT: 'production', NODE_ENV: 'production' });
-    assert.match(cleared, /Max-Age=0/, 'cleared cookie should expire immediately');
-    assert.match(cleared, /HttpOnly/, 'cleared cookie should retain HttpOnly flag');
-  });
   test('login sets refresh cookie', async () => {
     const { mf, db } = await createTestDatabase();
     try {
@@ -65,6 +53,7 @@ describe('Workers auth refresh flow', () => {
       assert.strictEqual(typeof setCookie, 'string', 'login should set a cookie');
       assert.match(setCookie, /ccSubcapRefreshToken=/, 'cookie should contain refresh token');
       assert.match(setCookie, /HttpOnly/, 'cookie should include HttpOnly flag');
+      assert.match(setCookie, /SameSite=Strict/, 'cookie should include SameSite=Strict flag');
     } finally {
       await disposeTestDatabase(mf);
     }

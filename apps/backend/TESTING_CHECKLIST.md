@@ -11,8 +11,9 @@ Use this checklist before deploying changes to production.
 ### ✅ Test Anti-Pattern Guardrails
 - [ ] Do not execute event callbacks inside listener registration stubs (register first, dispatch explicitly)
 - [ ] Do not collapse debounce/observer timers into synchronous `setTimeout: (fn) => fn()` shortcuts
-- [ ] Prefer route-level contract assertions for worker integration tests (`/sync/data`, `/user/export`, `/admin/mappings/pending`) over direct helper imports
+- [ ] Prefer route-level contract assertions for worker integration tests (`/sync/data`, `/user/export`, `/admin/mappings/pending`) over direct imports from `apps/backend/src/api/*.js`
 - [ ] Run `npm run test:anti-patterns` to catch known anti-pattern strings before merge
+- [ ] Review manual-only anti-patterns: weak coverage-only assertions, permissive default mocks, order-dependent shared state, and vague error expectations
 
 ### ✅ Security Validation
 - [ ] Rate limiting enforced on all endpoints

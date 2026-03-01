@@ -139,12 +139,9 @@ function prepareTestGlobals() {
   globalThis.Node = { TEXT_NODE: 3 };
   globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
   globalThis.atob = (value) => Buffer.from(value, 'base64').toString('binary');
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    text: async () => ''
-  });
+  globalThis.fetch = async () => {
+    throw new Error('Test must mock globalThis.fetch explicitly');
+  };
   globalThis.GM_getValue = undefined;
   globalThis.GM_setValue = undefined;
   globalThis.GM_addStyle = undefined;

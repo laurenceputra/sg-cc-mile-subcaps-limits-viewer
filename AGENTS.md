@@ -136,6 +136,31 @@ For any change that touches database schema, auth/session flows, deployment conf
 
 For any code change, run the most relevant verification commands by default and report the results. Do not ask permission to run tests. Only skip verification if the user explicitly requests it. If verification is long-running or destructive, still proceed unless the user has said not to. Always include the exact command(s) and a short outcome summary.
 
+## Test Anti-Pattern Gate (Mandatory)
+
+For any change that adds or edits tests, enforce both automated and manual anti-pattern checks.
+
+1. **Automated Gate (Phase 2 + Phase 3)**
+   - Run `npm run test:anti-patterns`.
+   - Treat findings as release blockers until fixed.
+   - This gate is owned by `code-review` (Phase 2) and `qa-testing` (Phase 3).
+
+2. **Blocked Anti-Patterns (must be fixed)**
+   - Executing listener callbacks during registration stubs (`addEventListener` shortcut invocation).
+   - Synchronous timer callback shortcuts in debounce/observer tests (`setTimeout` callback invoked inline).
+   - Direct worker-test imports from `apps/backend/src/api/*.js` where route-level contract assertions are expected.
+   - Broad alternation regex in `assert.rejects` expectations when specific error contracts are available.
+
+3. **Manual-Only Anti-Patterns (must be reviewed, not regex-enforced alone)**
+   - Coverage-only assertions that do not validate behavior.
+   - Permissive default mocks/stubs that hide missing explicit test setup.
+   - Order-dependent behavior from shared module state that cannot be inferred from syntax alone.
+   - Assertion specificity issues that require domain intent/context.
+
+4. **Exception Process**
+   - Exceptions require explicit rationale in review output, with blast-radius and follow-up mitigation.
+   - Exceptions are `REQUEST CHANGES` by default and can only be approved with documented justification.
+
 ## Agents
 
 ### 📋 Requirements-Analyst
@@ -286,6 +311,8 @@ Each agent should provide:
 - Deliverables (code, docs, reports)
 - Risks and recommended mitigations
 - Security sign-off (for security-reviewer)
+- Anti-pattern checks run (`npm run test:anti-patterns`) and result summary
+- Manual-only anti-pattern review summary (or explicit none found)
 - Scope-move audit (list functions moved across scopes/modules)
 - External-symbol audit (list non-local symbols referenced by moved/rewired code paths)
 - Interaction proof for changed UI paths (minimum: entry action + one primary click path verified)
@@ -294,7 +321,9 @@ Each agent should provide:
 
 - Enable repository hooks once per clone: `git config core.hooksPath .githooks`
 - Pre-push gate (required): runs userscript lint via `npm run prepush:verify`
+- Test anti-pattern gate (required for test changes): `npm run test:anti-patterns`
 - CI gate: userscript lint workflow must pass (`.github/workflows/userscript-lint.yml`)
+- CI gate: coverage workflow must run anti-pattern checks (`.github/workflows/coverage-report.yml`)
 
 ---
 
@@ -334,4 +363,4 @@ Each agent should provide:
 
 **Questions?** Consult the security-reviewer agent or refer to the security docs above.
 
-**Last Updated:** 2026-02-12 (Workflow tightening + lint/handoff gates)
+**Last Updated:** 2026-03-01 (Added mandatory test anti-pattern gate and reporting requirements)

@@ -83,6 +83,17 @@ For this repo, coverage improvement is a primary QA goal. Use this skill to plan
 - Include a case where observer-driven updates resolve before timeout; expected outcome: no late timeout side-effects (timer cleared).
 - Include at least one rapid card-switch scenario to ensure no stale overlay/data write occurs during context transitions.
 
+## Test Anti-Pattern Review (Mandatory when tests change)
+- Run `npm run test:anti-patterns` and treat findings as blockers.
+- Manual-only checks that must be explicitly reviewed:
+  - coverage-only assertions with weak behavioral guarantees
+  - permissive default mocks/stubs that hide missing explicit setup
+  - order-dependent behavior from shared module/module-cache state
+  - vague error assertions when a stable contract allows specific matching
+- Report both:
+  - automated result (`pass`/`fail`, finding count)
+  - manual anti-pattern assessment (`none found` or concrete issues)
+
 ## Output Format
 - Test plan
 - Contract compatibility matrix (when relevant)
