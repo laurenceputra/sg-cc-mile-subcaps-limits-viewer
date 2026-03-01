@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
-import { fetchSyncSnapshot } from '../../api/sync.js';
 
 function randomEmail() {
   return `test-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -62,11 +61,36 @@ describe('Workers auth + sync flow', () => {
   test('sync snapshot reflects stored payload', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const userId = await db.createUser(randomEmail(), crypto.randomBytes(32).toString('hex'), 'free');
+      const env = { ...createTestEnv(), db };
+      const { token } = await registerAndLogin(env);
       const encryptedData = createEncryptedData();
-      await db.upsertSyncBlobAtomic(userId, 1, encryptedData);
 
-      const snapshot = await fetchSyncSnapshot(db, userId);
+      const putRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ encryptedData, version: 1 })
+      }), env);
+
+      assert.equal(putRes.status, 200);
+      const putData = await putRes.json();
+      assert.equal(putData.success, true);
+      assert.equal(putData.version, 1);
+
+      const getRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        }
+      }), env);
+
+      assert.equal(getRes.status, 200);
+      const snapshot = await getRes.json();
+
       assert.equal(snapshot.version, 1);
       assert.deepEqual(snapshot.encryptedData, encryptedData);
       assert.strictEqual(typeof snapshot.updatedAt, 'number', 'updatedAt should be a Unix timestamp');

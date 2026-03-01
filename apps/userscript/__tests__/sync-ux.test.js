@@ -2,6 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -105,7 +106,9 @@ describe('sync UI flows', () => {
   it('createSyncTab unlock flow and sync now', async () => {
     const { documentStub } = stubDocument();
     globalThis.document = documentStub;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const statusDiv = makeElement('div');
     const passphraseInput = makeElement('input');
@@ -157,12 +160,15 @@ describe('sync UI flows', () => {
     assert.equal(synced, true);
     assert.equal(forgetCalled, true);
     assert.equal(disabled, true);
+    timers.unbindFromWindow();
   });
 
   it('showSyncSetupDialog validates inputs and closes on success', async () => {
     const { documentStub, overlayNodes } = stubDocument();
     globalThis.document = documentStub;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const overlay = makeElement('div');
     const statusDiv = makeElement('div');
@@ -204,5 +210,6 @@ describe('sync UI flows', () => {
 
     assert.equal(setupCalled, true);
     assert.equal(overlayNodes.length, 1, 'should append exactly 1 overlay node');
+    timers.unbindFromWindow();
   });
 });

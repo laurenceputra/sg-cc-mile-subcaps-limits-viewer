@@ -51,6 +51,13 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
 - Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 
+## Testing
+
+- Userscript tests: `npm run test:userscript`
+- Backend tests: `npm --prefix apps/backend test`
+- Coverage: `npm run test:userscript:coverage` and `npm --prefix apps/backend run test:coverage`
+- Anti-pattern guardrails: `npm run test:anti-patterns`
+
 ## Disclaimer
 
 Not affiliated with UOB. Use only on your own accounts and comply with the bank’s Terms of Service.

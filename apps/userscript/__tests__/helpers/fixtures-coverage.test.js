@@ -22,7 +22,7 @@ describe('test helper coverage', () => {
     assert.equal(parsed.ref_no, 'REF42');
   });
 
-  it('covers loadExports cache reset', async () => {
+  it('covers loadExports cache reset and fresh mode', async () => {
     const first = await loadExports();
     assert.strictEqual(typeof first, 'object', 'loadExports should return an object');
     assert.notEqual(first, null, 'loadExports should not return null');
@@ -30,5 +30,8 @@ describe('test helper coverage', () => {
     const second = await loadExports();
     assert.strictEqual(typeof second, 'object', 'loadExports after reset should return an object');
     assert.notEqual(second, null, 'loadExports after reset should not return null');
+
+    const fresh = await loadExports({ fresh: true });
+    assert.notEqual(fresh, second, 'fresh mode should force a new module instance');
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -125,6 +126,10 @@ function makeTbody(rowCount, cellCount) {
   };
 }
 
+async function waitForAsyncTimers(timers) {
+  await timers.runAllAsync();
+}
+
 describe('main flow extended', () => {
   it('runs main on UOB profile and builds overlay', async () => {
     const doc = makeDocument();
@@ -139,12 +144,14 @@ describe('main flow extended', () => {
         pathname: '/PIBCust/2FA/processSubmit.do'
       },
       localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      setTimeout: (fn) => { fn(); return 1; },
+      setTimeout: () => 0,
       clearTimeout: () => {},
       setInterval: () => {},
       clearInterval: () => {},
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
     };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
     globalThis.localStorage = globalThis.window.localStorage;
     globalThis.getComputedStyle = globalThis.window.getComputedStyle;
 
@@ -166,9 +173,12 @@ describe('main flow extended', () => {
       return { singleNodeValue: null };
     };
 
-    await exports.main();
+    const mainPromise = exports.main();
+    await waitForAsyncTimers(timers);
+    await mainPromise;
     const button = doc.getElementById('cc-subcap-btn');
     assert.notEqual(button, null, 'cc-subcap-btn should be created after UOB main flow');
+    timers.unbindFromWindow();
   });
 
   it('runs main on Maybank profile with allowOverlayWithoutRows', async () => {
@@ -184,12 +194,14 @@ describe('main flow extended', () => {
         pathname: '/m2u/accounts/cards'
       },
       localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      setTimeout: (fn) => { fn(); return 1; },
+      setTimeout: () => 0,
       clearTimeout: () => {},
       setInterval: () => {},
       clearInterval: () => {},
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
     };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
     globalThis.localStorage = globalThis.window.localStorage;
     globalThis.getComputedStyle = globalThis.window.getComputedStyle;
 
@@ -211,8 +223,11 @@ describe('main flow extended', () => {
       return { singleNodeValue: null };
     };
 
-    await exports.main();
+    const mainPromise = exports.main();
+    await waitForAsyncTimers(timers);
+    await mainPromise;
     const button = doc.getElementById('cc-subcap-btn');
     assert.notEqual(button, null, 'cc-subcap-btn should be created after Maybank main flow');
+    timers.unbindFromWindow();
   });
 });

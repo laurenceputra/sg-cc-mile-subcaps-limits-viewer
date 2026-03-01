@@ -2,6 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 
 const exports = await loadExports();
 
@@ -13,6 +14,8 @@ function makeDoc(nodeMap = {}) {
 
 describe('xpath helpers', () => {
   it('covers eval and wait branches', async () => {
+    const timers = createFakeTimers();
+
     globalThis.document = { evaluate: () => { throw new Error('bad'); } };
     assert.equal(exports.evalXPath('//bad'), null);
 
@@ -22,10 +25,8 @@ describe('xpath helpers', () => {
       evaluate: () => ({ singleNodeValue: node })
     };
     globalThis.MutationObserver = class { observe() {} disconnect() {} };
-    globalThis.window = {
-      setTimeout: (fn) => { fn(); return 0; },
-      clearTimeout: () => {}
-    };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    timers.bindToWindow(globalThis.window);
     const found = await exports.waitForXPath('//node', 10);
     assert.equal(found, node);
 
@@ -35,12 +36,12 @@ describe('xpath helpers', () => {
 
     const tbody = { querySelectorAll: () => [] };
     globalThis.document = makeDoc({ '//tbody': tbody });
-    let now = 0;
-    const originalNow = Date.now;
-    Date.now = () => { now += 1; return now; };
-    const fallback = await exports.waitForAnyTableBodyRows(['//tbody'], 5, 1);
-    Date.now = originalNow;
+    const fallbackPromise = exports.waitForAnyTableBodyRows(['//tbody'], 5, 1);
+    await timers.runAllAsync();
+    const fallback = await fallbackPromise;
     assert.equal(fallback.tbody, tbody);
     assert.equal(fallback.xpath, '//tbody');
+
+    timers.unbindFromWindow();
   });
 });

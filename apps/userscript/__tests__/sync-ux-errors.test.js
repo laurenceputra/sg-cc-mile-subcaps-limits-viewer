@@ -2,6 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 
 const exports = await loadExports();
 
@@ -65,7 +66,9 @@ describe('sync UI errors', () => {
   it('covers unlock, sync, and setup error branches', async () => {
     const { documentStub, overlayNodes } = stubDocument();
     globalThis.document = documentStub;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const statusDiv = makeElement('div');
     const passphraseInput = makeElement('input');
@@ -143,5 +146,6 @@ describe('sync UI errors', () => {
     assert.equal(setupCalled, true);
     assert.equal(setupStatus.textContent, 'Setup failed: nope');
     assert.equal(overlayNodes.length, 1, 'should append exactly 1 overlay node');
+    timers.unbindFromWindow();
   });
 });

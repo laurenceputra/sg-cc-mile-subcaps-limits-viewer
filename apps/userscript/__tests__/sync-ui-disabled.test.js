@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -49,7 +50,9 @@ describe('sync UI disabled state', () => {
       head: { appendChild: () => {} }
     };
     globalThis.document = doc;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const syncManager = {
       isEnabled: () => false,
@@ -91,5 +94,6 @@ describe('sync UI disabled state', () => {
     assert.equal(overlayNodes.length, 1);
     assert.equal(overlayNodes[0].classList?.contains?.('cc-subcap-dialog-backdrop'), true);
     globalThis.document.createElement = originalCreateElement;
+    timers.unbindFromWindow();
   });
 });

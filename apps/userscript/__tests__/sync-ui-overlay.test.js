@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -180,7 +181,9 @@ describe('sync ui + overlay', () => {
   it('showSyncSetupDialog validates fields and completes setup', async () => {
     const doc = makeDocument();
     globalThis.document = doc;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     let setupCalls = 0;
     let syncStateChanged = false;
@@ -211,14 +214,22 @@ describe('sync ui + overlay', () => {
     serverInput.value = 'https://example.com';
     await saveButton.click();
     assert.equal(setupCalls, 1);
+    assert.equal(syncStateChanged, false, 'dialog close callback should be delayed');
+    assert.equal(overlay._removed, undefined, 'dialog should remain open before timeout advances');
+
+    timers.advanceBy(500);
+    await Promise.resolve();
     assert.equal(syncStateChanged, true);
     assert.equal(overlay._removed, true);
+    timers.unbindFromWindow();
   });
 
   it('createSyncTab handles unlock, sync, forget, and disable', async () => {
     const doc = makeDocument();
     globalThis.document = doc;
-    globalThis.window = { setTimeout: (fn) => fn() };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
     globalThis.confirm = () => true;
 
     let disabled = false;
@@ -254,6 +265,11 @@ describe('sync ui + overlay', () => {
 
     await syncNowButton.click();
     assert.equal(syncCalls, 1);
+    assert.equal(status.textContent, 'Synced successfully.', 'status should not clear before timeout');
+
+    timers.advanceBy(2999);
+    assert.equal(status.textContent, 'Synced successfully.');
+    timers.advanceBy(1);
     assert.equal(status.textContent, '');
 
     await forgetButton.click();
@@ -262,6 +278,7 @@ describe('sync ui + overlay', () => {
 
     await disableButton.click();
     assert.equal(disabled, true);
+    timers.unbindFromWindow();
   });
 
   it('createOverlay builds UI and switchTab toggles content', () => {
@@ -269,9 +286,12 @@ describe('sync ui + overlay', () => {
     globalThis.document = doc;
     globalThis.window = {
       location: { href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do' },
-      setTimeout: (fn) => fn(),
+      setTimeout: () => 0,
+      clearTimeout: () => {},
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
     };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
     globalThis.GM_addStyle = () => {};
 
     const cardName = "LADY'S SOLITAIRE CARD";
@@ -297,6 +317,7 @@ describe('sync ui + overlay', () => {
     exports.switchTab('sync');
     const syncContent = doc.getElementById('cc-subcap-sync');
     assert.equal(syncContent.classList.contains('cc-subcap-hidden'), false);
+    timers.unbindFromWindow();
   });
 
 });

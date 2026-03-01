@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -92,14 +93,23 @@ describe('coverage helpers extended', () => {
   });
 
   it('getActiveCardName resolves timeout path', async () => {
-    globalThis.window = {
-      setTimeout: (fn) => fn(),
-      clearTimeout: () => {},
-      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
-    };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {}, getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
     globalThis.MutationObserver = class { observe() {} disconnect() {} };
     globalThis.document.evaluate = () => ({ singleNodeValue: null });
-    const result = await exports.getActiveCardName({ cardNameXPaths: ['//missing'] }, { waitTimeoutMs: 1 });
+    const pending = exports.getActiveCardName({ cardNameXPaths: ['//missing'] }, { waitTimeoutMs: 1 });
+    let settled = false;
+    pending.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    assert.equal(settled, false, 'timeout path should not resolve before timers advance');
+
+    timers.advanceBy(1);
+    await Promise.resolve();
+    const result = await pending;
     assert.equal(result.name, '');
+    timers.unbindFromWindow();
   });
 });

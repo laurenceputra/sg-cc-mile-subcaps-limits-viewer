@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import { createTestDatabase, createTestEnv, disposeTestDatabase, TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './test-utils.js';
-import { fetchPendingMappings } from '../../api/admin.js';
-import { fetchUserExport } from '../../api/user.js';
 
 function createEncryptedData() {
   return {
@@ -60,15 +58,47 @@ describe('Workers user + admin flow', () => {
   test('exports user data and lists devices', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const userId = await db.createUser(`user-${crypto.randomBytes(6).toString('hex')}@example.com`, crypto.randomBytes(32).toString('hex'), 'free');
+      const env = { ...createTestEnv(), db };
+      const { token } = await registerAndLogin(env);
       const encryptedData = createEncryptedData();
-      await db.upsertSyncBlobAtomic(userId, 1, encryptedData);
-      await db.registerDevice(userId, 'device-123', 'Test Device');
 
-      const exportPayload = await fetchUserExport(db, userId);
+      const syncRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ encryptedData, version: 1 })
+      }), env);
+      assert.equal(syncRes.status, 200);
+
+      const deviceRes = await app.fetch(new Request('http://localhost/auth/device/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({ deviceId: 'device-123', name: 'Test Device' })
+      }), env);
+      assert.equal(deviceRes.status, 200);
+
+      const exportRes = await app.fetch(new Request('http://localhost/user/export', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        }
+      }), env);
+
+      assert.equal(exportRes.status, 200);
+      const exportPayload = await exportRes.json();
+
       assert.deepEqual(exportPayload.syncData, encryptedData);
       assert.strictEqual(Array.isArray(exportPayload.devices), true, 'devices should be an array');
       assert.strictEqual(exportPayload.devices.length, 1, 'should contain exactly the one registered device');
+      assert.strictEqual(typeof exportPayload.exportedAt, 'number', 'exportedAt should be a Unix timestamp');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -77,20 +107,47 @@ describe('Workers user + admin flow', () => {
   test('pending mappings query returns contributed entry', async () => {
     const { mf, db } = await createTestDatabase();
     try {
-      const userId = await db.createUser(`user-${crypto.randomBytes(6).toString('hex')}@example.com`, crypto.randomBytes(32).toString('hex'), 'free');
-      await db.contributeMappings(userId, [
-        {
-          merchantNormalized: 'TEST_MERCHANT',
-          category: 'Dining',
-          cardType: 'ONE',
-          confidence: 0.9
-        }
-      ]);
+      const env = { ...createTestEnv(), db };
+      const { token: userToken } = await registerAndLogin(env);
+      const contributeRes = await app.fetch(new Request('http://localhost/shared/mappings/contribute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userToken}`,
+          'Origin': 'https://pib.uob.com.sg'
+        },
+        body: JSON.stringify({
+          mappings: [
+            {
+              merchantRaw: 'TEST_MERCHANT',
+              category: 'Dining',
+              cardType: 'ONE',
+              confidence: 0.9
+            }
+          ]
+        })
+      }), env);
+      assert.equal(contributeRes.status, 200);
 
-      const pending = await fetchPendingMappings(db);
-      assert.strictEqual(Array.isArray(pending), true, 'pending mappings should be an array');
-      const testEntry = pending.find(entry => entry.merchant_raw === 'TEST_MERCHANT');
+      const { adminLoginRes, adminData } = await loginAdmin(env);
+      assert.equal(adminLoginRes.status, 200);
+
+      const pendingRes = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${adminData.token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        }
+      }), env);
+      assert.equal(pendingRes.status, 200);
+
+      const pendingData = await pendingRes.json();
+      assert.strictEqual(Array.isArray(pendingData.pending), true, 'pending mappings should be an array');
+      const testEntry = pendingData.pending.find((entry) => entry.merchant_raw === 'TEST_MERCHANT');
       assert.notStrictEqual(testEntry, undefined, 'pending mappings should contain the contributed TEST_MERCHANT entry');
+      assert.equal(testEntry.category, 'Dining');
+      assert.equal(testEntry.card_type, 'ONE');
+
     } finally {
       await disposeTestDatabase(mf);
     }

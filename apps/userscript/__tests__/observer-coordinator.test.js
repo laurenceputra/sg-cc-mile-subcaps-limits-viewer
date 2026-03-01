@@ -2,6 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -49,16 +50,19 @@ describe('observer helpers', () => {
     const Observer = makeObserverClass();
     globalThis.MutationObserver = Observer;
 
-    let scheduled = false;
-    globalThis.window = {
-      setTimeout: (fn) => { scheduled = true; fn(); return 1; },
-      clearTimeout: () => {}
-    };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     let onChangeCalled = 0;
     const onChange = () => { onChangeCalled += 1; };
     const stop = exports.observeTableBody(['//tbody'], onChange, 5, 1);
-    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(onChangeCalled, 0, 'debounced callback should not run immediately');
+    timers.advanceBy(1);
+    assert.equal(onChangeCalled, 1, 'initial refresh should run after debounce window');
 
     const tableObserver = Observer.instances.find((obs) => obs._observed === tbody);
     assert.equal(typeof stop, 'function');
@@ -69,11 +73,13 @@ describe('observer helpers', () => {
     if (tableObserver) {
       tableObserver.trigger([{ type: 'childList' }]);
     }
-    assert.equal(scheduled, true);
+    assert.equal(onChangeCalled, initialCalls, 'mutation should only schedule refresh');
+    timers.advanceBy(1);
     assert.equal(onChangeCalled, initialCalls + 1);
 
     stop();
     assert.equal(tableObserver?._disconnected, true);
+    timers.unbindFromWindow();
   });
 
   it('observeCardContextChanges calls onChange when snapshot changes', () => {
@@ -83,10 +89,9 @@ describe('observer helpers', () => {
       documentElement: {},
       evaluate: () => ({ singleNodeValue: node })
     };
-    globalThis.window = {
-      setTimeout: (fn) => { fn(); return 1; },
-      clearTimeout: () => {}
-    };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const Observer = makeObserverClass();
     globalThis.MutationObserver = Observer;
@@ -97,20 +102,23 @@ describe('observer helpers', () => {
     const observer = Observer.instances[0];
     const initialCalls = called;
     observer.trigger([{ type: 'childList' }]);
+    assert.equal(called, initialCalls, 'onChange should not run before debounce delay');
+    timers.advanceBy(1);
     assert.equal(called, initialCalls + 1, 'onChange should be called once after trigger');
     stop();
     observer.trigger([{ type: 'childList' }]);
+    timers.advanceBy(1);
     assert.equal(called, initialCalls + 1, 'onChange should not be called after stop');
     assert.equal(observer._disconnected, true);
+    timers.unbindFromWindow();
   });
 
   it('observeButtonActionability schedules onChange after mutation', () => {
     const profile = { id: 'uob' };
     globalThis.document = { documentElement: {} };
-    globalThis.window = {
-      setTimeout: (fn) => { fn(); return 1; },
-      clearTimeout: () => {}
-    };
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const Observer = makeObserverClass();
     globalThis.MutationObserver = Observer;
@@ -120,10 +128,14 @@ describe('observer helpers', () => {
     const observer = Observer.instances[0];
     const initialCalls = called;
     observer.trigger([{ type: 'childList' }]);
+    assert.equal(called, initialCalls, 'onChange should be debounced');
+    timers.advanceBy(1);
     assert.equal(called, initialCalls + 1, 'onChange should be called once after trigger');
     stop();
     observer.trigger([{ type: 'childList' }]);
+    timers.advanceBy(1);
     assert.equal(called, initialCalls + 1, 'onChange should not be called after stop');
     assert.equal(observer._disconnected, true);
+    timers.unbindFromWindow();
   });
 });

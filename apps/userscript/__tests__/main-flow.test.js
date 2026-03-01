@@ -2,6 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { createFakeTimers } from './helpers/fake-timers.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -32,6 +33,10 @@ function buildDocument() {
   };
 }
 
+async function waitForAsyncTimers(timers) {
+  await timers.runAllAsync();
+}
+
 describe('main flow', () => {
   it('covers early exit and missing card name', async () => {
     const cases = [
@@ -57,12 +62,14 @@ describe('main flow', () => {
       globalThis.window = {
         location: testCase.location,
         localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-        setTimeout: (fn) => fn(),
+        setTimeout: () => 0,
         clearTimeout: () => {},
         setInterval: () => {},
         clearInterval: () => {},
         getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
       };
+      const timers = createFakeTimers();
+      timers.bindToWindow(globalThis.window);
       globalThis.document = buildDocument();
       globalThis.localStorage = globalThis.window.localStorage;
 
@@ -78,9 +85,12 @@ describe('main flow', () => {
         return null;
       };
 
-      await exports.main();
+      const mainPromise = exports.main();
+      await waitForAsyncTimers(timers);
+      await mainPromise;
       assert.equal(buttonRemoved, true);
       assert.equal(overlayRemoved, true);
+      timers.unbindFromWindow();
     }
   });
 
@@ -93,12 +103,14 @@ describe('main flow', () => {
         pathname: '/m2u/accounts/cards'
       },
       localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      setTimeout: (fn) => fn(),
+      setTimeout: () => 0,
       clearTimeout: () => {},
       setInterval: () => {},
       clearInterval: () => {},
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
     };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     const overlayNodes = [];
     const doc = buildDocument();
@@ -120,7 +132,10 @@ describe('main flow', () => {
     globalThis.MutationObserver = class { observe() {} disconnect() {} };
     globalThis.getComputedStyle = globalThis.window.getComputedStyle;
 
-    await exports.main();
+    const mainPromise = exports.main();
+    await waitForAsyncTimers(timers);
+    await mainPromise;
     assert.equal(overlayNodes.length, 1, 'should append exactly 1 overlay node to body');
+    timers.unbindFromWindow();
   });
 });

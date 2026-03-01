@@ -2,6 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { captureEventListeners } from './helpers/dom-events.js';
 import { snapshotGlobals, restoreGlobals } from './helpers/reset-globals.js';
 
 const exports = await loadExports();
@@ -44,7 +45,17 @@ describe('DOM wiring helpers', () => {
 
   it('createButton appends button and wires click', () => {
     let clicked = false;
-    const created = { id: '', type: '', textContent: '', classList: { add: () => {}, contains: () => false }, setAttribute: () => {}, addEventListener: (evt, fn) => { if (evt === 'click') { fn(); } }, disabled: false };
+    const created = {
+      id: '',
+      type: '',
+      textContent: '',
+      classList: { add: () => {}, contains: () => false },
+      setAttribute: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      disabled: false
+    };
+    const listenerCapture = captureEventListeners(created);
     globalThis.document.getElementById = () => null;
     globalThis.document.createElement = () => created;
     globalThis.document.body = { appendChild: () => {} };
@@ -53,6 +64,10 @@ describe('DOM wiring helpers', () => {
     assert.equal(created.id, 'cc-subcap-btn');
     assert.equal(created.type, 'button');
     assert.equal(created.textContent, 'Subcap Tools');
+    assert.equal(listenerCapture.getListeners('click').length, 1, 'click listener should be registered once');
+    assert.equal(clicked, false);
+    listenerCapture.dispatch('click');
     assert.equal(clicked, true);
+    listenerCapture.restore();
   });
 });
