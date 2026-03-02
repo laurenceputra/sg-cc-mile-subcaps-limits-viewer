@@ -6,5 +6,8 @@ node_modules/
 
 .pr_details/
 spec/
+!spec/
+spec/*
+!spec/plan.md
 .spec/
 .specifications/

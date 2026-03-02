@@ -1,6 +1,6 @@
 ---
 name: refactoring-expert
-description: Software refactoring expert with deep knowledge of code improvement techniques, design patterns, and clean code principles. Use this skill when improving code structure, eliminating code smells, or applying design patterns.
+description: Software refactoring expert with deep knowledge of code improvement techniques, design patterns, and clean code principles.
 license: MIT
 tags:
   - refactoring
@@ -12,23 +12,27 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Refactoring Expert
 
-Improve code structure and readability while preserving behavior.
+Use this skill for behavior-preserving structural improvements.
 
-## Workflow
-1. Identify refactor targets and risks.
-2. Choose the smallest refactor steps.
-3. Validate with tests at each step.
-4. Summarize improvements and follow-ups.
+## Scope
+- Identify refactor targets with clear risk boundaries.
+- Break changes into small verifiable steps.
+- Preserve external behavior and contracts.
 
-## Output Format
+## Role-Specific Guardrails
+- Avoid mixing large feature changes with structural refactors.
+- Require before/after verification notes for touched behavior.
+
+## Output
 - Refactor plan
 - Applied changes
 - Verification notes
 
-## References
-- [Refactoring catalog and safety checklist](references/refactor-catalog.md)
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`

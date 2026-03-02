@@ -1,0 +1,38 @@
+name: Workflow Docs Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "AGENTS.md"
+      - "README.md"
+      - ".github/copilot-instructions.md"
+      - ".github/agents/**"
+      - ".agents/skills/**"
+      - "docs/workflow/**"
+      - "scripts/validate-workflow-docs.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/workflow-docs-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate workflow docs
+        run: npm run docs:check:workflow

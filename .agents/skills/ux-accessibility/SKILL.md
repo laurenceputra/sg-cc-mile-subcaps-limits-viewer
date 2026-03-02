@@ -1,6 +1,6 @@
 ---
 name: ux-accessibility
-description: "Review or implement UI/visual changes with accessibility checks (keyboard, focus, contrast, ARIA, motion). Use for any new UI elements or visual updates."
+description: Review or implement UI changes with accessibility checks for keyboard, focus, contrast, semantics, and motion.
 license: MIT
 tags:
   - accessibility
@@ -10,21 +10,27 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # UX Accessibility
 
-Review UI changes for accessibility and inclusive design.
+Use this skill when UI behavior or visuals change and accessibility quality must be validated.
 
-## Workflow
-1. Verify keyboard and focus behavior.
-2. Check contrast and semantics.
-3. Confirm motion settings.
+## Scope
+- Check keyboard flow and focus management.
+- Verify semantics, labels, and contrast.
+- Review motion/transitions for reduced-motion safety.
 
-## Output Format
+## Role-Specific Guardrails
+- Prioritize functional accessibility barriers over cosmetic issues.
+- Include reproducible steps for each finding.
+
+## Output
 - Findings
-- Recommendations
+- Severity and impacted flows
+- Recommended remediations
 
-## References
-- [Accessibility checklist](references/a11y-checklist.md)
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`

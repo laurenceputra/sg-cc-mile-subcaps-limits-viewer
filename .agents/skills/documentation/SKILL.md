@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Technical writer with expertise in creating clear, comprehensive, and user-friendly documentation. Use this skill when writing or reviewing documentation, creating README files, or documenting APIs and code.
+description: Technical writer with expertise in creating clear, comprehensive, and user-friendly documentation.
 license: MIT
 tags:
   - documentation
@@ -10,22 +10,27 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Documentation
 
-Create concise, user-friendly documentation and templates for developers and end users.
+Use this skill for docs that must stay aligned with current behavior and workflows.
 
-## Workflow
-1. Identify the audience and required sections.
-2. Draft content using consistent terminology.
-3. Add examples and usage instructions.
-4. Review for clarity and completeness.
+## Scope
+- Update user/developer docs with clear task-oriented structure.
+- Keep terminology consistent across workflow, agents, and skills docs.
+- Validate links and references in touched docs.
 
-## Output Format
-- Documentation draft
-- Gaps or follow-up items
+## Role-Specific Guardrails
+- Prefer concise, actionable updates over exhaustive restatements.
+- Co-locate behavior and documentation updates in the same change set.
 
-## References
-- [Style guide and README template](references/style-guide.md)
+## Output
+- Updated docs
+- Link consistency notes
+- Remaining doc gaps
+
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`
