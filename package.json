@@ -12,6 +12,7 @@
     "lint": "npm run lint:userscript && npm run lint --workspaces --if-present",
     "lint:userscript": "eslint --max-warnings=0 apps/userscript/bank-cc-limits-subcap-calculator.user.js",
     "prepush:verify": "npm run lint:userscript",
+    "test:quality:backend": "npm --prefix apps/backend run test:quality",
     "test": "npm run test --workspaces --if-present",
     "test:userscript": "node --test apps/userscript/__tests__/*.test.js",
     "test:userscript:coverage": "node --test --experimental-test-coverage apps/userscript/__tests__/*.test.js",

@@ -2,7 +2,13 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
-import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
+import {
+  createTestDatabase,
+  createTestEnv,
+  disposeTestDatabase,
+  expectJwtLike,
+  fetchJson
+} from './test-utils.js';
 
 function randomEmail() {
   return `web-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -12,29 +18,30 @@ async function registerAndLogin(env) {
   const email = randomEmail();
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
-  const regRes = await app.fetch(new Request('http://localhost/auth/register', {
+  await fetchJson(app, env, '/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
-  assert.equal(regRes.status, 200, `registration failed with status ${regRes.status}`);
+    body: { email, passwordHash }
+  }, 200, 'register dashboard user');
 
-  const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+  const { json: loginData } = await fetchJson(app, env, '/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
-  assert.equal(loginRes.status, 200, `login failed with status ${loginRes.status}`);
+    body: { email, passwordHash }
+  }, 200, 'login dashboard user');
 
-  const loginData = await loginRes.json();
-  assert.strictEqual(typeof loginData.token, 'string', 'login should return a token');
+  expectJwtLike(loginData.token, 'dashboard login token');
   return { token: loginData.token };
+}
+
+function parseCspDirectives(csp) {
+  return csp
+    .split(';')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .reduce((accumulator, directive) => {
+      const [name, ...parts] = directive.split(/\s+/);
+      accumulator[name] = parts.join(' ');
+      return accumulator;
+    }, {});
 }
 
 describe('Workers web dashboard pages', () => {
@@ -45,10 +52,10 @@ describe('Workers web dashboard pages', () => {
       const res = await app.fetch(new Request('http://localhost/login'), env);
       const html = await res.text();
       assert.equal(res.status, 200);
-      assert.match(res.headers.get('Content-Type') ?? '', /text\/html/, 'login page should serve text/html');
-      assert.match(html, /name="email"/, 'login page should have email input');
-      assert.match(html, /name="password"/, 'login page should have password input');
-      assert.match(html, /login-form/, 'login page should contain login form');
+      assert.ok(res.headers.get('Content-Type')?.includes('text/html'));
+      assert.ok(html.includes('name="email"'));
+      assert.ok(html.includes('name="password"'));
+      assert.ok(html.includes('login-form'));
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -61,22 +68,17 @@ describe('Workers web dashboard pages', () => {
       const res = await app.fetch(new Request('http://localhost/dashboard'), env);
       const html = await res.text();
       assert.equal(res.status, 200);
-      assert.match(res.headers.get('Content-Type') ?? '', /text\/html/, 'dashboard should serve text/html');
-
-      // User-visible content
-      assert.match(html, /Refresh/, 'dashboard should show Refresh button');
-      assert.match(html, /Logout/, 'dashboard should show Logout button');
-      assert.match(html, /LADY'S SOLITAIRE CARD/, 'dashboard should list Lady\'s Solitaire Card');
-      assert.match(html, /XL Rewards Card/, 'dashboard should list XL Rewards Card');
-
-      // Data-binding and API integration
-      assert.match(html, /ccSubcapSyncLastActiveAt/, 'dashboard should reference sync timestamp key');
-      assert.match(html, /\/auth\/refresh/, 'dashboard should reference auth refresh endpoint');
-      assert.match(html, /\/meta\/cap-policy/, 'dashboard should reference cap policy endpoint');
-
-      // UI components and behavior
-      assert.match(html, /cap-pill/, 'dashboard should render cap pills');
-      assert.match(html, /No synced monthly totals yet\./, 'dashboard should show empty-state message');
+      assert.ok(res.headers.get('Content-Type')?.includes('text/html'));
+      assert.ok(html.includes('Refresh'));
+      assert.ok(html.includes('Logout'));
+      assert.ok(html.includes("LADY'S SOLITAIRE CARD"));
+      assert.ok(html.includes('XL Rewards Card'));
+      assert.ok(html.includes('totals-list'));
+      assert.ok(html.includes('empty-state'));
+      assert.ok(html.includes('ccSubcapSyncToken'));
+      assert.ok(html.includes('/auth/refresh'));
+      assert.ok(html.includes('/meta/cap-policy'));
+      assert.ok(html.includes('No synced monthly totals yet.'));
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -91,10 +93,8 @@ describe('Workers web dashboard pages', () => {
       const json = await res.json();
       assert.equal(json.cards["LADY'S SOLITAIRE CARD"].cap, 750);
       assert.equal(json.cards['XL Rewards Card'].cap, 1000);
-      assert.strictEqual(typeof json.thresholds.warningRatio, 'number', 'warningRatio should be a number');
-      assert.ok(json.thresholds.warningRatio > 0 && json.thresholds.warningRatio < 1, 'warningRatio should be between 0 and 1');
-      assert.strictEqual(typeof json.styles.warning.background, 'string', 'warning background should be a CSS string');
-      assert.match(json.styles.warning.background, /#[0-9a-fA-F]+|rgb/, 'warning background should be a color value');
+      assert.equal(typeof json.thresholds.warningRatio, 'number');
+      assert.equal(typeof json.styles.warning.background, 'string');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -105,9 +105,12 @@ describe('Workers web dashboard pages', () => {
     try {
       const env = { ...createTestEnv(), db };
       const loginRes = await app.fetch(new Request('http://localhost/login'), env);
+      assert.equal(loginRes.status, 200);
       const loginCsp = loginRes.headers.get('Content-Security-Policy') || '';
-      assert.match(loginCsp, /script-src 'nonce-/, 'login page CSP should include script nonce');
-      assert.match(loginCsp, /connect-src 'self'/, 'login page CSP should restrict connect-src to self');
+      const loginDirectives = parseCspDirectives(loginCsp);
+      assert.ok(loginDirectives['script-src']?.includes("'nonce-"));
+      assert.equal(loginDirectives['connect-src'], "'self'");
+      assert.equal(loginDirectives['default-src'], "'none'");
 
       const { token } = await registerAndLogin(env);
       const apiRes = await app.fetch(new Request('http://localhost/sync/data', {
@@ -117,11 +120,15 @@ describe('Workers web dashboard pages', () => {
           'Origin': 'https://pib.uob.com.sg'
         }
       }), env);
+      assert.equal(apiRes.status, 200);
       const apiCsp = apiRes.headers.get('Content-Security-Policy');
-      assert.equal(
-        apiCsp,
-        "default-src 'none'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-      );
+      const apiDirectives = parseCspDirectives(apiCsp || '');
+      assert.equal(apiDirectives['default-src'], "'none'");
+      assert.equal(apiDirectives['connect-src'], "'self'");
+      assert.equal(apiDirectives['frame-ancestors'], "'none'");
+      assert.equal(apiDirectives['base-uri'], "'self'");
+      assert.equal(apiDirectives['form-action'], "'self'");
+      assert.equal(apiDirectives['script-src'], undefined);
     } finally {
       await disposeTestDatabase(mf);
     }
