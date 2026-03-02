@@ -91,13 +91,8 @@ Use this skill to validate behavior and prevent regressions with risk-focused te
   - manual anti-pattern assessment (`none found` or concrete issues)
 
 ## Mandatory Test Anti-Pattern Check (backend worker tests)
-- Validate backend worker tests against:
-  - `NO_IMPL_DETAIL_ASSERT`
-  - `NO_EXACT_CSP_EQUALITY`
-  - `REQUIRE_SETUP_STATUS_ASSERT`
-  - `NO_WEAK_TOKEN_ASSERT`
-  - `REQUIRE_MIDDLEWARE_NEXT_ASSERT`
-  - `NO_DUPLICATE_SECURITY_SCENARIO` (report-only in phase 1; fail in strict phase)
+- Use `docs/workflow/gates.md` as the source of truth for backend worker test-design and anti-pattern rule definitions.
+- Validate backend worker tests against the canonical rule IDs and phase behavior documented there.
 - Record pass/fail and evidence (rule ID + file:line).
 - Any fail-level finding is a release-blocking QA gate failure.
 

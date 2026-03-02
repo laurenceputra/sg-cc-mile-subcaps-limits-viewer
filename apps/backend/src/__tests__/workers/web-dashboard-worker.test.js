@@ -91,10 +91,17 @@ describe('Workers web dashboard pages', () => {
       const res = await app.fetch(new Request('http://localhost/meta/cap-policy'), env);
       assert.equal(res.status, 200);
       const json = await res.json();
+      assert.equal(json.version, 1);
       assert.equal(json.cards["LADY'S SOLITAIRE CARD"].cap, 750);
       assert.equal(json.cards['XL Rewards Card'].cap, 1000);
-      assert.equal(typeof json.thresholds.warningRatio, 'number');
-      assert.equal(typeof json.styles.warning.background, 'string');
+      assert.ok(json.thresholds.warningRatio > 0 && json.thresholds.warningRatio < 1);
+      assert.ok(json.thresholds.criticalRatio >= 1);
+      assert.ok(json.thresholds.warningRatio < json.thresholds.criticalRatio);
+      assert.equal(json.cards["LADY'S SOLITAIRE CARD"].mode, 'per-category');
+      assert.equal(json.cards['XL Rewards Card'].mode, 'combined');
+      assert.ok(json.styles.warning.background.startsWith('#'));
+      assert.ok(json.styles.warning.border.startsWith('#'));
+      assert.ok(json.styles.warning.text.startsWith('#'));
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -109,8 +116,8 @@ describe('Workers web dashboard pages', () => {
       const loginCsp = loginRes.headers.get('Content-Security-Policy') || '';
       const loginDirectives = parseCspDirectives(loginCsp);
       assert.ok(loginDirectives['script-src']?.includes("'nonce-"));
-      assert.equal(loginDirectives['connect-src'], "'self'");
-      assert.equal(loginDirectives['default-src'], "'none'");
+      assert.ok(loginDirectives['connect-src']?.includes("'self'"));
+      assert.ok(loginDirectives['default-src']?.includes("'none'"));
 
       const { token } = await registerAndLogin(env);
       const apiRes = await app.fetch(new Request('http://localhost/sync/data', {
@@ -123,12 +130,12 @@ describe('Workers web dashboard pages', () => {
       assert.equal(apiRes.status, 200);
       const apiCsp = apiRes.headers.get('Content-Security-Policy');
       const apiDirectives = parseCspDirectives(apiCsp || '');
-      assert.equal(apiDirectives['default-src'], "'none'");
-      assert.equal(apiDirectives['connect-src'], "'self'");
-      assert.equal(apiDirectives['frame-ancestors'], "'none'");
-      assert.equal(apiDirectives['base-uri'], "'self'");
-      assert.equal(apiDirectives['form-action'], "'self'");
-      assert.equal(apiDirectives['script-src'], undefined);
+      assert.ok(apiDirectives['default-src']?.includes("'none'"));
+      assert.ok(apiDirectives['connect-src']?.includes("'self'"));
+      assert.ok(apiDirectives['frame-ancestors']?.includes("'none'"));
+      assert.ok(apiDirectives['base-uri']?.includes("'self'"));
+      assert.ok(apiDirectives['form-action']?.includes("'self'"));
+      assert.ok(!Object.hasOwn(apiDirectives, 'script-src'));
     } finally {
       await disposeTestDatabase(mf);
     }

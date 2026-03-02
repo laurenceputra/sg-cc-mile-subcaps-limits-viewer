@@ -39,13 +39,8 @@ Use this skill to review correctness, maintainability, and dependency/test risks
 - Handoff contract: `docs/workflow/handoff-format.md`
 
 ## Mandatory Test Anti-Pattern Check (backend worker tests)
-- Check `apps/backend/src/__tests__/workers/**` for all gate rules:
-  - `NO_IMPL_DETAIL_ASSERT`
-  - `NO_EXACT_CSP_EQUALITY`
-  - `REQUIRE_SETUP_STATUS_ASSERT`
-  - `NO_WEAK_TOKEN_ASSERT`
-  - `REQUIRE_MIDDLEWARE_NEXT_ASSERT`
-  - `NO_DUPLICATE_SECURITY_SCENARIO` (report in phase 1, fail in strict phase)
+- Use `docs/workflow/gates.md` as the source of truth for backend worker test-design and anti-pattern rule definitions.
+- Evaluate `apps/backend/src/__tests__/workers/**` against the canonical rule IDs and phase behavior from `docs/workflow/gates.md`.
 - If any fail-level rule is present, return **REQUEST CHANGES**.
 - Include evidence as rule ID + file:line for each finding.
 

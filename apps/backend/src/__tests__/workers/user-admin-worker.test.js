@@ -118,6 +118,11 @@ describe('Workers user + admin flow', () => {
       const adminData = await adminRes.json();
       assert.equal(adminRes.status, 200);
       assert.ok(Array.isArray(adminData.pending));
+      const pendingMapping = adminData.pending.find((entry) => entry.merchant_raw === 'TEST_MERCHANT');
+      assert.ok(pendingMapping, 'contributed mapping should appear in pending queue');
+      assert.equal(pendingMapping.category, 'Dining');
+      assert.equal(pendingMapping.card_type, 'ONE');
+      assert.equal(Number(pendingMapping.count), 1);
     } finally {
       await disposeTestDatabase(mf);
     }
