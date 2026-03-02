@@ -3,3 +3,27 @@ set -eu
 
 echo "[pre-push] Running userscript lint gate..."
 npm run prepush:verify
+
+should_run_backend_quality=false
+
+if upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
+  changed_files=$(git diff --name-only "$upstream_ref...HEAD")
+else
+  changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+fi
+
+for file in $changed_files; do
+  case "$file" in
+    apps/backend/src/__tests__/workers/*|apps/backend/scripts/test-quality-antipatterns.mjs|apps/backend/package.json|package.json|.githooks/pre-push|.github/workflows/backend-preview.yml|.github/workflows/backend-prod.yml)
+      should_run_backend_quality=true
+      break
+      ;;
+  esac
+done
+
+if [ "$should_run_backend_quality" = true ]; then
+  echo "[pre-push] Running backend strict test-quality gate..."
+  npm --prefix apps/backend run test:quality:strict
+else
+  echo "[pre-push] Backend quality gate skipped (no relevant changes)."
+fi

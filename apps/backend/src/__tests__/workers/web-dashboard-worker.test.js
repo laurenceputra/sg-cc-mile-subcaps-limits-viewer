@@ -2,7 +2,13 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
-import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
+import {
+  createTestDatabase,
+  createTestEnv,
+  disposeTestDatabase,
+  expectJwtLike,
+  fetchJson
+} from './test-utils.js';
 
 function randomEmail() {
   return `web-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -12,26 +18,30 @@ async function registerAndLogin(env) {
   const email = randomEmail();
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
-  await app.fetch(new Request('http://localhost/auth/register', {
+  await fetchJson(app, env, '/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
+    body: { email, passwordHash }
+  }, 200, 'register dashboard user');
 
-  const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+  const { json: loginData } = await fetchJson(app, env, '/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
+    body: { email, passwordHash }
+  }, 200, 'login dashboard user');
 
-  const loginData = await loginRes.json();
+  expectJwtLike(loginData.token, 'dashboard login token');
   return { token: loginData.token };
+}
+
+function parseCspDirectives(csp) {
+  return csp
+    .split(';')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .reduce((accumulator, directive) => {
+      const [name, ...parts] = directive.split(/\s+/);
+      accumulator[name] = parts.join(' ');
+      return accumulator;
+    }, {});
 }
 
 describe('Workers web dashboard pages', () => {
@@ -63,16 +73,11 @@ describe('Workers web dashboard pages', () => {
       assert.ok(html.includes('Logout'));
       assert.ok(html.includes("LADY'S SOLITAIRE CARD"));
       assert.ok(html.includes('XL Rewards Card'));
-      assert.ok(html.includes('ccSubcapSyncLastActiveAt'));
+      assert.ok(html.includes('totals-list'));
+      assert.ok(html.includes('empty-state'));
+      assert.ok(html.includes('ccSubcapSyncToken'));
       assert.ok(html.includes('/auth/refresh'));
       assert.ok(html.includes('/meta/cap-policy'));
-      assert.ok(html.includes('slice(0, 2)'));
-      assert.ok(html.includes('cardSettings?.monthlyTotals'));
-      assert.ok(html.includes('cap-pill'));
-      assert.ok(html.includes("category !== 'Others'"));
-      assert.ok(html.includes("amount.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);"));
-      assert.ok(html.includes('function moveOthersToEnd(categories)'));
-      assert.ok(html.includes('function getCategoryDisplayOrder(cardSettings, totals)'));
       assert.ok(html.includes('No synced monthly totals yet.'));
     } finally {
       await disposeTestDatabase(mf);
@@ -100,9 +105,12 @@ describe('Workers web dashboard pages', () => {
     try {
       const env = { ...createTestEnv(), db };
       const loginRes = await app.fetch(new Request('http://localhost/login'), env);
+      assert.equal(loginRes.status, 200);
       const loginCsp = loginRes.headers.get('Content-Security-Policy') || '';
-      assert.ok(loginCsp.includes("script-src 'nonce-"));
-      assert.ok(loginCsp.includes("connect-src 'self'"));
+      const loginDirectives = parseCspDirectives(loginCsp);
+      assert.ok(loginDirectives['script-src']?.includes("'nonce-"));
+      assert.equal(loginDirectives['connect-src'], "'self'");
+      assert.equal(loginDirectives['default-src'], "'none'");
 
       const { token } = await registerAndLogin(env);
       const apiRes = await app.fetch(new Request('http://localhost/sync/data', {
@@ -112,11 +120,15 @@ describe('Workers web dashboard pages', () => {
           'Origin': 'https://pib.uob.com.sg'
         }
       }), env);
+      assert.equal(apiRes.status, 200);
       const apiCsp = apiRes.headers.get('Content-Security-Policy');
-      assert.equal(
-        apiCsp,
-        "default-src 'none'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-      );
+      const apiDirectives = parseCspDirectives(apiCsp || '');
+      assert.equal(apiDirectives['default-src'], "'none'");
+      assert.equal(apiDirectives['connect-src'], "'self'");
+      assert.equal(apiDirectives['frame-ancestors'], "'none'");
+      assert.equal(apiDirectives['base-uri'], "'self'");
+      assert.equal(apiDirectives['form-action'], "'self'");
+      assert.equal(apiDirectives['script-src'], undefined);
     } finally {
       await disposeTestDatabase(mf);
     }

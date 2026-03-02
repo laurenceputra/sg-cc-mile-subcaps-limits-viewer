@@ -2,7 +2,14 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
-import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
+import {
+  createTestDatabase,
+  createTestEnv,
+  disposeTestDatabase,
+  expectJwtLike,
+  expectStatus,
+  fetchJson
+} from './test-utils.js';
 
 function randomEmail() {
   return `refresh-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -15,27 +22,17 @@ function extractCookieValue(setCookieHeader, name) {
 }
 
 async function registerUser(env, email, passwordHash) {
-  await app.fetch(new Request('http://localhost/auth/register', {
+  return fetchJson(app, env, '/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
+    body: { email, passwordHash }
+  }, 200, 'register user');
 }
 
 async function loginUser(env, email, passwordHash) {
-  const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+  return fetchJson(app, env, '/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
-  const loginData = await loginRes.json();
-  return { loginRes, loginData };
+    body: { email, passwordHash }
+  }, 200, 'login user');
 }
 
 describe('Workers auth refresh flow', () => {
@@ -47,7 +44,8 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes } = await loginUser(env, email, passwordHash);
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
       const setCookie = loginRes.headers.get('Set-Cookie');
       assert.ok(setCookie);
       assert.ok(setCookie.includes('ccSubcapRefreshToken='));
@@ -65,7 +63,8 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes } = await loginUser(env, email, passwordHash);
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
       const originalCookie = loginRes.headers.get('Set-Cookie');
       const originalRefreshToken = extractCookieValue(originalCookie, 'ccSubcapRefreshToken');
       assert.ok(originalRefreshToken);
@@ -77,9 +76,9 @@ describe('Workers auth refresh flow', () => {
           'Cookie': `ccSubcapRefreshToken=${originalRefreshToken}`
         }
       }), env);
-      assert.equal(refreshRes.status, 200);
       const refreshData = await refreshRes.json();
-      assert.ok(refreshData.token);
+      expectStatus(refreshRes, 200, 'refresh token exchange');
+      expectJwtLike(refreshData.token, 'refreshed access token');
       const rotatedCookie = refreshRes.headers.get('Set-Cookie');
       const rotatedRefreshToken = extractCookieValue(rotatedCookie, 'ccSubcapRefreshToken');
       assert.ok(rotatedRefreshToken);
@@ -106,7 +105,8 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes, loginData } = await loginUser(env, email, passwordHash);
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
       const refreshCookie = loginRes.headers.get('Set-Cookie');
       const refreshToken = extractCookieValue(refreshCookie, 'ccSubcapRefreshToken');
 

@@ -13,7 +13,9 @@
     "tail:preview": "wrangler tail --env preview",
     "tail:production": "wrangler tail --env production",
     "test": "node --test src/__tests__/workers/*.test.js",
-    "test:workers": "node --test src/__tests__/workers/*.test.js"
+    "test:workers": "node --test src/__tests__/workers/*.test.js",
+    "test:quality": "node scripts/test-quality-antipatterns.mjs",
+    "test:quality:strict": "node scripts/test-quality-antipatterns.mjs --strict"
   },
   "keywords": [
     "hono",

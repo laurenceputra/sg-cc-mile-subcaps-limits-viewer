@@ -53,6 +53,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - Code quality and maintainability review
 - Dependency vulnerability check (npm audit)
 - License compliance
+- **Gate:** Test Design Gate (anti-pattern checks must pass for backend test changes)
 - **Gate:** Security review with OWASP Top 10 checklist
 - **Decision:** APPROVE / REQUEST CHANGES / BLOCK
 
@@ -60,6 +61,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - Functional testing (calculations, edge cases)
 - Performance testing (load time, memory)
 - Accessibility testing (keyboard nav, contrast)
+- Test anti-pattern verification evidence included in QA report
 - **Gate:** All tests must pass
 
 **Phase 4: Security Testing** (security-reviewer)
@@ -131,6 +133,32 @@ For any change that touches database schema, auth/session flows, deployment conf
 5. **Post-Deploy Observation Gate**
    - Monitor endpoint-level error rates for changed auth/session/data paths.
    - Treat unexplained 5xx increases as release blockers until triaged.
+
+## Test Design Gate (Mandatory for backend test changes)
+
+For any backend worker test changes (`apps/backend/src/__tests__/workers/**`), approvals are blocked when any of the following are present:
+
+1. **Implementation-detail assertions**
+   - Fail when tests assert internal rendered HTML/JS source details (for example function names or implementation snippets) instead of user-visible behavior/contract.
+
+2. **Exact CSP/header equality misuse**
+   - Fail when tests use full-value CSP/header equality where order-insensitive directive/policy checks are intended.
+
+3. **Unasserted setup requests**
+   - Fail when setup/helper HTTP requests are used without explicit response status assertions in the same test flow.
+
+4. **Weak token success checks**
+   - Fail when tests only assert token non-empty strings without JWT-like shape checks and authenticated success/failure behavior.
+
+5. **Missing middleware pass-path proof**
+   - Fail when middleware success-path tests do not prove `next()` execution.
+
+6. **Duplicate security-origin scenarios**
+   - Phase 1: report duplicates across files.
+   - Strict phase: fail when production-origin/userscript security scenarios are duplicated instead of shared/parameterized.
+
+Required report output for `code-review` and `qa-testing` skills:
+- Include a **Test Anti-Pattern Check** section with pass/fail status and evidence (rule ID + file:line for findings).
 
 ## Agents
 
@@ -289,7 +317,7 @@ Each agent should provide:
 ## Local Quality Gates
 
 - Enable repository hooks once per clone: `git config core.hooksPath .githooks`
-- Pre-push gate (required): runs userscript lint via `npm run prepush:verify`
+- Pre-push gate (required): runs userscript lint via `npm run prepush:verify` and backend test-quality gate (`npm --prefix apps/backend run test:quality:strict`) when backend quality-relevant files change
 - CI gate: userscript lint workflow must pass (`.github/workflows/userscript-lint.yml`)
 
 ---

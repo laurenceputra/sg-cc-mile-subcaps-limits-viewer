@@ -41,11 +41,23 @@ Design test plans and cases that cover happy paths, edge cases, contract compati
 - Include a case where observer-driven updates resolve before timeout; expected outcome: no late timeout side-effects (timer cleared).
 - Include at least one rapid card-switch scenario to ensure no stale overlay/data write occurs during context transitions.
 
+## Mandatory Test Anti-Pattern Check (backend worker tests)
+- Validate backend worker tests against:
+  - `NO_IMPL_DETAIL_ASSERT`
+  - `NO_EXACT_CSP_EQUALITY`
+  - `REQUIRE_SETUP_STATUS_ASSERT`
+  - `NO_WEAK_TOKEN_ASSERT`
+  - `REQUIRE_MIDDLEWARE_NEXT_ASSERT`
+  - `NO_DUPLICATE_SECURITY_SCENARIO` (report-only in phase 1; fail in strict phase)
+- Record pass/fail and evidence (rule ID + file:line).
+- Any fail-level finding is a release-blocking QA gate failure.
+
 ## Output Format
 - Test plan
 - Contract compatibility matrix (when relevant)
 - Coverage gaps
 - Recommendations and gate decision
+- Test Anti-Pattern Check
 
 ## References
 - [Test plan templates](references/test-plan.md)

@@ -5,6 +5,8 @@
 Use this checklist before deploying changes to production.
 
 ### ✅ Unit & Integration Tests
+- [ ] Run `npm --prefix apps/backend run test:quality` (phase-1 anti-pattern gate)
+- [ ] Run `npm --prefix apps/backend run test:quality:strict` (strict anti-pattern gate)
 - [ ] Run `npm --prefix apps/backend test` - Workers-only tests pass
 - [ ] No regressions in existing functionality
 
@@ -126,11 +128,13 @@ Use this checklist before deploying changes to production.
 
 ### Before Every Commit
 ```bash
+npm --prefix apps/backend run test:quality
 npm --prefix apps/backend test
 ```
 
 ### Before Pull Request
 ```bash
+npm --prefix apps/backend run test:quality:strict
 npm --prefix apps/backend run test:workers
 ```
 
@@ -195,10 +199,9 @@ npm --prefix apps/backend run test:workers
 - No actual email sending (mocked)
 
 ### Test Suite
-- 44/77 tests passing (57%)
-- Some test isolation issues
-- Async cleanup timing issues
-- Test harness limitations (not code bugs)
+- Keep the strict test-quality gate (`test:quality:strict`) green for worker test changes.
+- Keep worker tests behavior-focused (no implementation-detail assertions).
+- Keep setup requests assertion-first using shared helpers (`expectStatus`, `expectOk`, `expectJsonResponse`).
 
 ### Production Differences
 - D1 has higher latency than SQLite

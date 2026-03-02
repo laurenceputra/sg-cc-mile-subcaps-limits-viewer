@@ -2,7 +2,15 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
-import { createTestDatabase, createTestEnv, disposeTestDatabase, TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './test-utils.js';
+import {
+  createTestDatabase,
+  createTestEnv,
+  disposeTestDatabase,
+  TEST_ADMIN_EMAIL,
+  TEST_ADMIN_PASSWORD,
+  expectJwtLike,
+  fetchJson
+} from './test-utils.js';
 
 function createEncryptedData() {
   return {
@@ -16,40 +24,25 @@ async function registerAndLogin(env) {
   const email = `user-${crypto.randomBytes(6).toString('hex')}@example.com`;
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
-  await app.fetch(new Request('http://localhost/auth/register', {
+  await fetchJson(app, env, '/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
+    body: { email, passwordHash }
+  }, 200, 'register user');
 
-  const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+  const { json: loginData } = await fetchJson(app, env, '/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
+    body: { email, passwordHash }
+  }, 200, 'login user');
 
-  const loginData = await loginRes.json();
+  expectJwtLike(loginData.token, 'user token');
   return { token: loginData.token };
 }
 
 async function loginAdmin(env, password = TEST_ADMIN_PASSWORD) {
-  const adminLoginRes = await app.fetch(new Request('http://localhost/admin/auth/login', {
+  return fetchJson(app, env, '/admin/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email: TEST_ADMIN_EMAIL, password })
-  }), env);
-
-  const adminData = await adminLoginRes.json();
-  return { adminLoginRes, adminData };
+    body: { email: TEST_ADMIN_EMAIL, password }
+  }, 200, 'admin login');
 }
 
 describe('Workers user + admin flow', () => {
@@ -60,25 +53,17 @@ describe('Workers user + admin flow', () => {
       const { token } = await registerAndLogin(env);
       const encryptedData = createEncryptedData();
 
-      await app.fetch(new Request('http://localhost/auth/device/register', {
+      await fetchJson(app, env, '/auth/device/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({ deviceName: 'Test Device', deviceFingerprint: 'device-123' })
-      }), env);
+        token,
+        body: { deviceName: 'Test Device', deviceFingerprint: 'device-123' }
+      }, 200, 'register device');
 
-      await app.fetch(new Request('http://localhost/sync/data', {
+      await fetchJson(app, env, '/sync/data', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({ encryptedData, version: 1 })
-      }), env);
+        token,
+        body: { encryptedData, version: 1 }
+      }, 200, 'save sync payload');
 
       const exportRes = await app.fetch(new Request('http://localhost/user/export', {
         method: 'GET',
@@ -104,14 +89,10 @@ describe('Workers user + admin flow', () => {
       const env = { ...createTestEnv(), db };
       const { token } = await registerAndLogin(env);
 
-      await app.fetch(new Request('http://localhost/shared/mappings/contribute', {
+      await fetchJson(app, env, '/shared/mappings/contribute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({
+        token,
+        body: {
           mappings: [
             {
               merchantNormalized: 'TEST_MERCHANT',
@@ -120,11 +101,11 @@ describe('Workers user + admin flow', () => {
               confidence: 0.9
             }
           ]
-        })
-      }), env);
+        }
+      }, 200, 'contribute mapping');
 
-      const { adminLoginRes, adminData: adminLoginData } = await loginAdmin(env);
-      assert.equal(adminLoginRes.status, 200);
+      const { json: adminLoginData } = await loginAdmin(env);
+      expectJwtLike(adminLoginData.token, 'admin token');
 
       const adminRes = await app.fetch(new Request('http://localhost/admin/mappings/pending', {
         method: 'GET',
@@ -146,7 +127,10 @@ describe('Workers user + admin flow', () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv(), db };
-      const { adminLoginRes } = await loginAdmin(env, 'wrong-password');
+      const { response: adminLoginRes } = await fetchJson(app, env, '/admin/auth/login', {
+        method: 'POST',
+        body: { email: TEST_ADMIN_EMAIL, password: 'wrong-password' }
+      }, 401, 'admin login with invalid password');
       assert.equal(adminLoginRes.status, 401);
     } finally {
       await disposeTestDatabase(mf);
@@ -191,8 +175,8 @@ describe('Workers user + admin flow', () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv(), db };
-      const { adminLoginRes, adminData } = await loginAdmin(env);
-      assert.equal(adminLoginRes.status, 200);
+      const { json: adminData } = await loginAdmin(env);
+      expectJwtLike(adminData.token, 'admin token');
 
       const logoutRes = await app.fetch(new Request('http://localhost/admin/auth/logout', {
         method: 'POST',
