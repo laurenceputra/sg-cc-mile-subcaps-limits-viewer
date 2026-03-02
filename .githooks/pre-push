@@ -9,7 +9,17 @@ should_run_backend_quality=false
 if upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
   changed_files=$(git diff --name-only "$upstream_ref...HEAD")
 else
-  changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+  origin_main_ref='refs/remotes/origin/main'
+  if git show-ref --verify --quiet "$origin_main_ref"; then
+    merge_base=$(git merge-base HEAD "$origin_main_ref" || true)
+    if [ -n "$merge_base" ]; then
+      changed_files=$(git diff --name-only "$merge_base...HEAD")
+    else
+      changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+    fi
+  else
+    changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+  fi
 fi
 
 for file in $changed_files; do

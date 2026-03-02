@@ -130,4 +130,28 @@ describe('Workers security basics', () => {
       await disposeTestDatabase(mf);
     }
   });
+
+  test('rejects Origin: null register request without trusted userscript header in production', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const email = randomSecurityEmail('secure-origin-null-no-header');
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      const res = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'null'
+        },
+        body: JSON.stringify({ email, passwordHash })
+      }), env);
+
+      assert.equal(res.status, 403);
+      const data = await res.json();
+      assert.match(data.message, /Origin header required/i);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
 });

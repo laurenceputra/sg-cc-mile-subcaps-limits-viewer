@@ -21,6 +21,13 @@ function extractCookieValue(setCookieHeader, name) {
   return match ? match[1] : null;
 }
 
+function assertRefreshCookieSecurity(setCookieHeader, label) {
+  assert.ok(setCookieHeader, `${label}: Set-Cookie header is present`);
+  assert.ok(setCookieHeader.includes('ccSubcapRefreshToken='), `${label}: refresh token cookie is set`);
+  assert.ok(setCookieHeader.includes('HttpOnly'), `${label}: cookie is HttpOnly`);
+  assert.match(setCookieHeader, /SameSite=Strict/i, `${label}: cookie enforces strict same-site policy`);
+}
+
 async function registerUser(env, email, passwordHash) {
   return fetchJson(app, env, '/auth/register', {
     method: 'POST',
@@ -47,9 +54,7 @@ describe('Workers auth refresh flow', () => {
       const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
       expectJwtLike(loginData.token, 'login token');
       const setCookie = loginRes.headers.get('Set-Cookie');
-      assert.ok(setCookie);
-      assert.ok(setCookie.includes('ccSubcapRefreshToken='));
-      assert.ok(setCookie.includes('HttpOnly'));
+      assertRefreshCookieSecurity(setCookie, 'login');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -80,6 +85,7 @@ describe('Workers auth refresh flow', () => {
       expectStatus(refreshRes, 200, 'refresh token exchange');
       expectJwtLike(refreshData.token, 'refreshed access token');
       const rotatedCookie = refreshRes.headers.get('Set-Cookie');
+      assertRefreshCookieSecurity(rotatedCookie, 'refresh');
       const rotatedRefreshToken = extractCookieValue(rotatedCookie, 'ccSubcapRefreshToken');
       assert.ok(rotatedRefreshToken);
       assert.notEqual(rotatedRefreshToken, originalRefreshToken);
@@ -108,6 +114,7 @@ describe('Workers auth refresh flow', () => {
       const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
       expectJwtLike(loginData.token, 'login token');
       const refreshCookie = loginRes.headers.get('Set-Cookie');
+      assertRefreshCookieSecurity(refreshCookie, 'pre-logout login');
       const refreshToken = extractCookieValue(refreshCookie, 'ccSubcapRefreshToken');
 
       const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
