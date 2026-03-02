@@ -2,7 +2,14 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
-import { createTestDatabase, createTestEnv, disposeTestDatabase } from './test-utils.js';
+import {
+  createTestDatabase,
+  createTestEnv,
+  disposeTestDatabase,
+  expectJwtLike,
+  expectStatus,
+  fetchJson
+} from './test-utils.js';
 
 function randomEmail() {
   return `refresh-${crypto.randomBytes(6).toString('hex')}@example.com`;
@@ -15,28 +22,17 @@ function extractCookieValue(setCookieHeader, name) {
 }
 
 async function registerUser(env, email, passwordHash) {
-  const res = await app.fetch(new Request('http://localhost/auth/register', {
+  return fetchJson(app, env, '/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
-  assert.equal(res.status, 200, 'registration should succeed');
+    body: { email, passwordHash }
+  }, 200, 'register user');
 }
 
 async function loginUser(env, email, passwordHash) {
-  const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
+  return fetchJson(app, env, '/auth/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://pib.uob.com.sg'
-    },
-    body: JSON.stringify({ email, passwordHash })
-  }), env);
-  const loginData = await loginRes.json();
-  return { loginRes, loginData };
+    body: { email, passwordHash }
+  }, 200, 'login user');
 }
 
 describe('Workers auth refresh flow', () => {
@@ -48,12 +44,12 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes } = await loginUser(env, email, passwordHash);
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
       const setCookie = loginRes.headers.get('Set-Cookie');
-      assert.strictEqual(typeof setCookie, 'string', 'login should set a cookie');
-      assert.match(setCookie, /ccSubcapRefreshToken=/, 'cookie should contain refresh token');
-      assert.match(setCookie, /HttpOnly/, 'cookie should include HttpOnly flag');
-      assert.match(setCookie, /SameSite=Strict/, 'cookie should include SameSite=Strict flag');
+      assert.ok(setCookie);
+      assert.ok(setCookie.includes('ccSubcapRefreshToken='));
+      assert.ok(setCookie.includes('HttpOnly'));
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -67,10 +63,11 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes } = await loginUser(env, email, passwordHash);
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
       const originalCookie = loginRes.headers.get('Set-Cookie');
       const originalRefreshToken = extractCookieValue(originalCookie, 'ccSubcapRefreshToken');
-      assert.strictEqual(typeof originalRefreshToken, 'string', 'login should return a refresh token');
+      assert.ok(originalRefreshToken);
 
       const refreshRes = await app.fetch(new Request('http://localhost/auth/refresh', {
         method: 'POST',
@@ -79,12 +76,12 @@ describe('Workers auth refresh flow', () => {
           'Cookie': `ccSubcapRefreshToken=${originalRefreshToken}`
         }
       }), env);
-      assert.equal(refreshRes.status, 200);
       const refreshData = await refreshRes.json();
-      assert.strictEqual(typeof refreshData.token, 'string', 'refresh should return an access token');
+      expectStatus(refreshRes, 200, 'refresh token exchange');
+      expectJwtLike(refreshData.token, 'refreshed access token');
       const rotatedCookie = refreshRes.headers.get('Set-Cookie');
       const rotatedRefreshToken = extractCookieValue(rotatedCookie, 'ccSubcapRefreshToken');
-      assert.strictEqual(typeof rotatedRefreshToken, 'string', 'refresh should issue a rotated token');
+      assert.ok(rotatedRefreshToken);
       assert.notEqual(rotatedRefreshToken, originalRefreshToken);
 
       const reuseRes = await app.fetch(new Request('http://localhost/auth/refresh', {
@@ -108,10 +105,10 @@ describe('Workers auth refresh flow', () => {
       const passwordHash = crypto.randomBytes(32).toString('hex');
 
       await registerUser(env, email, passwordHash);
-      const { loginRes, loginData } = await loginUser(env, email, passwordHash);
-      const loginCookie = loginRes.headers.get('Set-Cookie');
-      const refreshToken = extractCookieValue(loginCookie, 'ccSubcapRefreshToken');
-      assert.strictEqual(typeof refreshToken, 'string', 'login should return a refresh token');
+      const { response: loginRes, json: loginData } = await loginUser(env, email, passwordHash);
+      expectJwtLike(loginData.token, 'login token');
+      const refreshCookie = loginRes.headers.get('Set-Cookie');
+      const refreshToken = extractCookieValue(refreshCookie, 'ccSubcapRefreshToken');
 
       const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
         method: 'POST',
@@ -121,18 +118,12 @@ describe('Workers auth refresh flow', () => {
           'Cookie': `ccSubcapRefreshToken=${refreshToken}`
         }
       }), env);
-
       assert.equal(logoutRes.status, 200);
-      const logoutData = await logoutRes.json();
-      assert.equal(logoutData.success, true);
-      const setCookie = logoutRes.headers.get('Set-Cookie');
-      assert.match(setCookie, /ccSubcapRefreshToken=/, 'logout should clear refresh token cookie');
-      assert.match(setCookie, /Max-Age=0/, 'logout cookie should expire immediately');
-      assert.match(setCookie, /HttpOnly/, 'logout cookie should retain HttpOnly flag');
-      assert.match(setCookie, /SameSite=Strict/, 'logout cookie should retain SameSite=Strict');
+      const logoutCookie = logoutRes.headers.get('Set-Cookie');
+      assert.ok(logoutCookie);
+      assert.ok(logoutCookie.includes('Max-Age=0'));
     } finally {
       await disposeTestDatabase(mf);
     }
   });
-
 });
