@@ -1,6 +1,6 @@
 ---
 name: network-resilience
-description: "Improve reliability for network calls, sync, or remote endpoints with timeouts, retries, offline handling, and user feedback."
+description: Improve reliability for network calls, sync, or remote endpoints with timeouts, retries, offline handling, and user feedback.
 license: MIT
 tags:
   - networking
@@ -12,21 +12,27 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Network Resilience
 
-Recommend improvements for timeout, retry, and offline behavior in networked code.
+Use this skill when network reliability, retry behavior, or offline UX is in scope.
 
-## Workflow
-1. Identify network touchpoints.
-2. Evaluate timeout/retry/offline handling.
-3. Propose fixes and user messaging.
+## Scope
+- Identify network touchpoints and failure modes.
+- Propose timeout/retry/backoff/idempotency improvements.
+- Add user-visible error/recovery messaging where needed.
 
-## Output Format
-- Resilience gaps
-- Recommended improvements
+## Role-Specific Guardrails
+- Avoid infinite retries and duplicate-write risks.
+- Keep fallback behavior explicit and observable.
 
-## References
-- [Network resilience guides](references/network-guides.md)
+## Output
+- Failure-mode matrix
+- Reliability improvements
+- Verification plan
+
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`

@@ -1,6 +1,6 @@
 ---
 name: userscript-implementation
-description: "Implement and harden Tampermonkey userscript features in this repo with CSP-safe UI patterns, GM transport, strict sync privacy, and regression-safe multi-card behavior."
+description: Implement and harden Tampermonkey userscript features with CSP-safe UI patterns and strict sync privacy defaults.
 license: MIT
 tags:
   - implementation
@@ -14,87 +14,29 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Userscript Implementation
 
-Implement userscript changes with strict focus on runtime compatibility, privacy guarantees, and cross-portal regression safety.
+Use this skill for userscript-specific behavior, metadata, DOM extraction, and portal compatibility.
 
-## Use This Skill When
-- The task changes `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
-- The task involves Tampermonkey metadata (`@match`, `@grant`, `@connect`).
-- The task touches overlay/UI rendering, sync transport, or card extraction rules.
-- The task involves CSP/CSRF/network issues on supported bank portals.
+## Scope
+- Validate Tampermonkey metadata changes (`@match`, `@grant`, `@connect`).
+- Keep UI rendering CSP-safe and portal-compatible.
+- Preserve sync privacy model and multi-card behavior.
 
-## Workflow
-1. Confirm card/portal scope and list impacted flows (UOB, Maybank, or both).
-2. Identify whether the change touches:
-   - metadata permissions (`@connect`, `@match`, `@grant`)
-   - UI render path (tabs, styles, modal/overlay behavior)
-   - sync payload/model and merge behavior
-   - backend compatibility requirements
-3. Implement the smallest safe diff with explicit backward compatibility.
-4. Run required lint/syntax/test checks.
-5. Validate runtime interactions on affected portal pages and document outcomes.
+## Role-Specific Guardrails
+- Keep `@connect` least-privilege.
+- Prefer class-based styling and `GM_addStyle` for new UI.
+- For selector fallback arrays, continue evaluation until semantic card validation passes.
+- In observer + timeout flows, clear pending timers on early resolve.
 
-## Implementation Guardrails
+## Output
+- Behavioral impact by portal/card
+- Verification and manual-check outcomes
+- Risks and compatibility notes
 
-### Metadata and Network
-- Keep `@connect` least-privilege:
-  - Prefer explicit hosts over broad wildcards.
-  - Include required preview/runtime hosts only.
-- For cross-origin calls from bank pages, prefer `GM_xmlhttpRequest` transport.
-- Keep fetch fallback when GM transport is unavailable.
-- Preserve auth headers and JSON parsing consistency across transport paths.
-
-### CSP-Safe UI
-- Avoid inline style attributes and direct `.style.*` mutations for new UI work on CSP-restricted portals.
-- Prefer class-based styles and `GM_addStyle` injection.
-- Keep UI behavior parity across supported portals unless explicitly card-specific.
-- Verify scroll behavior when changing panel containers (`overflow` is a common regression vector).
-
-### Card-Specific UX
-- Card differences must be explicit in `CARD_CONFIGS` (for example: `showManageTab`).
-- Do not silently apply one card's UX restriction to all cards.
-- Keep shared functions card-aware via explicit parameters, not hidden globals.
-- For repeated userscript UI behavior, use shared helpers (for example details/chevron toggle renderer, category ordering helper with `Others` last, and cap text formatter with single-value display).
-- Declare card-specific differences via config/policy when feasible instead of ad-hoc branching.
-- For multi-selector extraction (`cardNameXPaths`/table XPath arrays), continue fallback evaluation until semantic validation passes (for example recognized card key), not just until a node exists.
-
-### Async/Observer Hygiene
-- In Promise + `MutationObserver` wait helpers, store timeout handles and clear them on successful early resolve.
-- Ensure all observer teardown paths also clear pending timers.
-- For SPA card-switch flows, re-validate card context before writes/renders so stale contexts cannot persist data.
-
-### Sync Privacy Model
-- Raw transaction rows remain local unless the requirement explicitly changes that policy.
-- Sync payload should include only sanctioned fields (for example settings + monthly aggregates).
-- Preserve non-active cards when active-card-only sync is required.
-- Maintain compatibility with legacy payload shapes during reads.
-
-### Scope Safety
-- When moving functions across scopes/modules, audit all referenced symbols.
-- Never rely on block-scoped constants from a different closure.
-- Treat `no-undef` lint errors as release blockers.
-
-## Required Verification
-- `node --check apps/userscript/bank-cc-limits-subcap-calculator.user.js`
-- `npm run lint:userscript`
-- `npm --prefix apps/backend test` when userscript changes rely on backend auth/csrf/sync behavior
-
-## Required Manual Checks
-- Button appears on target page(s).
-- Primary click path works (open overlay, switch tabs, close).
-- Card-specific tab behavior is correct (for example UOB manage visible, XL hidden).
-- UOB and Maybank parity checks pass for impacted UI paths (chevron visibility/state, cap text format, and `Others` ordering where applicable).
-- For fallback selector arrays, verify behavior when the first selector is stale/unrecognized but a later selector is valid.
-- Sync setup/login/sync now flow works on affected portal(s).
-- Browser console has no new CSP/connect/ReferenceError failures.
-
-## Output Format
-- Scope
-- Files changed
-- Behavioral impact (per card/portal)
-- Verification results
-- Risks/follow-ups
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`

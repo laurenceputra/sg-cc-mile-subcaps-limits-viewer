@@ -1,6 +1,6 @@
 ---
 name: requirements-researcher
-description: "Feasibility and requirements clarification for software/infra/product work; use when asked what is possible, to assess constraints/tradeoffs, or to clarify user flows and turn ambiguous requests into actionable questions before handing off to spec-writer."
+description: Feasibility and requirements clarification for software/infra/product work.
 license: MIT
 tags:
   - requirements
@@ -12,25 +12,27 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Requirements Researcher
 
-Clarify feasibility, constraints, and user flow so requests become spec‑ready.
+Use this skill to turn ambiguous requests into execution-ready constraints and decisions.
 
-## Workflow
-1. Restate goal and success criteria.
-2. Identify constraints and dependencies.
-3. Ask user flow and edge case questions.
-4. Summarize options and open questions.
+## Scope
+- Restate goal and success criteria.
+- Surface constraints, dependencies, and trade-offs.
+- Produce focused open questions when decisions are missing.
 
-## Output Format
-- Goal (restated)
-- Constraints
-- Questions
-- Options/Tradeoffs
-- Ready for spec-writer
+## Role-Specific Guardrails
+- Keep questions decision-oriented and implementation-relevant.
+- Distinguish hard blockers from optional preferences.
 
-## References
-- [Question bank](references/question-bank.md)
+## Output
+- Restated goal
+- Constraints and trade-offs
+- Open decisions and recommendations
+
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`

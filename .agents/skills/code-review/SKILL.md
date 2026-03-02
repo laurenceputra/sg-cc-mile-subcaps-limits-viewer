@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Expert code reviewer with deep knowledge of software engineering best practices, design patterns, and code quality standards. Use this skill when reviewing code changes, pull requests, or conducting code quality assessments.
+description: Expert code reviewer with deep knowledge of software engineering best practices, design patterns, and code quality standards.
 license: MIT
 tags:
   - code-review
@@ -12,38 +12,28 @@ allowed-tools:
   - markdown
 metadata:
   author: laurenceputra
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # Code Review
 
-Provide structured, actionable review feedback focused on correctness, security, performance, and maintainability.
+Use this skill to review correctness, maintainability, and dependency/test risks for a change set.
 
-## Workflow
-1. Read the change and understand intent.
-2. Review for correctness, edge cases, and regressions.
-3. Check repo-specific constraints and testing coverage.
-4. Summarize findings using the output template.
+## Scope
+- Validate behavior against stated intent.
+- Flag regressions, fragile logic, and missing tests.
+- Run dependency/license checks when relevant.
 
-## Mandatory Heuristics (Userscript/SPA)
-- For fallback selector arrays, verify the code only accepts semantically valid matches (for example known card name) and does not short-circuit on the first visible node.
-- For Promise + observer wait patterns, verify timeout handles are cleared on success and cleanup paths disconnect observers + timers.
-- For context-preserving teardown paths, verify state resets and observer preservation cannot create stale-write or stale-overlay windows.
+## Role-Specific Guardrails
+- For userscript selector fallback arrays, require semantic validation before accepting a selector result.
+- For observer + timeout helpers, verify timer cleanup on early resolve and teardown.
+- For tests changed in scope, run `npm run test:anti-patterns` and report manual-only anti-pattern findings.
 
-## Test Anti-Pattern Gate (Mandatory when tests change)
-- Run `npm run test:anti-patterns` and treat failures as blockers.
-- Review and report manual-only anti-patterns even when the script passes:
-  - coverage-only assertions that do not verify behavior
-  - permissive defaults in mocks/stubs that hide missing setup
-  - order-dependent behavior from shared module state
-  - broad/ambiguous error assertions when specific contracts exist
-- If an exception is proposed, require rationale + blast radius + follow-up mitigation.
+## Output
+- Findings by severity
+- Suggested fixes
+- Verification and anti-pattern results
 
-## Output Format
-- Summary
-- Critical Issues
-- Suggestions
-- Testing
-
-## References
-- [Review guidelines and checklist](references/review-guidelines.md)
+## Canonical References
+- Workflow gates: `docs/workflow/gates.md`
+- Handoff contract: `docs/workflow/handoff-format.md`
