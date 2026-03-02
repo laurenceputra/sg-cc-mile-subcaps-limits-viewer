@@ -27,6 +27,15 @@ Ensure comprehensive quality through functional testing, performance optimizatio
 - Regression testing for DOM and UX changes
 - Security test suite execution
 
+### Coverage Targets and Gate Decision (Canonical with `qa-testing` skill)
+- Changed files target: >= 90% line coverage and >= 80% branch coverage.
+- Backend floor target: >= 80% line coverage and >= 70% branch coverage.
+- High-risk auth/sync/security/rate-limit paths must not remain untested.
+- Gate Decision:
+  - `APPROVE`: targets met and no high-risk uncovered gaps.
+  - `REQUEST CHANGES`: targets not met or high-risk gaps remain with feasible tests.
+  - `BLOCK`: critical security/data-integrity paths remain untested.
+
 ### Performance Testing & Optimization
 - Performance profiling (CPU, memory, network)
 - Core Web Vitals measurement (LCP, FID, CLS)
@@ -96,6 +105,21 @@ Ensure comprehensive quality through functional testing, performance optimizatio
 4. Color contrast measurement
 5. Basic screen reader compatibility
 
+### Test Anti-Pattern Gate (Mandatory when tests change)
+- Run `npm run test:anti-patterns` and treat findings as blockers.
+- Perform manual-only anti-pattern review for:
+  - coverage-only assertions without behavioral validation
+  - permissive default mocks/stubs that hide missing explicit setup
+  - order-dependent behavior from shared module state
+  - vague error assertions when specific contracts are available
+
+### Backend/Auth/Schema Validation Touchpoints (when applicable)
+- Confirm Schema Compatibility Gate evidence exists for migration-related changes.
+- Validate Preview Smoke Gate coverage for `/login`, auth, refresh, and protected data paths.
+- Confirm Environment Parity Gate prerequisites are represented in validation notes.
+- Verify failure-mode behavior and detection signals are testable and observed.
+- Confirm Post-Deploy Observation Gate metrics/watch signals are defined for changed auth/session/data paths.
+
 ## Guardrails
 - No persistent storage of sensitive data
 - Use synthetic or redacted fixtures only
@@ -107,12 +131,22 @@ Ensure comprehensive quality through functional testing, performance optimizatio
 - All functional tests pass
 - No critical performance regressions
 - No critical accessibility violations
-- 80%+ test coverage
+- Coverage targets above met for changed files/backend floors
 - No high-severity bugs
 
+## Verification Default (Mandatory)
+- Run the most relevant verification commands by default and report outcomes; do not ask permission to run tests.
+- Only skip verification when the user explicitly requests it.
+- Always include exact command(s) and short result summaries.
+
 ## Handoff
-- Test results summary
-- Performance metrics (before/after)
-- Accessibility compliance report
-- List of known issues with severity
-- Recommendations for improvements
+- Summary of findings
+- Assumptions and unknowns
+- Deliverables (test report, performance metrics, accessibility results)
+- Risks and recommended mitigations
+- Security Sign-off: `N/A` (owned by `security-reviewer`)
+- Anti-pattern checks run (`npm run test:anti-patterns`) and result summary (required when tests changed; otherwise `N/A` with reason)
+- Manual-only anti-pattern review summary (required when tests changed or test quality reviewed; otherwise `N/A` with reason)
+- Scope-move audit (required when functions moved across scopes/modules; otherwise `N/A`)
+- External-symbol audit (required when moved/rewired paths reference non-local symbols; otherwise `N/A`)
+- Interaction proof for changed UI paths (required when UI interaction paths changed; otherwise `N/A`)

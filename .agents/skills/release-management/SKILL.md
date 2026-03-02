@@ -33,10 +33,18 @@ Plan and execute releases with explicit quality gates, migration discipline, and
 6. Monitor post-release signals and capture follow-up fixes.
 
 ## Required Gates for Backend/Auth/Schema Releases
-- Schema compatibility gate passed (including migration path).
-- Preview smoke gate passed for login/session/data flows.
-- Environment parity gate passed.
+- **Schema Compatibility Gate** passed (including migration path).
+- **Preview Smoke Gate** passed for login/session/data flows.
+- **Environment Parity Gate** passed.
+- **Failure-Mode Requirement** documented (symptom, detection signal, rollback/mitigation).
+- **Post-Deploy Observation Gate** active with endpoint-level monitoring and blocker handling for unexplained 5xx spikes.
 - Rollback plan documented and executable.
+
+## Verification Default
+- Run the most relevant verification commands by default and report outcomes.
+- Do not ask permission to run tests.
+- Only skip verification when the user explicitly requests it.
+- Always include exact command(s) and short outcome summaries.
 
 ## Output Format
 - Release scope and version

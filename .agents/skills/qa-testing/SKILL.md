@@ -100,7 +100,7 @@ For this repo, coverage improvement is a primary QA goal. Use this skill to plan
 - Coverage baseline and delta (before/after)
 - Coverage gap report (file, uncovered area, risk, planned tests)
 - Coverage gaps
-- Recommendations and gate decision
+- Recommendation and Gate Decision
 
 ## References
 - [Test plan templates](references/test-plan.md)

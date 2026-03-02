@@ -7,3 +7,5 @@
 - For UI/card-affecting changes, apply the mandatory design gates in AGENTS.md: config-first decisions, per-surface reuse, and card parity checks.
 - Treat card differences as config-driven whenever feasible; avoid ad-hoc branching when config can express the behavior.
 - Reuse UI code within each surface (userscript ↔ userscript, dashboard ↔ dashboard); cross-surface runtime code sharing is not required.
+- Keep data handling local-first by default; allow optional remote sync/auth flows only when explicitly approved, encrypted, and aligned with AGENTS.md privacy controls.
+- Never add remote logging for sensitive data.

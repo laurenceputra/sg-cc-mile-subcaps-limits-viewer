@@ -23,7 +23,7 @@ Ensure security at every phase through policy compliance, technical review, and 
 
 ### Policy & Compliance
 - Confirm read-only behavior (no transactions)
-- Validate privacy constraints (local-first, no remote logging)
+- Validate privacy constraints (local-first default, optional approved encrypted sync/auth only, no remote logging of sensitive data)
 - Verify ToS compliance and terms adherence
 - GDPR compliance where applicable
 - Data classification (PII, public, internal)
@@ -58,6 +58,13 @@ Ensure security at every phase through policy compliance, technical review, and 
   - Cryptographic weaknesses
 - Proof-of-concept exploit development
 
+### Backend/Auth/Schema Workflow Tightening (Mandatory when applicable)
+- Enforce **Schema Compatibility Gate**: verify forward migrations and target environment compatibility.
+- Enforce **Preview Smoke Gate**: validate `/login`, auth flow, refresh flow, and protected data paths on preview.
+- Enforce **Environment Parity Gate**: verify bindings, secrets, and runtime config parity.
+- Enforce **Failure-Mode Requirement**: confirm known failure modes, detection signals, and rollback/mitigation are documented.
+- Enforce **Post-Deploy Observation Gate**: block release on unexplained 5xx increases until triaged.
+
 ### Dependency Security
 - npm audit / Snyk scanning
 - CVE monitoring
@@ -66,24 +73,25 @@ Ensure security at every phase through policy compliance, technical review, and 
 
 ## Security Gates (Gate Authority)
 
-### Phase 0 → 1 (Safety Gate)
+### Phase 0 -> 1 Safety Gate
 - ✅ Threat model completed
 - ✅ Privacy constraints documented
 
-### Phase 2 (Design Review) - MANDATORY
+### Phase 2 Code Review Gate - MANDATORY
 - ✅ Security architecture approved
 - ✅ Cryptography approach validated
 - ✅ Zero critical/high CVEs
 
-### Phase 5 (Code Review) - MANDATORY
+### Phase 2 Code Review Gate - Security Checklist
 - ✅ OWASP Top 10 checklist complete
 - ✅ No security anti-patterns
 - ✅ All secrets externalized
 
-### Phase 7 (Penetration Testing) - MANDATORY
+### Phase 4 Security Testing Gate - MANDATORY
 - ✅ OWASP ZAP scan clean
 - ✅ Manual pen testing passed
-- ✅ No critical vulnerabilities
+- ✅ Attack simulation shows no exploitable critical vulnerabilities
+- ✅ Gate Decision and Security Sign-off use `APPROVE / REQUEST CHANGES / BLOCK`
 
 ## Inputs
 - Code changes and diffs
@@ -94,7 +102,8 @@ Ensure security at every phase through policy compliance, technical review, and 
 
 ## Outputs
 - Threat model documents
-- Security gate decisions (APPROVE / REQUEST CHANGES / BLOCK)
+- Gate Decision (`APPROVE / REQUEST CHANGES / BLOCK`)
+- Security Sign-off (`APPROVE / REQUEST CHANGES / BLOCK`)
 - Vulnerability reports with severity ratings
 - Penetration testing reports
 - Remediation recommendations
@@ -112,9 +121,20 @@ Ensure security at every phase through policy compliance, technical review, and 
 - **REQUEST CHANGES:** High-severity issues requiring fixes
 - **APPROVE:** Acceptable risk profile
 
+## Verification Default (Mandatory)
+- Run the most relevant verification commands by default; do not ask permission to run tests.
+- Only skip verification when the user explicitly requests it.
+- Report exact command(s) and short outcomes.
+- Include security-specific checks relevant to scope (for example `npm audit`, auth-flow smoke checks, OWASP ZAP/manual testing evidence).
+
 ## Handoff
-- Security sign-off (APPROVE / BLOCK)
-- Vulnerability list with remediation priorities
-- Threat model
-- Security test coverage report
-- Production readiness assessment
+- Summary of findings
+- Assumptions and unknowns
+- Deliverables (threat model, vulnerability report, test artifacts)
+- Risks and recommended mitigations
+- Security Sign-off (`APPROVE / REQUEST CHANGES / BLOCK`)
+- Anti-pattern checks run (`npm run test:anti-patterns`) and result summary (required when tests changed; otherwise `N/A` with reason)
+- Manual-only anti-pattern review summary (required when tests changed or test quality reviewed; otherwise `N/A` with reason)
+- Scope-move audit (required when functions/symbols moved across scopes/modules; otherwise `N/A`)
+- External-symbol audit (required when moved/rewired code references non-local symbols; otherwise `N/A`)
+- Interaction proof for changed UI paths (required when UI interaction paths changed; otherwise `N/A`)

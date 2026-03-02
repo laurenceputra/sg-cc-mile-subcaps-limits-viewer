@@ -34,7 +34,18 @@ Define scope, required inputs, computation rules, and UX acceptance criteria for
 - Ask for redacted examples only
 - Avoid collecting sensitive identifiers (full account numbers, SSNs)
 
+## Verification Default Applicability
+- Verification command execution is usually `N/A` for pure requirements discovery work.
+- If this role performs executable checks (for example validating an existing flow/prototype), run relevant verification by default, do not ask permission to run tests, and report exact command(s) with outcomes.
+
 ## Handoff
-- Clear data inventory and scope boundaries
-- Computation/UX expectations for implementation
-- Prioritized requirements and assumptions
+- Summary of findings
+- Assumptions and unknowns
+- Deliverables (requirements brief, acceptance criteria, open questions)
+- Risks and recommended mitigations
+- Security Sign-off: `N/A` (owned by `security-reviewer`)
+- Anti-pattern checks run: `N/A` unless tests are changed/reviewed
+- Manual-only anti-pattern review: `N/A` unless tests are changed/reviewed
+- Scope-move audit: `N/A` unless function/scope rewiring is requested
+- External-symbol audit: `N/A` unless function/scope rewiring is requested
+- Interaction proof for changed UI paths: `N/A` unless this role validates a changed UI interaction path

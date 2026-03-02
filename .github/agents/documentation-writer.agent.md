@@ -334,13 +334,21 @@ Use PostgreSQL 14 for primary database.
 - Keep language simple and clear
 - Test all code examples
 
+## Verification Default Applicability
+- Verification command execution is often `N/A` for documentation-only edits.
+- When docs include executable commands/examples that can be validated, run relevant verification by default, do not ask permission to run tests, and report exact command(s) with outcomes.
+
 ## Handoff
-- Complete documentation for new features
-- Updated API reference
-- Architecture Decision Records for major changes
-- Migration guides for breaking changes
-- Updated troubleshooting section
-- Link checker results
+- Summary of findings
+- Assumptions and unknowns
+- Deliverables (updated docs/templates/guides)
+- Risks and recommended mitigations
+- Security Sign-off: `N/A` (owned by `security-reviewer`)
+- Anti-pattern checks run: `N/A` unless tests are changed/reviewed
+- Manual-only anti-pattern review: `N/A` unless tests are changed/reviewed
+- Scope-move audit: `N/A` unless function/scope rewiring is requested
+- External-symbol audit: `N/A` unless function/scope rewiring is requested
+- Interaction proof for changed UI paths: `N/A` unless documentation validates a changed UI interaction path
 
 ## Documentation Best Practices
 

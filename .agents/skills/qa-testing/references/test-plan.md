@@ -1,5 +1,7 @@
 # Test Plan Templates
 
+Coverage thresholds and gate implications are defined in `.agents/skills/qa-testing/SKILL.md` and must be treated as the canonical policy source.
+
 ## Test Matrix
 | Scenario | Type (unit/integration/e2e) | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
@@ -28,5 +30,5 @@
 - Known limitations
 
 ## Gate Decision
-- Decision: APPROVE / REQUEST CHANGES / BLOCK
+- Gate Decision: APPROVE / REQUEST CHANGES / BLOCK
 - Rationale:
