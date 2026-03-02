@@ -51,6 +51,19 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
 - Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 
+## Testing
+
+- Userscript tests: `npm run test:userscript`
+- Backend tests: `npm --prefix apps/backend test`
+- Coverage: `npm run test:userscript:coverage` and `npm --prefix apps/backend run test:coverage`
+- Anti-pattern guardrails: `npm run test:anti-patterns`
+
+### Anti-pattern checker scope
+
+- `npm run test:anti-patterns` is a fast static guardrail for known blocked patterns.
+- It catches high-confidence syntax patterns (for example callback execution during listener registration, synchronous timer callback shortcuts, direct worker-test imports from `apps/backend/src/api/*.js`, and broad alternation regex in `assert.rejects`).
+- It does **not** replace manual review for semantic anti-patterns (for example weak behavior assertions, permissive default mocks, or order-dependent shared state).
+
 ## Disclaimer
 
 Not affiliated with UOB. Use only on your own accounts and comply with the bank’s Terms of Service.

@@ -101,6 +101,7 @@ export class Database {
     return result || null;
   }
 
+
   async upsertSyncBlob(userId, version, encryptedData) {
     await this.run(
       `
@@ -162,6 +163,22 @@ export class Database {
         ORDER BY count DESC
       `
     );
+  }
+
+  async getPendingContributionsCount() {
+    const result = await this.first(
+      `
+        SELECT COUNT(*) as count
+        FROM (
+          SELECT 1
+          FROM mapping_contributions mc
+          LEFT JOIN shared_mappings sm ON mc.merchant_raw = sm.merchant_normalized AND mc.card_type = sm.card_type
+          WHERE sm.id IS NULL
+          GROUP BY mc.merchant_raw, mc.category, mc.card_type
+        )
+      `
+    );
+    return Number(result?.count ?? 0);
   }
 
   async approveMappings(merchantNormalized, category, cardType) {

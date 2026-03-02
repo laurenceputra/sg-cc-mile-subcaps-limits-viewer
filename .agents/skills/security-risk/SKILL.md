@@ -34,11 +34,34 @@ Identify security and privacy risks and propose mitigations.
    - auditability and incident response signals
 5. Summarize risks, mitigations, and residual risk.
 
+## Phase 4 Security Testing Gate (Mandatory)
+- Run OWASP ZAP scan coverage for changed attack surfaces.
+- Run manual penetration testing for auth/session, injection, authorization, and business-logic abuse paths.
+- Include attack simulation evidence for high-risk paths.
+- Gate criteria:
+  - `APPROVE`: no critical exploitable findings and residual risk accepted.
+  - `REQUEST CHANGES`: high/medium findings require mitigation before release.
+  - `BLOCK`: any critical exploitable vulnerability remains.
+
+## Backend/Auth/Schema Workflow Tightening (Mandatory when applicable)
+- Enforce **Schema Compatibility Gate** with forward migration verification.
+- Enforce **Preview Smoke Gate** for `/login`, auth refresh/session, and protected data paths.
+- Enforce **Environment Parity Gate** for bindings/secrets/runtime assumptions.
+- Enforce **Failure-Mode Requirement** with symptom/detection/rollback documentation.
+- Enforce **Post-Deploy Observation Gate** with endpoint error-rate monitoring and blocker handling for unexplained 5xx spikes.
+
+## Verification Default
+- Run the most relevant verification commands by default and report results.
+- Do not ask permission to run tests/security checks.
+- Only skip verification when explicitly requested.
+- Always include exact command(s) and short outcome summaries.
+
 ## Output Format
 - Risks identified (severity-ranked)
 - Mitigations and required controls
 - Residual risk and acceptance rationale
-- Security gate recommendation (`APPROVE` / `REQUEST CHANGES` / `BLOCK`)
+- Gate Decision (`APPROVE` / `REQUEST CHANGES` / `BLOCK`)
+- Security Sign-off (`APPROVE` / `REQUEST CHANGES` / `BLOCK`)
 
 ## References
 - [Threat modeling worksheet](references/threat-model.md)

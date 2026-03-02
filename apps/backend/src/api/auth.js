@@ -68,7 +68,7 @@ async function hashRefreshToken(token) {
     .join('');
 }
 
-function buildRefreshCookie(token, env) {
+export function buildRefreshCookie(token, env) {
   const parts = [
     `${REFRESH_COOKIE_NAME}=${token}`,
     `Max-Age=${REFRESH_TOKEN_TTL_SECONDS}`,
@@ -82,7 +82,7 @@ function buildRefreshCookie(token, env) {
   return parts.join('; ');
 }
 
-function clearRefreshCookie(env) {
+export function clearRefreshCookie(env) {
   const parts = [
     `${REFRESH_COOKIE_NAME}=`,
     'Max-Age=0',

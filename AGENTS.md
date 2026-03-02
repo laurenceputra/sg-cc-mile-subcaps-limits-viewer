@@ -8,6 +8,12 @@ This repo uses a **simplified security-first** multi-agent workflow for building
 
 Security review is **mandatory** at key phases—not optional. Every agent is responsible for security within their domain.
 
+## Local-First Networking Stance
+
+- Default to local-first behavior for data handling and processing.
+- Optional remote sync/auth flows are allowed only when explicitly approved, encrypted, and aligned with repo privacy/security constraints.
+- Remote logging of sensitive data is prohibited.
+
 ## Skills Overview
 
 Skills are stored in `.agents/skills/`. Each skill has a `SKILL.md` that defines its workflow, outputs, and usage guidance. Use this directory as the canonical reference when selecting skills for a task.
@@ -36,7 +42,7 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 
 ## Simplified Workflow (6 Agents)
 
-**Phase 0: Requirements & Safety Gate** (requirements-analyst + security-reviewer)
+**Phase 0 -> 1 Safety Gate** (requirements-analyst + security-reviewer)
 - Gather requirements: banks, pages, data fields, UX criteria
 - Confirm read-only behavior, privacy constraints, ToS compliance
 - Initial threat modeling
@@ -49,12 +55,12 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - Handle errors and edge cases
 - **Iteration:** Return to requirements if data gaps found
 
-**Phase 2: Code Review** (code-reviewer + security-reviewer)
+**Phase 2 Code Review Gate** (code-reviewer + security-reviewer)
 - Code quality and maintainability review
 - Dependency vulnerability check (npm audit)
 - License compliance
 - **Gate:** Security review with OWASP Top 10 checklist
-- **Decision:** APPROVE / REQUEST CHANGES / BLOCK
+- **Gate Decision:** APPROVE / REQUEST CHANGES / BLOCK
 
 **Phase 3: Quality Validation** (quality-validator)
 - Functional testing (calculations, edge cases)
@@ -62,10 +68,10 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - Accessibility testing (keyboard nav, contrast)
 - **Gate:** All tests must pass
 
-**Phase 4: Security Testing** (security-reviewer)
+**Phase 4 Security Testing Gate** (security-reviewer)
 - Penetration testing (manual + OWASP ZAP)
 - Attack simulation and exploit attempts
-- Final security sign-off
+- Security Sign-off: APPROVE / REQUEST CHANGES / BLOCK
 - **Gate:** Cannot deploy with critical vulnerabilities
 
 **Phase 5: Documentation** (documentation-writer - optional)
@@ -73,22 +79,23 @@ Keep this table in sync with `.agents/skills/` so it remains the single source o
 - Document known limitations
 - Create user guides if needed
 
-**Phase 6: Maintenance** (code-reviewer + security-reviewer)
+**Phase 6: Maintenance & Release Readiness** (`release-management` primary; `code-review` + `security-risk` supporting)
 - Monitor dependencies for CVEs
 - Update documentation as code changes
 - Address security advisories
+- Coordinate release-readiness checks when maintenance touches deploy risk
 
 ## Phase ↔ Skills Mapping
 
-- **Phase 0: Requirements & Safety Gate** → `requirements-researcher`, `security-risk`
+- **Phase 0 -> 1 Safety Gate** → `requirements-researcher`, `security-risk`
 - **Phase 1: Implementation** → `implementation-engineer` (primary), `userscript-implementation` (userscript-focused), `debugging-assistant`, `refactoring-expert`, `network-resilience` (situational)
-- **Phase 2: Code Review** → `code-review`, `security-risk`
+- **Phase 2 Code Review Gate** → `code-review`, `security-risk`
 - **Phase 3: Quality Validation** → `qa-testing`, `performance-optimization`, `ux-accessibility`
-- **Phase 4: Security Testing** → `security-risk`
+- **Phase 4 Security Testing Gate** → `security-risk`
 - **Phase 5: Documentation** → `documentation`
-- **Phase 6: Maintenance & Release Readiness** → `release-management` (primary), `code-review` (as needed), `debugging-assistant` (incident triage)
+- **Phase 6: Maintenance & Release Readiness** → `release-management` (primary), `code-review` (supporting), `security-risk` (supporting), `debugging-assistant` (incident triage, situational)
 
-**When to use skills:** skills are selected based on task needs. Situational skills are optional and only apply when the task includes that concern.
+**When to use skills:** skills are selected based on task needs. Situational skills are optional and only apply when the task includes that concern. Phase 6 is skill-invoked; no dedicated `.github/agents/release-management.agent.md` brief is required.
 
 ## UI/Card Change Design Gates (Mandatory)
 
@@ -131,6 +138,35 @@ For any change that touches database schema, auth/session flows, deployment conf
 5. **Post-Deploy Observation Gate**
    - Monitor endpoint-level error rates for changed auth/session/data paths.
    - Treat unexplained 5xx increases as release blockers until triaged.
+
+## Verification Default (Mandatory)
+
+For any code change, run the most relevant verification commands by default and report the results. Do not ask permission to run tests. Only skip verification if the user explicitly requests it. If verification is long-running or destructive, still proceed unless the user has said not to. Always include the exact command(s) and a short outcome summary.
+
+## Test Anti-Pattern Gate (Mandatory)
+
+For any change that adds or edits tests, enforce both automated and manual anti-pattern checks.
+
+1. **Automated Gate (Phase 2 + Phase 3)**
+   - Run `npm run test:anti-patterns`.
+   - Treat findings as release blockers until fixed.
+   - This gate is owned by `code-review` (Phase 2) and `qa-testing` (Phase 3).
+
+2. **Blocked Anti-Patterns (must be fixed)**
+   - Executing listener callbacks during registration stubs (`addEventListener` shortcut invocation).
+   - Synchronous timer callback shortcuts in debounce/observer tests (`setTimeout` callback invoked inline).
+   - Direct worker-test imports from `apps/backend/src/api/*.js` where route-level contract assertions are expected.
+   - Broad alternation regex in `assert.rejects` expectations when specific error contracts are available.
+
+3. **Manual-Only Anti-Patterns (must be reviewed, not regex-enforced alone)**
+   - Coverage-only assertions that do not validate behavior.
+   - Permissive default mocks/stubs that hide missing explicit test setup.
+   - Order-dependent behavior from shared module state that cannot be inferred from syntax alone.
+   - Assertion specificity issues that require domain intent/context.
+
+4. **Exception Process**
+   - Exceptions require explicit rationale in review output, with blast-radius and follow-up mitigation.
+   - Exceptions are `REQUEST CHANGES` by default and can only be approved with documented justification.
 
 ## Agents
 
@@ -194,7 +230,8 @@ For any change that touches database schema, auth/session flows, deployment conf
 
 **Deliverables:**
 - Threat model
-- Security gate decision (APPROVE / BLOCK)
+- Gate Decision (APPROVE / REQUEST CHANGES / BLOCK)
+- Security Sign-off (APPROVE / REQUEST CHANGES / BLOCK)
 - Vulnerability reports
 - Penetration testing results
 
@@ -255,19 +292,19 @@ For any change that touches database schema, auth/session flows, deployment conf
 
 ## Security Gates (Mandatory)
 
-### Phase 0 → 1:
+### Phase 0 -> 1 Safety Gate:
 - ✅ Requirements clear and complete
 - ✅ Privacy constraints documented
 - ✅ No ToS violations
 - ✅ Initial threat model approved
 
-### Phase 2 (Code Review):
+### Phase 2 Code Review Gate:
 - ✅ Code quality acceptable
 - ✅ Zero critical/high CVEs in dependencies
 - ✅ License compliance verified
 - ✅ No security anti-patterns (hardcoded secrets, eval, innerHTML)
 
-### Phase 4 (Security Testing):
+### Phase 4 Security Testing Gate:
 - ✅ OWASP ZAP scan clean (no critical findings)
 - ✅ Manual penetration testing passed
 - ✅ Attack simulation showed no exploitable vulnerabilities
@@ -282,6 +319,8 @@ Each agent should provide:
 - Deliverables (code, docs, reports)
 - Risks and recommended mitigations
 - Security sign-off (for security-reviewer)
+- Anti-pattern checks run (`npm run test:anti-patterns`) and result summary
+- Manual-only anti-pattern review summary (or explicit none found)
 - Scope-move audit (list functions moved across scopes/modules)
 - External-symbol audit (list non-local symbols referenced by moved/rewired code paths)
 - Interaction proof for changed UI paths (minimum: entry action + one primary click path verified)
@@ -290,7 +329,9 @@ Each agent should provide:
 
 - Enable repository hooks once per clone: `git config core.hooksPath .githooks`
 - Pre-push gate (required): runs userscript lint via `npm run prepush:verify`
+- Test anti-pattern gate (required for test changes): `npm run test:anti-patterns`
 - CI gate: userscript lint workflow must pass (`.github/workflows/userscript-lint.yml`)
+- CI gate: coverage workflow must run anti-pattern checks (`.github/workflows/coverage-report.yml`)
 
 ---
 
@@ -330,4 +371,14 @@ Each agent should provide:
 
 **Questions?** Consult the security-reviewer agent or refer to the security docs above.
 
-**Last Updated:** 2026-02-12 (Workflow tightening + lint/handoff gates)
+## Locked-Decision Change Control
+
+Locked policy decisions may be overridden only when a hard contradiction cannot be resolved through wording alignment alone.
+
+- Required approvers: repository maintainer + security-reviewer
+- Required records:
+  - `spec/policy-exceptions.md`
+  - linked row in `spec/contradiction-matrix.md`
+  - rationale update in `AGENTS.md` (or explicit note when N/A)
+
+**Last Updated:** 2026-03-02 (Workflow terminology, gate ownership, and policy exception controls aligned)

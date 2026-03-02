@@ -42,6 +42,11 @@ Implement production-ready code changes aligned with this repo's standards.
 - Prefer Tampermonkey storage APIs for sensitive state. Use browser storage fallback only for non-sensitive data.
 - In observer-based wait helpers, keep timeout handles and clear them on early resolve to avoid late callback side-effects.
 
+### UI/Card Mandatory Gates (when applicable)
+- **Config-First Gate**: apply config-driven card differences first, then rendering updates.
+- **Per-Surface Reuse Gate**: reuse helpers within userscript/dashboard surfaces independently; cross-surface runtime sharing is not required.
+- **Card Parity Checklist Gate**: validate cap text format, chevron/details behavior, and `Others` ordering for affected cards (minimum UOB + Maybank when both are in scope).
+
 ### Backend
 - Follow existing Hono + middleware composition patterns.
 - Reuse existing validation/auth/rate-limit/security-header middleware paths.
@@ -49,7 +54,18 @@ Implement production-ready code changes aligned with this repo's standards.
 - Preserve CSRF origin checks, auth boundaries (`/sync`, `/shared`, `/user`, `/admin`), and audit logging behavior.
 - Never hardcode secrets, credentials, or environment defaults that weaken production safety.
 
+### Backend/Auth/Schema Workflow Tightening (when applicable)
+- **Schema Compatibility Gate**: provide and validate forward migration steps against preview/production schema shape.
+- **Preview Smoke Gate**: verify `/login`, auth flow, refresh flow, and protected data paths on preview.
+- **Environment Parity Gate**: verify required bindings, secrets, and runtime assumptions across preview/production.
+- **Failure-Mode Requirement**: document failure modes, user-visible symptoms, detection signals, and rollback/mitigation steps.
+- **Post-Deploy Observation Gate**: monitor changed auth/session/data paths and triage unexplained 5xx increases before release closure.
+
 ## Verification
+- Run the most relevant verification commands by default and report results; do not ask permission to run tests.
+- Only skip verification if the user explicitly requests it.
+- If verification is long-running or destructive, proceed unless the user has said not to.
+- Always include the exact command(s) and a short outcome summary.
 - Run relevant tests for touched areas, at minimum:
   - `npm run lint:userscript` for userscript changes (required; catches undefined globals/scope regressions)
   - `npm --prefix apps/backend test` for backend changes

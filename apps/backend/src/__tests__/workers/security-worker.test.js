@@ -32,74 +32,46 @@ describe('Workers security basics', () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
-      const email = `secure-tm-${crypto.randomBytes(6).toString('hex')}@example.com`;
-      const passwordHash = crypto.randomBytes(32).toString('hex');
-
-      const res = await app.fetch(new Request('http://localhost/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CC-Userscript': 'tampermonkey-v1'
+      const cases = [
+        {
+          name: 'missing origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CC-Userscript': 'tampermonkey-v1'
+          }
         },
-        body: JSON.stringify({ email, passwordHash })
-      }), env);
-
-      assert.equal(res.status, 200);
-      const data = await res.json();
-      assert.equal(typeof data.token, 'string');
-      assert.ok(data.token.length > 0);
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
-
-  test('allows trusted userscript header when origin is explicit null in production', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
-      const email = `secure-null-${crypto.randomBytes(6).toString('hex')}@example.com`;
-      const passwordHash = crypto.randomBytes(32).toString('hex');
-
-      const res = await app.fetch(new Request('http://localhost/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CC-Userscript': 'tampermonkey-v1',
-          'Origin': 'null'
+        {
+          name: 'explicit null origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CC-Userscript': 'tampermonkey-v1',
+            'Origin': 'null'
+          }
         },
-        body: JSON.stringify({ email, passwordHash })
-      }), env);
+        {
+          name: 'non-http(s) origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CC-Userscript': 'tampermonkey-v1',
+            'Origin': 'chrome-extension://abcdefghijklmnop'
+          }
+        }
+      ];
 
-      assert.equal(res.status, 200);
-      const data = await res.json();
-      assert.equal(typeof data.token, 'string');
-      assert.ok(data.token.length > 0);
-    } finally {
-      await disposeTestDatabase(mf);
-    }
-  });
+      for (const testCase of cases) {
+        const email = `secure-${crypto.randomBytes(6).toString('hex')}@example.com`;
+        const passwordHash = crypto.randomBytes(32).toString('hex');
+        const res = await app.fetch(new Request('http://localhost/auth/register', {
+          method: 'POST',
+          headers: testCase.headers,
+          body: JSON.stringify({ email, passwordHash })
+        }), env);
 
-  test('allows trusted userscript header for non-http(s) origin in production', async () => {
-    const { mf, db } = await createTestDatabase();
-    try {
-      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
-      const email = `secure-ext-${crypto.randomBytes(6).toString('hex')}@example.com`;
-      const passwordHash = crypto.randomBytes(32).toString('hex');
-
-      const res = await app.fetch(new Request('http://localhost/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CC-Userscript': 'tampermonkey-v1',
-          'Origin': 'chrome-extension://abcdefghijklmnop'
-        },
-        body: JSON.stringify({ email, passwordHash })
-      }), env);
-
-      assert.equal(res.status, 200);
-      const data = await res.json();
-      assert.equal(typeof data.token, 'string');
-      assert.ok(data.token.length > 0);
+        assert.equal(res.status, 200, `trusted userscript should allow ${testCase.name}`);
+        const data = await res.json();
+        assert.strictEqual(typeof data.token, 'string', `${testCase.name}: token should be a string`);
+        assert.match(data.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, `${testCase.name}: token should be valid JWT format`);
+      }
     } finally {
       await disposeTestDatabase(mf);
     }

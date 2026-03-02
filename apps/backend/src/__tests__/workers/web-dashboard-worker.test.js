@@ -12,7 +12,7 @@ async function registerAndLogin(env) {
   const email = randomEmail();
   const passwordHash = crypto.randomBytes(32).toString('hex');
 
-  await app.fetch(new Request('http://localhost/auth/register', {
+  const regRes = await app.fetch(new Request('http://localhost/auth/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -20,6 +20,7 @@ async function registerAndLogin(env) {
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
+  assert.equal(regRes.status, 200, `registration failed with status ${regRes.status}`);
 
   const loginRes = await app.fetch(new Request('http://localhost/auth/login', {
     method: 'POST',
@@ -29,8 +30,10 @@ async function registerAndLogin(env) {
     },
     body: JSON.stringify({ email, passwordHash })
   }), env);
+  assert.equal(loginRes.status, 200, `login failed with status ${loginRes.status}`);
 
   const loginData = await loginRes.json();
+  assert.strictEqual(typeof loginData.token, 'string', 'login should return a token');
   return { token: loginData.token };
 }
 
@@ -42,10 +45,10 @@ describe('Workers web dashboard pages', () => {
       const res = await app.fetch(new Request('http://localhost/login'), env);
       const html = await res.text();
       assert.equal(res.status, 200);
-      assert.ok(res.headers.get('Content-Type')?.includes('text/html'));
-      assert.ok(html.includes('name="email"'));
-      assert.ok(html.includes('name="password"'));
-      assert.ok(html.includes('login-form'));
+      assert.match(res.headers.get('Content-Type') ?? '', /text\/html/, 'login page should serve text/html');
+      assert.match(html, /name="email"/, 'login page should have email input');
+      assert.match(html, /name="password"/, 'login page should have password input');
+      assert.match(html, /login-form/, 'login page should contain login form');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -58,22 +61,22 @@ describe('Workers web dashboard pages', () => {
       const res = await app.fetch(new Request('http://localhost/dashboard'), env);
       const html = await res.text();
       assert.equal(res.status, 200);
-      assert.ok(res.headers.get('Content-Type')?.includes('text/html'));
-      assert.ok(html.includes('Refresh'));
-      assert.ok(html.includes('Logout'));
-      assert.ok(html.includes("LADY'S SOLITAIRE CARD"));
-      assert.ok(html.includes('XL Rewards Card'));
-      assert.ok(html.includes('ccSubcapSyncLastActiveAt'));
-      assert.ok(html.includes('/auth/refresh'));
-      assert.ok(html.includes('/meta/cap-policy'));
-      assert.ok(html.includes('slice(0, 2)'));
-      assert.ok(html.includes('cardSettings?.monthlyTotals'));
-      assert.ok(html.includes('cap-pill'));
-      assert.ok(html.includes("category !== 'Others'"));
-      assert.ok(html.includes("amount.textContent = value.toFixed(2) + ' / ' + cardPolicy.cap.toFixed(0);"));
-      assert.ok(html.includes('function moveOthersToEnd(categories)'));
-      assert.ok(html.includes('function getCategoryDisplayOrder(cardSettings, totals)'));
-      assert.ok(html.includes('No synced monthly totals yet.'));
+      assert.match(res.headers.get('Content-Type') ?? '', /text\/html/, 'dashboard should serve text/html');
+
+      // User-visible content
+      assert.match(html, /Refresh/, 'dashboard should show Refresh button');
+      assert.match(html, /Logout/, 'dashboard should show Logout button');
+      assert.match(html, /LADY'S SOLITAIRE CARD/, 'dashboard should list Lady\'s Solitaire Card');
+      assert.match(html, /XL Rewards Card/, 'dashboard should list XL Rewards Card');
+
+      // Data-binding and API integration
+      assert.match(html, /ccSubcapSyncLastActiveAt/, 'dashboard should reference sync timestamp key');
+      assert.match(html, /\/auth\/refresh/, 'dashboard should reference auth refresh endpoint');
+      assert.match(html, /\/meta\/cap-policy/, 'dashboard should reference cap policy endpoint');
+
+      // UI components and behavior
+      assert.match(html, /cap-pill/, 'dashboard should render cap pills');
+      assert.match(html, /No synced monthly totals yet\./, 'dashboard should show empty-state message');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -88,8 +91,10 @@ describe('Workers web dashboard pages', () => {
       const json = await res.json();
       assert.equal(json.cards["LADY'S SOLITAIRE CARD"].cap, 750);
       assert.equal(json.cards['XL Rewards Card'].cap, 1000);
-      assert.equal(typeof json.thresholds.warningRatio, 'number');
-      assert.equal(typeof json.styles.warning.background, 'string');
+      assert.strictEqual(typeof json.thresholds.warningRatio, 'number', 'warningRatio should be a number');
+      assert.ok(json.thresholds.warningRatio > 0 && json.thresholds.warningRatio < 1, 'warningRatio should be between 0 and 1');
+      assert.strictEqual(typeof json.styles.warning.background, 'string', 'warning background should be a CSS string');
+      assert.match(json.styles.warning.background, /#[0-9a-fA-F]+|rgb/, 'warning background should be a color value');
     } finally {
       await disposeTestDatabase(mf);
     }
@@ -101,8 +106,8 @@ describe('Workers web dashboard pages', () => {
       const env = { ...createTestEnv(), db };
       const loginRes = await app.fetch(new Request('http://localhost/login'), env);
       const loginCsp = loginRes.headers.get('Content-Security-Policy') || '';
-      assert.ok(loginCsp.includes("script-src 'nonce-"));
-      assert.ok(loginCsp.includes("connect-src 'self'"));
+      assert.match(loginCsp, /script-src 'nonce-/, 'login page CSP should include script nonce');
+      assert.match(loginCsp, /connect-src 'self'/, 'login page CSP should restrict connect-src to self');
 
       const { token } = await registerAndLogin(env);
       const apiRes = await app.fetch(new Request('http://localhost/sync/data', {

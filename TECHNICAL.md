@@ -99,6 +99,12 @@ If the portal markup changes, update these selectors in `main()`.
 - Maybank Spend Totals uses combined monthly cap indicator (`1000`).
 - Raw transactions remain local-only; synced payload remains settings + monthly totals only.
 
+## Userscript test seams
+
+- Userscript unit tests load helpers via `apps/userscript/__tests__/helpers/load-userscript-exports.js`, which sets `globalThis.__CC_SUBCAP_TEST__`.
+- In test mode the userscript exports pure helpers and skips DOM/network initialization, so tests can run under `node --test` without a browser.
+- Orchestration-focused helpers (for example card-context builders) are exposed only through the test seam and have no runtime API surface.
+
 ## Diagnostics and data issues
 
 The UI includes a **Data issues** section when parsing problems occur:

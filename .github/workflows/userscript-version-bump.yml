@@ -1,0 +1,101 @@
+name: Userscript Version Bump
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "apps/userscript/bank-cc-limits-subcap-calculator.user.js"
+      - ".github/workflows/userscript-version-bump.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const filePath = 'apps/userscript/bank-cc-limits-subcap-calculator.user.js';
+            const pr = context.payload.pull_request;
+
+            if (!pr) {
+              core.info('No pull request context; nothing to verify.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            if (!files.some((file) => file.filename === filePath)) {
+              core.info('Userscript file was not changed in this PR; skipping version check.');
+              return;
+            }
+
+            const getVersionFromRef = async (ref) => {
+              const response = await github.rest.repos.getContent({
+                owner,
+                repo,
+                path: filePath,
+                ref
+              });
+
+              const content = Buffer.from(response.data.content, 'base64').toString('utf8');
+              const match = content.match(/^\s*\/\/\s*@version\s+([^\s]+)\s*$/m);
+
+              if (!match) {
+                throw new Error(`Could not find @version in ${filePath} at ref ${ref}.`);
+              }
+
+              return match[1];
+            };
+
+            const parseNumericVersion = (version) => {
+              if (!/^\d+(\.\d+)*$/.test(version)) {
+                return null;
+              }
+
+              return version.split('.').map((part) => Number(part));
+            };
+
+            const compareVersions = (left, right) => {
+              const leftParts = parseNumericVersion(left);
+              const rightParts = parseNumericVersion(right);
+
+              if (!leftParts || !rightParts) {
+                return null;
+              }
+
+              const length = Math.max(leftParts.length, rightParts.length);
+              for (let index = 0; index < length; index += 1) {
+                const leftValue = leftParts[index] ?? 0;
+                const rightValue = rightParts[index] ?? 0;
+                if (leftValue > rightValue) return 1;
+                if (leftValue < rightValue) return -1;
+              }
+
+              return 0;
+            };
+
+            const baseVersion = await getVersionFromRef(pr.base.sha);
+            const headVersion = await getVersionFromRef(pr.head.sha);
+            const comparison = compareVersions(headVersion, baseVersion);
+
+            if (comparison === null) {
+              core.setFailed(`Version format must be numeric dot-separated (for example 0.7.1). Found base=${baseVersion}, head=${headVersion}.`);
+              return;
+            }
+
+            if (comparison <= 0) {
+              core.setFailed(`Userscript version must be bumped in this PR. Base=${baseVersion}, head=${headVersion}.`);
+              return;
+            }
+
+            core.info(`Userscript version bump verified: ${baseVersion} -> ${headVersion}.`);
