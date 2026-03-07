@@ -55,6 +55,22 @@ describe('transaction DOM builders', () => {
     assert.equal(result.diagnostics.invalid_posting_date, 1);
   });
 
+  it('buildMaybankTransactions keeps identical rows as distinct transactions', () => {
+    const cardSettings = { defaultCategory: 'Others', merchantMap: {} };
+    const rows = [
+      makeRow([makeCell('01 Jan 2024'), makeCell('x'), makeCell('GRAB SGP'), makeCell('-SGD 10.00')]),
+      makeRow([makeCell('01 Jan 2024'), makeCell('x'), makeCell('GRAB SGP'), makeCell('-SGD 10.00')]),
+      makeRow([makeCell('01 Jan 2024'), makeCell('x'), makeCell('GRAB SGP'), makeCell('-SGD 10.00')])
+    ];
+    const tbody = makeTbody(rows);
+    const result = exports.buildMaybankTransactions(tbody, 'XL Rewards Card', cardSettings);
+    assert.equal(result.transactions.length, 3);
+    assert.deepEqual(
+      result.transactions.map((tx) => tx.ref_no),
+      result.transactions.map((_, index) => `${result.transactions[0].ref_no.replace(/#\d+$/, '')}#${index + 1}`)
+    );
+  });
+
   it('buildData wires summary and selected categories', () => {
     const cardSettings = { defaultCategory: 'Others', selectedCategories: ['Dining', ''], merchantMap: {}, transactions: {} };
     const rows = [

@@ -49,4 +49,60 @@ describe('userscript sync core', () => {
     assert.equal(invalid.ok, false);
     assert.equal(invalid.format, 'invalid');
   });
+
+  it('syncActiveCardInBackground skips when sync is disabled or locked', async () => {
+    const { syncActiveCardInBackground } = await loadExports();
+
+    const disabledResult = await syncActiveCardInBackground(
+      { isEnabled: () => false },
+      'XL Rewards Card',
+      {},
+      []
+    );
+    assert.equal(disabledResult.attempted, false);
+    assert.equal(disabledResult.reason, 'sync_disabled');
+
+    const lockedResult = await syncActiveCardInBackground(
+      {
+        isEnabled: () => true,
+        isUnlocked: () => false,
+        tryUnlockFromRememberedCache: async () => false,
+        sync: async () => ({ success: true })
+      },
+      'XL Rewards Card',
+      {},
+      []
+    );
+    assert.equal(lockedResult.attempted, false);
+    assert.equal(lockedResult.reason, 'sync_locked');
+  });
+
+  it('syncActiveCardInBackground syncs active card payload after unlock', async () => {
+    const { syncActiveCardInBackground } = await loadExports();
+    let syncedPayload = null;
+    let unlocked = false;
+
+    const result = await syncActiveCardInBackground(
+      {
+        isEnabled: () => true,
+        isUnlocked: () => unlocked,
+        tryUnlockFromRememberedCache: async () => {
+          unlocked = true;
+          return true;
+        },
+        sync: async (payload) => {
+          syncedPayload = payload;
+          return { success: true };
+        }
+      },
+      'XL Rewards Card',
+      { defaultCategory: 'Others', selectedCategories: ['Local'], merchantMap: { GRAB: 'Local' } },
+      [{ posting_month: '2024-02', amount_value: 12.5, category: 'Local' }]
+    );
+
+    assert.equal(result.attempted, true);
+    assert.equal(result.success, true);
+    assert.equal(normalizeValue(syncedPayload).cards['XL Rewards Card'].defaultCategory, 'Others');
+    assert.equal(normalizeValue(syncedPayload).cards['XL Rewards Card'].monthlyTotals['2024-02'].total_amount, 12.5);
+  });
 });
