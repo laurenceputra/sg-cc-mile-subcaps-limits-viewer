@@ -73,11 +73,15 @@ describe('Workers user + admin flow', () => {
         }
       }), env);
 
-      const exportData = await exportRes.json();
       assert.equal(exportRes.status, 200);
+      const exportData = await exportRes.json();
       assert.deepEqual(exportData.syncData, encryptedData);
       assert.ok(Array.isArray(exportData.devices));
-      assert.ok(exportData.devices.length >= 1);
+      assert.equal(exportData.devices.length, 1);
+      assert.ok(
+        exportData.devices.some((device) => device.device_id === 'device-123'),
+        'export should include the registered device id'
+      );
     } finally {
       await disposeTestDatabase(mf);
     }
