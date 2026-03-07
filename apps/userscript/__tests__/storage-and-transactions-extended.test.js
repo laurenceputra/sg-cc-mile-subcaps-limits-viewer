@@ -75,6 +75,56 @@ describe('storage + transactions (extended)', () => {
     assert.equal(totals['2024-01'].totals.Travel, 2);
   });
 
+  it('updateStoredTransactions migrates legacy Maybank synthetic keys to #1', () => {
+    const recentIso = exports.toISODate(new Date());
+    const legacyRef = `MB:${recentIso}:10.00:abcd1234`;
+    const settings = {
+      cards: {
+        'XL Rewards Card': {
+          selectedCategories: [],
+          defaultCategory: 'Others',
+          merchantMap: {},
+          transactions: {
+            [legacyRef]: {
+              ref_no: legacyRef,
+              posting_date_iso: recentIso,
+              posting_date: recentIso,
+              transaction_date: '',
+              merchant_detail: 'GRAB SGP',
+              amount_text: '-SGD 10.00',
+              amount_value: 10,
+              category: 'Local'
+            }
+          }
+        }
+      }
+    };
+
+    const incoming = [
+      {
+        ref_no: `${legacyRef}#1`,
+        posting_date_iso: recentIso,
+        posting_date: recentIso,
+        transaction_date: '',
+        merchant_detail: 'GRAB SGP',
+        amount_text: '-SGD 10.00',
+        amount_value: 10,
+        category: 'Local'
+      }
+    ];
+
+    exports.updateStoredTransactions(
+      settings,
+      'XL Rewards Card',
+      exports.CARD_CONFIGS['XL Rewards Card'],
+      incoming
+    );
+
+    const stored = settings.cards['XL Rewards Card'].transactions;
+    assert.equal(Object.keys(stored).length, 1);
+    assert.notEqual(stored[`${legacyRef}#1`], undefined);
+  });
+
   it('buildFallbackData returns empty diagnostics for maybank card', () => {
     const data = exports.buildFallbackData('XL Rewards Card', { defaultCategory: 'Others', selectedCategories: [] });
     assert.equal(data.diagnostics.non_debit_rows, 0);
