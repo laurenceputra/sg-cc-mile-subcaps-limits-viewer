@@ -1812,6 +1812,32 @@
     };
   }
 
+  async function syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions) {
+    if (!syncManager || typeof syncManager.isEnabled !== 'function' || !syncManager.isEnabled()) {
+      return { attempted: false, success: false, reason: 'sync_disabled' };
+    }
+
+    if (!cardName || typeof cardName !== 'string') {
+      return { attempted: false, success: false, reason: 'invalid_card' };
+    }
+
+    if (!syncManager.isUnlocked()) {
+      const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+      if (!unlockedFromCache && !syncManager.isUnlocked()) {
+        return { attempted: false, success: false, reason: 'sync_locked' };
+      }
+    }
+
+    const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+    const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
+    return {
+      attempted: true,
+      success: Boolean(result?.success),
+      reason: result?.success ? 'synced' : 'sync_failed',
+      error: result?.error || ''
+    };
+  }
+
   function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
@@ -2077,6 +2103,7 @@
       validateServerUrl,
       calculateMonthlyTotalsForSync,
       buildSyncCardSnapshot,
+      syncActiveCardInBackground,
       getJwtTokenExpiryMs,
       SyncEngine,
       SyncManager,
@@ -3188,6 +3215,24 @@
       return raw.replace(/^ref\s*no\s*:\s*/i, '');
     }
 
+    function hasMaybankSyntheticOccurrence(refNo) {
+      return /#\d+$/.test(refNo);
+    }
+
+    function normalizeStoredRefNo(refNo, cardName) {
+      const normalized = normalizeKey(normalizeRefNo(refNo));
+      if (!normalized) {
+        return '';
+      }
+      if (cardName !== 'XL Rewards Card') {
+        return normalized;
+      }
+      if (!/^MB:/.test(normalized) || hasMaybankSyntheticOccurrence(normalized)) {
+        return normalized;
+      }
+      return `${normalized}#1`;
+    }
+
     function parseAmount(amountText) {
       if (!amountText) {
         return null;
@@ -3454,6 +3499,7 @@
         invalid_amount: 0,
         missing_ref_no: 0
       };
+      const syntheticRefCounts = new Map();
 
       const transactions = rows
         .map((row, index) => {
@@ -3494,7 +3540,10 @@
             return null;
           }
 
-          const refNo = buildMaybankSyntheticRefNo(postingDateIso, description, amountValue);
+          const baseRefNo = buildMaybankSyntheticRefNo(postingDateIso, description, amountValue);
+          const occurrence = (syntheticRefCounts.get(baseRefNo) || 0) + 1;
+          syntheticRefCounts.set(baseRefNo, occurrence);
+          const refNo = `${baseRefNo}#${occurrence}`;
           const category = resolveCategory(description, cardSettings, cardName);
 
           return {
@@ -3652,7 +3701,14 @@
         const entry = cardSettings.transactions[refNo];
         const parsedDate = getParsedDate(entry);
         if (parsedDate && isWithinCutoff(parsedDate, cutoff)) {
-          nextStored[refNo] = entry;
+          const normalizedRefNo = normalizeStoredRefNo(entry?.ref_no || refNo, cardName);
+          if (!normalizedRefNo) {
+            return;
+          }
+          nextStored[normalizedRefNo] = {
+            ...entry,
+            ref_no: normalizedRefNo
+          };
         }
       });
 
@@ -3664,7 +3720,7 @@
         if (!parsedDate || !isWithinCutoff(parsedDate, cutoff)) {
           return;
         }
-        const key = normalizeKey(tx.ref_no);
+        const key = normalizeStoredRefNo(tx.ref_no, cardName);
         if (!key) {
           return;
         }
@@ -3689,7 +3745,7 @@
 
       Object.keys(stored).forEach((key) => {
         const entry = stored[key] || {};
-        const normalizedRefNo = normalizeKey(normalizeRefNo(entry.ref_no || key));
+        const normalizedRefNo = normalizeStoredRefNo(entry.ref_no || key, cardName);
         if (!normalizedRefNo) {
           return;
         }
@@ -4874,6 +4930,9 @@
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
       }
       saveSettings(initialSettings);
+
+      const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
+      syncActiveCardInBackground(syncManager, cardName, initialCardSettings, initialStoredTransactions).catch(() => {});
 
       let refreshInProgress = false;
       let refreshPending = false;
