@@ -18,6 +18,7 @@
 - [ ] Tests added/updated and meaningful
 - [ ] Financial calculations handle zero/negative values
 - [ ] Privacy/security requirements honored
+- [ ] Test Anti-Pattern Check completed for backend worker tests (`NO_IMPL_DETAIL_ASSERT`, `NO_EXACT_CSP_EQUALITY`, `REQUIRE_SETUP_STATUS_ASSERT`, `NO_WEAK_TOKEN_ASSERT`, `REQUIRE_MIDDLEWARE_NEXT_ASSERT`, `NO_DUPLICATE_SECURITY_SCENARIO`)
 
 ## Output Template
 ### Summary
@@ -31,3 +32,6 @@ Optional improvements and alternatives.
 
 ### Testing
 List tests run or required.
+
+### Test Anti-Pattern Check
+Pass/fail with evidence (rule ID + file:line).

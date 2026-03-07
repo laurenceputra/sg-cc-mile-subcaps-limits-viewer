@@ -78,6 +78,34 @@ For any change that adds or edits tests, enforce both automated and manual anti-
    - Exceptions require explicit rationale in review output, with blast radius and follow-up mitigation.
    - Exceptions are `REQUEST CHANGES` by default and can only be approved with documented justification.
 
+## Backend Worker Test Design Gates (Mandatory)
+
+For changes in `apps/backend/src/__tests__/workers/**`, enforce these rules in addition to the Test Anti-Pattern Gate.
+
+1. **`NO_IMPL_DETAIL_ASSERT`**
+   - Block assertions coupled to unstable internals (implementation literals, private render details).
+   - Require contract-level assertions tied to stable behavior.
+
+2. **`NO_EXACT_CSP_EQUALITY`**
+   - Block exact CSP string equality assertions.
+   - Require directive-level semantic checks instead.
+
+3. **`REQUIRE_SETUP_STATUS_ASSERT`**
+   - Every setup request must assert status explicitly (`expectStatus`, `expectJsonResponse`, or direct status assertion).
+   - Missing setup status assertions fail the gate.
+
+4. **`NO_WEAK_TOKEN_ASSERT`**
+   - Block token checks that only assert existence/type.
+   - Require both token-shape validation and success/failure auth behavior checks.
+
+5. **`REQUIRE_MIDDLEWARE_NEXT_ASSERT`**
+   - Middleware success-path tests must prove `next()` behavior.
+   - Missing `next()` proof fails the gate.
+
+6. **`NO_DUPLICATE_SECURITY_SCENARIO`**
+   - Duplicated security scenarios are warning-level in phase-1 reporting.
+   - Duplicated security scenarios are fail-level in strict mode.
+
 ## Security Gate Criteria (Mandatory)
 
 ### Phase 0 -> 1 Safety Gate

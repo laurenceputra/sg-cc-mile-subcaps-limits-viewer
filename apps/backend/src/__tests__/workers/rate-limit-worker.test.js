@@ -33,8 +33,13 @@ describe('Workers rate limiter adapter', () => {
     });
 
     const c = createMockContext({ limitResult: { success: true, remaining: 4 } });
-    const res = await limiter(c, async () => ({ ok: true }));
+    let nextCalled = false;
+    const res = await limiter(c, async () => {
+      nextCalled = true;
+      return { ok: true };
+    });
 
+    assert.equal(nextCalled, true);
     assert.equal(res, undefined);
   });
 

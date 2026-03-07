@@ -32,6 +32,9 @@ jobs:
       - name: Setup backend dependencies
         uses: ./.github/actions/setup-backend-workers
 
+      - name: Run backend test-quality gate
+        run: npm --prefix apps/backend run test:quality:strict
+
       - name: Run backend tests
         run: npm --prefix apps/backend test
 

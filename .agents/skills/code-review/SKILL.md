@@ -37,3 +37,19 @@ Use this skill to review correctness, maintainability, and dependency/test risks
 ## Canonical References
 - Workflow gates: `docs/workflow/gates.md`
 - Handoff contract: `docs/workflow/handoff-format.md`
+
+## Mandatory Test Anti-Pattern Check (backend worker tests)
+- Use `docs/workflow/gates.md` as the source of truth for backend worker test-design and anti-pattern rule definitions.
+- Evaluate `apps/backend/src/__tests__/workers/**` against the canonical rule IDs and phase behavior from `docs/workflow/gates.md`.
+- If any fail-level rule is present, return **REQUEST CHANGES**.
+- Include evidence as rule ID + file:line for each finding.
+
+## Output Format
+- Summary
+- Critical Issues
+- Suggestions
+- Testing
+- Test Anti-Pattern Check
+
+## References
+- [Review guidelines and checklist](references/review-guidelines.md)
