@@ -5008,9 +5008,6 @@
         attemptBackgroundSyncIfDirty();
       }
 
-      const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
-      syncActiveCardInBackground(syncManager, cardName, initialCardSettings, initialStoredTransactions).catch(() => {});
-
       let refreshInProgress = false;
       let refreshPending = false;
       const observedTableBodyXPaths = preferredTableBodyXPath
