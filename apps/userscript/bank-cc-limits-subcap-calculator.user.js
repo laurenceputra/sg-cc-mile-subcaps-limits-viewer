@@ -4954,6 +4954,9 @@
       let hasUnsyncedCardChanges = false;
       let lastKnownCardFingerprint = '';
       let lastSyncedCardFingerprint = '';
+      let lastFailedSyncFingerprint = '';
+      let lastAutoSyncAttemptAt = 0;
+      const AUTO_SYNC_RETRY_COOLDOWN_MS = 30000;
 
       const getCurrentSyncState = () => {
         const settings = loadSettings();
@@ -4971,28 +4974,40 @@
         const { cardSettings, storedTransactions, fingerprint } = getCurrentSyncState();
         if (lastSyncedCardFingerprint && fingerprint === lastSyncedCardFingerprint) {
           lastKnownCardFingerprint = fingerprint;
+          lastFailedSyncFingerprint = '';
           hasUnsyncedCardChanges = false;
+          return;
+        }
+
+        const now = Date.now();
+        if (
+          lastFailedSyncFingerprint === fingerprint &&
+          lastAutoSyncAttemptAt > 0 &&
+          now - lastAutoSyncAttemptAt < AUTO_SYNC_RETRY_COOLDOWN_MS
+        ) {
           return;
         }
 
         lastKnownCardFingerprint = fingerprint;
         backgroundSyncInFlight = true;
+        lastAutoSyncAttemptAt = now;
         syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions)
           .then((result) => {
             if (!result?.success) {
+              lastFailedSyncFingerprint = fingerprint;
               return;
             }
             lastSyncedCardFingerprint = fingerprint;
+            lastFailedSyncFingerprint = '';
             if (lastKnownCardFingerprint === fingerprint) {
               hasUnsyncedCardChanges = false;
             }
           })
-          .catch(() => {})
+          .catch(() => {
+            lastFailedSyncFingerprint = fingerprint;
+          })
           .finally(() => {
             backgroundSyncInFlight = false;
-            if (hasUnsyncedCardChanges) {
-              attemptBackgroundSyncIfDirty();
-            }
           });
       };
 
@@ -5108,11 +5123,11 @@
             hasUnsyncedCardChanges = true;
           }
           lastKnownCardFingerprint = latestFingerprint;
-          if (latestTableBody) {
-            attemptBackgroundSyncIfDirty();
-          }
           if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
             await syncManager.tryUnlockFromRememberedCache();
+          }
+          if (latestTableBody) {
+            attemptBackgroundSyncIfDirty();
           }
           createOverlay(
             data,
