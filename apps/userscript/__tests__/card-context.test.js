@@ -56,6 +56,20 @@ describe('card context helpers', () => {
     assert.equal(match, null);
   });
 
+  it('findActiveCardName does not fallback when strict primary xpath is non-matching', () => {
+    const profile = {
+      cardNameXPaths: ['//primary', '//fallback'],
+      strictPrimaryCardNameXPath: true
+    };
+    const nodes = {
+      '//primary': makeElement('Maybank Family Card'),
+      '//fallback': makeElement('XL Rewards Card')
+    };
+    globalThis.document.evaluate = (xpath) => ({ singleNodeValue: nodes[xpath] || null });
+    const match = exports.findActiveCardName(profile, { requireVisible: false });
+    assert.equal(match, null);
+  });
+
   it('matchesProfile checks host and path', () => {
     globalThis.window = {
       location: { hostname: 'pib.uob.com.sg', href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do', pathname: '/PIBCust/2FA/processSubmit.do' }

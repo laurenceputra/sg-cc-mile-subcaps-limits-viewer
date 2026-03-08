@@ -2174,6 +2174,7 @@
           '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
           '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
         ],
+        strictPrimaryCardNameXPath: true,
         requireVisibleCardName: true,
         observeCardContext: true,
         tableBodyXPaths: [
@@ -2990,6 +2991,7 @@
       if (!cardNameXPaths.length) {
         return null;
       }
+      const strictPrimaryCardNameXPath = profile?.strictPrimaryCardNameXPath === true;
       const selectFromNode = (node, xpath) => {
         if (!node) {
           return null;
@@ -3006,6 +3008,9 @@
         const resolved = selectFromNode(node, xpath);
         if (resolved && resolved.name) {
           return resolved;
+        }
+        if (strictPrimaryCardNameXPath && node) {
+          return null;
         }
       }
       return null;
