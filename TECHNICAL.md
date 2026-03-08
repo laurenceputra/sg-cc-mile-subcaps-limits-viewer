@@ -34,7 +34,7 @@
 ## Sync behavior notes
 
 - `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
-- On supported bank-page load, if sync is enabled, the userscript attempts background sync for the active card without requiring the Subcap Tools overlay to be opened.
+- On supported bank pages, if sync is enabled, the userscript attempts background sync for the active card only after table-driven updates change local card sync state, without requiring the Subcap Tools overlay to be opened.
 - Sync payload remains card-keyed under a `cards` envelope (`{ cards: { [cardName]: ... } }`), so adding new cards (e.g., `XL Rewards Card`) is backward-compatible and requires no backend schema/API changes.
 - `Sync Now` updates only the active card key from the current page and preserves other remote card keys.
 - Each synced card payload includes `selectedCategories`, `defaultCategory`, `merchantMap`, and `monthlyTotals`; it excludes raw `transactions`.

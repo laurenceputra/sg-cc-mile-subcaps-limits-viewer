@@ -4,7 +4,7 @@ import { loadExports, normalizeValue } from './helpers/load-userscript-exports.j
 
 describe('userscript sync core', () => {
   it('derives sync totals and snapshot defaults', async () => {
-    const { calculateMonthlyTotalsForSync, buildSyncCardSnapshot } = await loadExports();
+    const { calculateMonthlyTotalsForSync, buildSyncCardSnapshot, buildSyncCardFingerprint } = await loadExports();
     const transactions = [
       { posting_month: '2024-01', amount_value: 12.5, category: 'Dining' },
       { posting_date_iso: '2024-01-03', amount_value: 5.5 }
@@ -26,6 +26,51 @@ describe('userscript sync core', () => {
     });
     assert.equal(snapshot.defaultCategory, 'Travel');
     assert.deepEqual(normalizeValue(snapshot.selectedCategories), []);
+
+    const fingerprintA = buildSyncCardFingerprint('UOB', { defaultCategory: 'Travel' }, transactions);
+    const fingerprintB = buildSyncCardFingerprint(
+      'UOB',
+      { defaultCategory: 'Travel', merchantMap: {}, selectedCategories: [] },
+      [
+        { posting_date_iso: '2024-01-03', amount_value: 5.5 },
+        { posting_month: '2024-01', amount_value: 12.5, category: 'Dining' }
+      ]
+    );
+    assert.equal(fingerprintA, fingerprintB);
+  });
+
+  it('buildSyncCardFingerprint is stable for object key order', async () => {
+    const { buildSyncCardFingerprint } = await loadExports();
+
+    const cardSettingsA = {
+      selectedCategories: ['Dining', 'Travel'],
+      defaultCategory: 'Others',
+      merchantMap: {
+        Grab: 'Travel',
+        Starbucks: 'Dining'
+      }
+    };
+    const cardSettingsB = {
+      merchantMap: {
+        Starbucks: 'Dining',
+        Grab: 'Travel'
+      },
+      defaultCategory: 'Others',
+      selectedCategories: ['Dining', 'Travel']
+    };
+
+    const transactionsA = [
+      { posting_month: '2024-03', amount_value: 10, category: 'Dining' },
+      { posting_month: '2024-02', amount_value: 20, category: 'Travel' }
+    ];
+    const transactionsB = [
+      { posting_month: '2024-02', amount_value: 20, category: 'Travel' },
+      { posting_month: '2024-03', amount_value: 10, category: 'Dining' }
+    ];
+
+    const fingerprintA = buildSyncCardFingerprint('XL Rewards Card', cardSettingsA, transactionsA);
+    const fingerprintB = buildSyncCardFingerprint('XL Rewards Card', cardSettingsB, transactionsB);
+    assert.equal(fingerprintA, fingerprintB);
   });
 
   it('parses canonical and legacy payloads', async () => {

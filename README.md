@@ -34,7 +34,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - Raw transactions remain local to your browser.
 - Synced encrypted payload contains card settings + monthly totals only.
 - `Sync Now` updates the active card key while preserving other remote card keys.
-- When sync is enabled, the userscript also attempts a background sync for the active card during supported bank-page load (if unlocked or remembered unlock is available).
+- When sync is enabled, the userscript attempts background sync for the active card after table-driven local state changes on supported bank pages (if unlocked or remembered unlock is available).
 
 ## Documentation
 

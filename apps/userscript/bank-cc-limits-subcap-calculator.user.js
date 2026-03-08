@@ -1812,6 +1812,30 @@
     };
   }
 
+  function canonicalizeSyncValue(value) {
+    if (Array.isArray(value)) {
+      return value.map((entry) => canonicalizeSyncValue(entry));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    const normalized = {};
+    Object.keys(value)
+      .sort()
+      .forEach((key) => {
+        normalized[key] = canonicalizeSyncValue(value[key]);
+      });
+    return normalized;
+  }
+
+  function buildSyncCardFingerprint(cardName, cardSettings, storedTransactions) {
+    const snapshot = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+    return JSON.stringify({
+      cardName,
+      snapshot: canonicalizeSyncValue(snapshot)
+    });
+  }
+
   async function syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions) {
     if (!syncManager || typeof syncManager.isEnabled !== 'function' || !syncManager.isEnabled()) {
       return { attempted: false, success: false, reason: 'sync_disabled' };
@@ -1837,7 +1861,6 @@
       error: result?.error || ''
     };
   }
-
   function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
@@ -2103,6 +2126,8 @@
       validateServerUrl,
       calculateMonthlyTotalsForSync,
       buildSyncCardSnapshot,
+      canonicalizeSyncValue,
+      buildSyncCardFingerprint,
       syncActiveCardInBackground,
       getJwtTokenExpiryMs,
       SyncEngine,
@@ -4925,11 +4950,63 @@
 
       const initialSettings = loadSettings();
       const initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      let backgroundSyncInFlight = false;
+      let hasUnsyncedCardChanges = false;
+      let lastKnownCardFingerprint = '';
+      let lastSyncedCardFingerprint = '';
+
+      const getCurrentSyncState = () => {
+        const settings = loadSettings();
+        const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
+        const storedTransactions = getStoredTransactions(cardName, cardSettings);
+        const fingerprint = buildSyncCardFingerprint(cardName, cardSettings, storedTransactions);
+        return { cardSettings, storedTransactions, fingerprint };
+      };
+
+      const attemptBackgroundSyncIfDirty = () => {
+        if (!hasUnsyncedCardChanges || backgroundSyncInFlight) {
+          return;
+        }
+
+        const { cardSettings, storedTransactions, fingerprint } = getCurrentSyncState();
+        if (lastSyncedCardFingerprint && fingerprint === lastSyncedCardFingerprint) {
+          lastKnownCardFingerprint = fingerprint;
+          hasUnsyncedCardChanges = false;
+          return;
+        }
+
+        lastKnownCardFingerprint = fingerprint;
+        backgroundSyncInFlight = true;
+        syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions)
+          .then((result) => {
+            if (!result?.success) {
+              return;
+            }
+            lastSyncedCardFingerprint = fingerprint;
+            if (lastKnownCardFingerprint === fingerprint) {
+              hasUnsyncedCardChanges = false;
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            backgroundSyncInFlight = false;
+            if (hasUnsyncedCardChanges) {
+              attemptBackgroundSyncIfDirty();
+            }
+          });
+      };
+
       if (tableBody) {
         const initialData = buildData(tableBody, cardName, initialCardSettings);
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
       }
       saveSettings(initialSettings);
+      const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
+      lastKnownCardFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, initialStoredTransactions);
+      if (tableBody) {
+        hasUnsyncedCardChanges = true;
+        attemptBackgroundSyncIfDirty();
+      }
 
       const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       syncActiveCardInBackground(syncManager, cardName, initialCardSettings, initialStoredTransactions).catch(() => {});
@@ -5028,10 +5105,18 @@
             data = buildFallbackData(cardName, cardSettings);
           }
           saveSettings(settings);
+          const storedTransactions = getStoredTransactions(cardName, cardSettings);
+          const latestFingerprint = buildSyncCardFingerprint(cardName, cardSettings, storedTransactions);
+          if (latestTableBody && latestFingerprint !== lastKnownCardFingerprint) {
+            hasUnsyncedCardChanges = true;
+          }
+          lastKnownCardFingerprint = latestFingerprint;
+          if (latestTableBody) {
+            attemptBackgroundSyncIfDirty();
+          }
           if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
             await syncManager.tryUnlockFromRememberedCache();
           }
-          const storedTransactions = getStoredTransactions(cardName, cardSettings);
           createOverlay(
             data,
             settings,
