@@ -5050,6 +5050,8 @@
           });
       };
 
+      const preUpdateStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
+      const preUpdateFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, preUpdateStoredTransactions);
       if (tableBody) {
         const initialData = buildData(tableBody, cardName, initialCardSettings);
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
@@ -5057,7 +5059,7 @@
       saveSettings(initialSettings);
       const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       lastKnownCardFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, initialStoredTransactions);
-      if (tableBody) {
+      if (tableBody && lastKnownCardFingerprint !== preUpdateFingerprint) {
         hasUnsyncedCardChanges = true;
         attemptBackgroundSyncIfDirty();
       }

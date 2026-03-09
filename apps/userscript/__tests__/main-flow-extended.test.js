@@ -230,4 +230,75 @@ describe('main flow extended', () => {
     assert.notEqual(button, null, 'cc-subcap-btn should be created after Maybank main flow');
     timers.unbindFromWindow();
   });
+
+  it('skips initial background sync when table parse does not change fingerprint', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.Element = class {};
+    globalThis.MutationObserver = class { observe() {} disconnect() {} };
+    globalThis.window = {
+      location: {
+        origin: 'https://cib.maybank2u.com.sg',
+        hostname: 'cib.maybank2u.com.sg',
+        href: 'https://cib.maybank2u.com.sg/m2u/accounts/cards',
+        pathname: '/m2u/accounts/cards'
+      },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+      setInterval: () => {},
+      clearInterval: () => {},
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })
+    };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
+    globalThis.localStorage = globalThis.window.localStorage;
+    globalThis.getComputedStyle = globalThis.window.getComputedStyle;
+
+    const cardNode = new globalThis.Element();
+    cardNode.textContent = 'XL Rewards Card';
+    cardNode.innerText = 'XL Rewards Card';
+    cardNode.isConnected = true;
+    cardNode.getBoundingClientRect = () => ({ width: 10, height: 10 });
+    const tbodyNode = new globalThis.Element();
+    tbodyNode.querySelectorAll = () => [];
+    doc.evaluate = (xpath) => {
+      const lower = String(xpath).toLowerCase();
+      if (lower.includes('xl rewards card')) {
+        return { singleNodeValue: cardNode };
+      }
+      if (lower.includes('tbody')) {
+        return { singleNodeValue: tbodyNode };
+      }
+      return { singleNodeValue: null };
+    };
+
+    const originalMethods = {
+      isEnabled: exports.SyncManager.prototype.isEnabled,
+      isUnlocked: exports.SyncManager.prototype.isUnlocked,
+      tryUnlockFromRememberedCache: exports.SyncManager.prototype.tryUnlockFromRememberedCache,
+      sync: exports.SyncManager.prototype.sync
+    };
+    let syncCallCount = 0;
+    exports.SyncManager.prototype.isEnabled = () => true;
+    exports.SyncManager.prototype.isUnlocked = () => true;
+    exports.SyncManager.prototype.tryUnlockFromRememberedCache = async () => true;
+    exports.SyncManager.prototype.sync = async () => {
+      syncCallCount += 1;
+      return { success: true };
+    };
+
+    try {
+      const mainPromise = exports.main();
+      await waitForAsyncTimers(timers);
+      await mainPromise;
+      assert.equal(syncCallCount, 0, 'should not sync when pre/post fingerprint is unchanged');
+    } finally {
+      exports.SyncManager.prototype.isEnabled = originalMethods.isEnabled;
+      exports.SyncManager.prototype.isUnlocked = originalMethods.isUnlocked;
+      exports.SyncManager.prototype.tryUnlockFromRememberedCache = originalMethods.tryUnlockFromRememberedCache;
+      exports.SyncManager.prototype.sync = originalMethods.sync;
+      timers.unbindFromWindow();
+    }
+  });
 });
