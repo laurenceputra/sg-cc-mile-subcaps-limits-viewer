@@ -1861,6 +1861,25 @@
       error: result?.error || ''
     };
   }
+
+  function shouldApplyBackgroundSyncCooldown(result) {
+    if (result?.success) {
+      return false;
+    }
+
+    const reason = typeof result?.reason === 'string' ? result.reason : '';
+    if (reason === 'sync_disabled' || reason === 'sync_locked') {
+      return false;
+    }
+
+    const attempted = result?.attempted !== false;
+    return attempted || reason === 'sync_failed';
+  }
+
+  function shouldRetryBackgroundSyncAfterFlight(hasUnsyncedCardChanges, backgroundSyncRetryRequested) {
+    return hasUnsyncedCardChanges === true && backgroundSyncRetryRequested === true;
+  }
+
   function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
@@ -2129,6 +2148,8 @@
       canonicalizeSyncValue,
       buildSyncCardFingerprint,
       syncActiveCardInBackground,
+      shouldApplyBackgroundSyncCooldown,
+      shouldRetryBackgroundSyncAfterFlight,
       getJwtTokenExpiryMs,
       SyncEngine,
       SyncManager,
@@ -4961,6 +4982,7 @@
       let lastSyncedCardFingerprint = '';
       let lastFailedSyncFingerprint = '';
       let lastAutoSyncAttemptAt = 0;
+      let backgroundSyncRetryRequested = false;
       const AUTO_SYNC_RETRY_COOLDOWN_MS = 30000;
 
       const getCurrentSyncState = () => {
@@ -4972,7 +4994,12 @@
       };
 
       const attemptBackgroundSyncIfDirty = () => {
-        if (!hasUnsyncedCardChanges || backgroundSyncInFlight) {
+        if (!hasUnsyncedCardChanges) {
+          return;
+        }
+
+        if (backgroundSyncInFlight) {
+          backgroundSyncRetryRequested = true;
           return;
         }
 
@@ -4995,11 +5022,14 @@
 
         lastKnownCardFingerprint = fingerprint;
         backgroundSyncInFlight = true;
-        lastAutoSyncAttemptAt = now;
+        backgroundSyncRetryRequested = false;
         syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions)
           .then((result) => {
             if (!result?.success) {
-              lastFailedSyncFingerprint = fingerprint;
+              if (shouldApplyBackgroundSyncCooldown(result)) {
+                lastFailedSyncFingerprint = fingerprint;
+                lastAutoSyncAttemptAt = Date.now();
+              }
               return;
             }
             lastSyncedCardFingerprint = fingerprint;
@@ -5010,9 +5040,13 @@
           })
           .catch(() => {
             lastFailedSyncFingerprint = fingerprint;
+            lastAutoSyncAttemptAt = Date.now();
           })
           .finally(() => {
             backgroundSyncInFlight = false;
+            if (shouldRetryBackgroundSyncAfterFlight(hasUnsyncedCardChanges, backgroundSyncRetryRequested)) {
+              attemptBackgroundSyncIfDirty();
+            }
           });
       };
 
@@ -5329,7 +5363,9 @@
         moveOthersToEnd,
         getCategoryDisplayOrder,
         resolveCategory,
-        calculateSummary
+        calculateSummary,
+        shouldApplyBackgroundSyncCooldown,
+        shouldRetryBackgroundSyncAfterFlight
       });
       return;
     }

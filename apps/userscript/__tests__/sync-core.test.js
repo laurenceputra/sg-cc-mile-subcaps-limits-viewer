@@ -150,4 +150,23 @@ describe('userscript sync core', () => {
     assert.equal(normalizeValue(syncedPayload).cards['XL Rewards Card'].defaultCategory, 'Others');
     assert.equal(normalizeValue(syncedPayload).cards['XL Rewards Card'].monthlyTotals['2024-02'].total_amount, 12.5);
   });
+
+  it('shouldApplyBackgroundSyncCooldown only cools down attempted failures', async () => {
+    const { shouldApplyBackgroundSyncCooldown } = await loadExports();
+
+    assert.equal(shouldApplyBackgroundSyncCooldown({ attempted: false, success: false, reason: 'sync_disabled' }), false);
+    assert.equal(shouldApplyBackgroundSyncCooldown({ attempted: false, success: false, reason: 'sync_locked' }), false);
+    assert.equal(shouldApplyBackgroundSyncCooldown({ attempted: true, success: false, reason: 'sync_failed' }), true);
+    assert.equal(shouldApplyBackgroundSyncCooldown({ success: false }), true);
+    assert.equal(shouldApplyBackgroundSyncCooldown({ success: true, reason: 'synced' }), false);
+  });
+
+  it('shouldRetryBackgroundSyncAfterFlight requires dirty state and queued retry', async () => {
+    const { shouldRetryBackgroundSyncAfterFlight } = await loadExports();
+
+    assert.equal(shouldRetryBackgroundSyncAfterFlight(false, false), false);
+    assert.equal(shouldRetryBackgroundSyncAfterFlight(true, false), false);
+    assert.equal(shouldRetryBackgroundSyncAfterFlight(false, true), false);
+    assert.equal(shouldRetryBackgroundSyncAfterFlight(true, true), true);
+  });
 });
