@@ -97,6 +97,8 @@ Behavior notes:
 - Userscript sync payload remains under `data.cards` and is card-keyed.
 - Current client behavior syncs only the active card from the current portal page, while preserving other remote card keys.
 - Synced card data is minimized to settings + aggregates (`selectedCategories`, `defaultCategory`, `merchantMap`, `monthlyTotals`) and excludes raw `transactions`.
+- First-login/bootstrap restore is pull-only (`GET /sync/data`) and does not issue `PUT /sync/data` during the restore step.
+- On `409 Version conflict`, client behavior is: pull latest remote state, perform client-side 3-way merge for active-card settings, and require explicit user choice for overlapping edits (including per-merchant choices in `merchantMap`) before retrying `PUT /sync/data`.
 
 ### `GET /shared/mappings/:cardType` (auth required)
 Path param:
