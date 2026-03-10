@@ -174,4 +174,161 @@ describe('SyncManager success paths', () => {
     assert.equal(hash.length, 64, 'hash should be 64 hex characters');
     assert.match(hash, /^[0-9a-f]{64}$/, 'hash should be lowercase hex');
   });
+
+  it('tracks bootstrap restore metadata and status messaging', async () => {
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({ enabled: true, serverUrl: 'https://example.com' })
+    });
+    const manager = new exports.SyncManager(storage);
+
+    assert.equal(manager.shouldRunBootstrapRestore(), true);
+    manager.saveBootstrapRestoreOutcome('restored', { sourceVersion: 7, markDone: true });
+    assert.equal(manager.config.bootstrapRestoreDone, true);
+    assert.equal(manager.config.bootstrapRestoreSourceVersion, 7);
+    assert.match(manager.getBootstrapRestoreStatusMessage(), /restored from server/i);
+  });
+
+  it('resolvePendingConflict merges selected values and clears conflict state', async () => {
+    const pendingConflict = {
+      cardName: 'XL Rewards Card',
+      latestVersion: 5,
+      local: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: { GRAB: 'Travel' },
+        monthlyTotals: {}
+      },
+      remote: {
+        selectedCategories: ['Dining'],
+        defaultCategory: 'Dining',
+        merchantMap: { GRAB: 'Dining' },
+        monthlyTotals: {}
+      },
+      autoMerged: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      conflicts: [
+        { type: 'merchant', merchantKey: 'GRAB', localValue: 'Travel', remoteValue: 'Dining' }
+      ]
+    };
+
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        deviceId: 'dev-1',
+        serverUrl: 'https://example.com',
+        pendingConflict
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    manager.syncClient = {
+      syncEngine: {
+        sanitizeCardForMerge: (value) => ({
+          selectedCategories: Array.isArray(value?.selectedCategories) ? value.selectedCategories.slice() : [],
+          defaultCategory: value?.defaultCategory || 'Others',
+          merchantMap: { ...(value?.merchantMap || {}) },
+          monthlyTotals: { ...(value?.monthlyTotals || {}) }
+        }),
+        mergeActiveCardConflict: (_base, local) => ({
+          merged: local,
+          conflicts: [],
+          hasConflicts: false
+        }),
+        sanitizeDataForSync: (value) => value,
+        pull: async () => ({ success: true, version: 5, data: { cards: { 'XL Rewards Card': pendingConflict.remote } } }),
+        push: async () => ({ success: true, version: 6 })
+      }
+    };
+
+    const result = await manager.resolvePendingConflict('merge_selected', {
+      'merchant:GRAB': 'remote'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.resolvedCard.merchantMap.GRAB, 'Dining');
+    assert.equal(manager.config.pendingConflict, null);
+    assert.equal(manager.config.version, 6);
+  });
+
+  it('resolvePendingConflict reopens conflict when remote changed again', async () => {
+    const pendingConflict = {
+      cardName: 'XL Rewards Card',
+      latestVersion: 5,
+      local: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      remote: {
+        selectedCategories: ['Dining'],
+        defaultCategory: 'Dining',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      autoMerged: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      conflicts: []
+    };
+
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        deviceId: 'dev-1',
+        serverUrl: 'https://example.com',
+        pendingConflict
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    manager.syncClient = {
+      syncEngine: {
+        sanitizeCardForMerge: (value) => ({
+          selectedCategories: Array.isArray(value?.selectedCategories) ? value.selectedCategories.slice() : [],
+          defaultCategory: value?.defaultCategory || 'Others',
+          merchantMap: { ...(value?.merchantMap || {}) },
+          monthlyTotals: { ...(value?.monthlyTotals || {}) }
+        }),
+        sanitizeDataForSync: (value) => value,
+        mergeActiveCardConflict: (_base, local, remote) => ({
+          merged: local,
+          conflicts: [
+            {
+              type: 'field',
+              field: 'selectedCategories',
+              localValue: local.selectedCategories,
+              remoteValue: remote.selectedCategories
+            }
+          ],
+          hasConflicts: true
+        }),
+        pull: async () => ({
+          success: true,
+          version: 6,
+          data: {
+            cards: {
+              'XL Rewards Card': {
+                selectedCategories: ['Local'],
+                defaultCategory: 'Local',
+                merchantMap: {},
+                monthlyTotals: {}
+              }
+            }
+          }
+        }),
+        push: async () => ({ success: true, version: 7 })
+      }
+    };
+
+    const result = await manager.resolvePendingConflict('keep_local');
+    assert.equal(result.success, false);
+    assert.equal(result.conflict, true);
+    assert.ok(manager.config.pendingConflict);
+  });
 });

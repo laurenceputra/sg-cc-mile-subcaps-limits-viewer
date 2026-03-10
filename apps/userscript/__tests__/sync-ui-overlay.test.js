@@ -116,7 +116,10 @@ function createQueryElement(selector, doc) {
     '#sync-now-btn',
     '#disable-sync-btn',
     '#sync-setup-save',
-    '#sync-setup-cancel'
+    '#sync-setup-cancel',
+    '#sync-conflict-keep-local',
+    '#sync-conflict-keep-remote',
+    '#sync-conflict-merge'
   ]);
 
   if (inputSelectors.has(selector)) {
@@ -279,6 +282,64 @@ describe('sync ui + overlay', () => {
     await disableButton.click();
     assert.equal(disabled, true);
     timers.unbindFromWindow();
+  });
+
+  it('createSyncTab resolves pending conflict actions', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let resolveCalls = 0;
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: []
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      getBootstrapRestoreStatusMessage: () => 'Bootstrap restore: active-card settings restored from server.',
+      resolvePendingConflict: async () => {
+        resolveCalls += 1;
+        return {
+          success: true,
+          cardName: 'XL Rewards Card',
+          resolvedCard: {
+            selectedCategories: ['Dining'],
+            defaultCategory: 'Dining',
+            merchantMap: { GRAB: 'Dining' },
+            monthlyTotals: {}
+          }
+        };
+      },
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; },
+      () => {}
+    );
+
+    const mergeButton = container.querySelector('#sync-conflict-merge');
+    const status = container.querySelector('#sync-status');
+    await mergeButton.click();
+
+    assert.equal(resolveCalls, 1);
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Conflict resolved and synced/i);
   });
 
   it('createOverlay builds UI and switchTab toggles content', () => {
