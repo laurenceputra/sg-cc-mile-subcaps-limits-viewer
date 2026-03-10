@@ -185,7 +185,10 @@ describe('SyncManager success paths', () => {
     manager.saveBootstrapRestoreOutcome('restored', { sourceVersion: 7, markDone: true });
     assert.equal(manager.config.bootstrapRestoreDone, true);
     assert.equal(manager.config.bootstrapRestoreSourceVersion, 7);
+    assert.equal(manager.shouldShowBootstrapRestoreStatus(), true);
     assert.match(manager.getBootstrapRestoreStatusMessage(), /restored from server/i);
+    assert.equal(manager.dismissBootstrapRestoreStatus(), true);
+    assert.equal(manager.shouldShowBootstrapRestoreStatus(), false);
   });
 
   it('resolvePendingConflict merges selected values and clears conflict state', async () => {

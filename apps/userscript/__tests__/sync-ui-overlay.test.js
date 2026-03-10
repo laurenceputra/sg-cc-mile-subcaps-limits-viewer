@@ -284,6 +284,37 @@ describe('sync ui + overlay', () => {
     timers.unbindFromWindow();
   });
 
+  it('createSyncTab dismisses bootstrap status after successful sync', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    let dismissCalls = 0;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        rememberUnlock: false,
+        bootstrapRestoreAt: Date.now()
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      shouldShowBootstrapRestoreStatus: () => true,
+      getBootstrapRestoreStatusMessage: () => 'Active-card settings restored from server.',
+      dismissBootstrapRestoreStatus: () => { dismissCalls += 1; return true; },
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    await syncNowButton.click();
+
+    assert.equal(dismissCalls, 1);
+  });
+
   it('createSyncTab resolves pending conflict actions', async () => {
     const doc = makeDocument();
     globalThis.document = doc;

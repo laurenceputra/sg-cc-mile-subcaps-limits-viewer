@@ -1139,6 +1139,8 @@
         ...this.config,
         bootstrapRestoreOutcome: outcome,
         bootstrapRestoreAt: Date.now(),
+        bootstrapStatusDismissed: false,
+        bootstrapStatusDismissedAt: 0,
         bootstrapRestoreSourceVersion:
           typeof options.sourceVersion === 'number' && Number.isFinite(options.sourceVersion)
             ? options.sourceVersion
@@ -1157,16 +1159,32 @@
     getBootstrapRestoreStatusMessage() {
       switch (this.config.bootstrapRestoreOutcome) {
         case 'restored':
-          return 'Bootstrap restore: active-card settings restored from server.';
+          return 'Active-card settings restored from server.';
         case 'skipped_local_nonempty':
-          return 'Bootstrap restore skipped: local active-card settings already contain data.';
+          return 'Skipped because local active-card settings already contain data.';
         case 'skipped_no_remote':
-          return 'Bootstrap restore skipped: no remote active-card data found.';
+          return 'Skipped because no remote active-card data was found.';
         case 'failed':
-          return 'Bootstrap restore failed. Unlock and retry sync from this card.';
+          return 'Failed. Unlock and retry sync from this card.';
         default:
           return '';
       }
+    }
+
+    shouldShowBootstrapRestoreStatus() {
+      return Boolean(this.config.bootstrapRestoreOutcome) && this.config.bootstrapStatusDismissed !== true;
+    }
+
+    dismissBootstrapRestoreStatus() {
+      if (!this.shouldShowBootstrapRestoreStatus()) {
+        return false;
+      }
+      this.saveSyncConfig({
+        ...this.config,
+        bootstrapStatusDismissed: true,
+        bootstrapStatusDismissedAt: Date.now()
+      });
+      return true;
     }
 
     hasPendingConflict() {
@@ -2382,8 +2400,14 @@
     const isUnlocked = syncManager.isUnlocked();
     const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
     const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
-    const bootstrapStatus = typeof syncManager.getBootstrapRestoreStatusMessage === 'function'
+    const showBootstrapStatus = typeof syncManager.shouldShowBootstrapRestoreStatus === 'function'
+      ? syncManager.shouldShowBootstrapRestoreStatus()
+      : true;
+    const bootstrapStatus = showBootstrapStatus && typeof syncManager.getBootstrapRestoreStatusMessage === 'function'
       ? syncManager.getBootstrapRestoreStatusMessage()
+      : '';
+    const bootstrapStatusAt = bootstrapStatus && typeof config.bootstrapRestoreAt === 'number' && Number.isFinite(config.bootstrapRestoreAt)
+      ? new Date(config.bootstrapRestoreAt).toLocaleString()
       : '';
     const pendingConflict = typeof syncManager.hasPendingConflict === 'function' && syncManager.hasPendingConflict()
       ? config.pendingConflict
@@ -2404,7 +2428,7 @@
         <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${config.email || '-'}</p>
         <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${lastSync}</p>
         <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${config.tier || '-'}</p>
-        ${bootstrapStatus ? `<p class="${UI_CLASSES.meta}"><strong>Bootstrap:</strong> ${bootstrapStatus}</p>` : ''}
+        ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${bootstrapStatus}${bootstrapStatusAt ? ` (${bootstrapStatusAt})` : ''}</p>` : ''}
         <p class="${UI_CLASSES.small}">Sync updates only the active card and keeps other cards' remote settings.</p>
       </div>
       ${pendingConflict ? `
@@ -2546,10 +2570,16 @@
       const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
 
       if (result.success) {
-        const bootstrapMessage = typeof syncManager.getBootstrapRestoreStatusMessage === 'function'
-          ? syncManager.getBootstrapRestoreStatusMessage()
-          : '';
-        setStatusMessage(statusDiv, bootstrapMessage || 'Synced successfully.', 'success');
+        setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+        if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
+          const dismissed = syncManager.dismissBootstrapRestoreStatus();
+          if (dismissed) {
+            const bootstrapRow = container.querySelector('#sync-bootstrap-status-row');
+            if (bootstrapRow && typeof bootstrapRow.remove === 'function') {
+              bootstrapRow.remove();
+            }
+          }
+        }
         window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
       } else {
         if (result.conflict) {
