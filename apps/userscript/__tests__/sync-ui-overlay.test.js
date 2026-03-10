@@ -342,6 +342,93 @@ describe('sync ui + overlay', () => {
     assert.match(status.textContent, /Conflict resolved and synced/i);
   });
 
+  it('createSyncTab refreshes when conflict resolution returns conflict again', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: []
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      resolvePendingConflict: async () => ({
+        success: false,
+        conflict: true,
+        error: 'Remote data changed again.'
+      }),
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; },
+      () => {}
+    );
+
+    const mergeButton = container.querySelector('#sync-conflict-merge');
+    const status = container.querySelector('#sync-status');
+    await mergeButton.click();
+
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Conflict resolution failed/i);
+  });
+
+  it('createSyncTab refreshes when sync now returns a conflict', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        rememberUnlock: false
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      tryUnlockFromRememberedCache: async () => false,
+      unlockSync: async () => ({ success: true }),
+      sync: async () => ({ success: false, conflict: true, error: 'Version conflict detected.' }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; }
+    );
+
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const status = container.querySelector('#sync-status');
+    await syncNowButton.click();
+
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Sync failed: Version conflict detected/i);
+  });
+
   it('createOverlay builds UI and switchTab toggles content', () => {
     const doc = makeDocument();
     globalThis.document = doc;

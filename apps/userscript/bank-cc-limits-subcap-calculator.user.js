@@ -1274,6 +1274,45 @@
       const payload = this.syncClient.syncEngine.sanitizeDataForSync({ cards: nextCards });
       const pushResult = await this.syncClient.syncEngine.push(payload, latestPull.version, this.config.deviceId);
       if (!pushResult.success) {
+        if (pushResult.conflict) {
+          const retryPull = await this.syncClient.syncEngine.pull();
+          if (!retryPull.success) {
+            return {
+              success: false,
+              conflict: true,
+              error: 'Version conflict detected while applying resolution, and failed to fetch latest remote state.'
+            };
+          }
+
+          const retryRemoteCards = isObjectRecord(retryPull.data?.cards) ? retryPull.data.cards : {};
+          const retryRemoteCard = retryRemoteCards[cardName];
+          const retryMergeResult = this.syncClient.syncEngine.mergeActiveCardConflict(
+            latestRemoteCard,
+            rebasedResolvedCard,
+            retryRemoteCard
+          );
+          const nextPendingConflict = {
+            cardName,
+            baseVersion: latestPull.version,
+            latestVersion: retryPull.version,
+            base: this.syncClient.syncEngine.sanitizeCardForMerge(latestRemoteCard),
+            local: this.syncClient.syncEngine.sanitizeCardForMerge(rebasedResolvedCard),
+            remote: this.syncClient.syncEngine.sanitizeCardForMerge(retryRemoteCard),
+            autoMerged: this.syncClient.syncEngine.sanitizeCardForMerge(retryMergeResult.merged),
+            conflicts: retryMergeResult.conflicts
+          };
+          this.saveSyncConfig({
+            ...this.config,
+            pendingConflict: nextPendingConflict,
+            pendingConflictUpdatedAt: Date.now()
+          });
+          return {
+            success: false,
+            conflict: true,
+            error: 'Version conflict detected again while applying resolution. Review the updated conflict and retry.',
+            conflictData: nextPendingConflict
+          };
+        }
         return {
           success: false,
           error: pushResult.error || 'Failed to push resolved conflict payload.'
@@ -2513,6 +2552,11 @@
         setStatusMessage(statusDiv, bootstrapMessage || 'Synced successfully.', 'success');
         window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
       } else {
+        if (result.conflict) {
+          setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'warning');
+          onSyncStateChanged();
+          return;
+        }
         setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
       }
     });
@@ -2551,6 +2595,11 @@
         const selections = strategy === 'merge_selected' ? readConflictSelections() : {};
         const resolveResult = await syncManager.resolvePendingConflict(strategy, selections);
         if (!resolveResult.success) {
+          if (resolveResult.conflict) {
+            setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'warning');
+            onSyncStateChanged();
+            return;
+          }
           setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'error');
           return;
         }
