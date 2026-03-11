@@ -2506,9 +2506,33 @@
     const bootstrapStatusAt = bootstrapStatus && typeof config.bootstrapRestoreAt === 'number' && Number.isFinite(config.bootstrapRestoreAt)
       ? new Date(config.bootstrapRestoreAt).toLocaleString()
       : '';
-    const pendingConflict = typeof syncManager.hasPendingConflict === 'function' && syncManager.hasPendingConflict()
-      ? config.pendingConflict
-      : null;
+    const getLivePendingConflictState = () => {
+      const liveConfig = syncManager.config || {};
+      const livePendingConflict =
+        typeof syncManager.hasPendingConflict === 'function'
+        && syncManager.hasPendingConflict()
+        && isObjectRecord(liveConfig.pendingConflict)
+          ? liveConfig.pendingConflict
+          : null;
+      const updatedAt =
+        typeof liveConfig.pendingConflictUpdatedAt === 'number'
+        && Number.isFinite(liveConfig.pendingConflictUpdatedAt)
+          ? liveConfig.pendingConflictUpdatedAt
+          : 0;
+      const latestVersion =
+        livePendingConflict && typeof livePendingConflict.latestVersion === 'number'
+          ? livePendingConflict.latestVersion
+          : 0;
+      const cardNameForToken = livePendingConflict && typeof livePendingConflict.cardName === 'string'
+        ? livePendingConflict.cardName
+        : '';
+      return {
+        pendingConflict: livePendingConflict,
+        token: `${cardNameForToken}|${latestVersion}|${updatedAt}`
+      };
+    };
+
+    const { pendingConflict, token: renderedConflictToken } = getLivePendingConflictState();
     const conflictRows = Array.isArray(pendingConflict?.conflicts)
       ? pendingConflict.conflicts
       : [];
@@ -2635,10 +2659,14 @@
     syncNowButton.addEventListener('click', async () => {
       setStatusMessage(statusDiv, 'Syncing...', 'info');
 
-      if (pendingConflict) {
-        setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
-        return;
-      }
+        const liveConflictState = getLivePendingConflictState();
+        if (liveConflictState.pendingConflict) {
+          setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
+          if (!pendingConflict) {
+            onSyncStateChanged();
+          }
+          return;
+        }
 
       if (!syncManager.isUnlocked()) {
         const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
@@ -2712,6 +2740,18 @@
         return;
       }
       button.addEventListener('click', async () => {
+        const liveConflictState = getLivePendingConflictState();
+        if (!liveConflictState.pendingConflict) {
+          setStatusMessage(statusDiv, 'Conflict already cleared. Refreshing sync status...', 'info');
+          onSyncStateChanged();
+          return;
+        }
+        if (renderedConflictToken && liveConflictState.token !== renderedConflictToken) {
+          setStatusMessage(statusDiv, 'Conflict state changed. Review the latest conflict before resolving.', 'info');
+          onSyncStateChanged();
+          return;
+        }
+
         if (!syncManager.isUnlocked()) {
           setStatusMessage(statusDiv, 'Unlock sync before resolving conflict.', 'warning');
           return;
