@@ -508,6 +508,18 @@
       };
     }
 
+    cloneMonthlyTotalEntry(monthData) {
+      if (!isObjectRecord(monthData)) {
+        return null;
+      }
+      const totals = isObjectRecord(monthData.totals) ? { ...monthData.totals } : {};
+      const totalAmount =
+        typeof monthData.total_amount === 'number' && Number.isFinite(monthData.total_amount)
+          ? monthData.total_amount
+          : Object.values(totals).reduce((sum, value) => sum + value, 0);
+      return { totals, total_amount: totalAmount };
+    }
+
     mergeActiveCardConflict(baseCard, localCard, remoteCard) {
       const base = this.sanitizeCardForMerge(baseCard);
       const local = this.sanitizeCardForMerge(localCard);
@@ -554,7 +566,69 @@
 
       mergeField('selectedCategories');
       mergeField('defaultCategory');
-      mergeField('monthlyTotals');
+
+      const monthKeys = new Set([
+        ...Object.keys(base.monthlyTotals || {}),
+        ...Object.keys(local.monthlyTotals || {}),
+        ...Object.keys(remote.monthlyTotals || {})
+      ]);
+      const nextMonthlyTotals = {};
+
+      for (const monthKey of monthKeys) {
+        const baseValue = Object.prototype.hasOwnProperty.call(base.monthlyTotals, monthKey)
+          ? base.monthlyTotals[monthKey]
+          : undefined;
+        const localValue = Object.prototype.hasOwnProperty.call(local.monthlyTotals, monthKey)
+          ? local.monthlyTotals[monthKey]
+          : undefined;
+        const remoteValue = Object.prototype.hasOwnProperty.call(remote.monthlyTotals, monthKey)
+          ? remote.monthlyTotals[monthKey]
+          : undefined;
+
+        const localChanged = !this.valuesEqual(localValue, baseValue);
+        const remoteChanged = !this.valuesEqual(remoteValue, baseValue);
+
+        if (!localChanged && !remoteChanged) {
+          const clonedBase = this.cloneMonthlyTotalEntry(baseValue);
+          if (clonedBase) {
+            nextMonthlyTotals[monthKey] = clonedBase;
+          }
+          continue;
+        }
+
+        if (localChanged && !remoteChanged) {
+          const clonedLocal = this.cloneMonthlyTotalEntry(localValue);
+          if (clonedLocal) {
+            nextMonthlyTotals[monthKey] = clonedLocal;
+          }
+          continue;
+        }
+
+        if (!localChanged && remoteChanged) {
+          const clonedRemote = this.cloneMonthlyTotalEntry(remoteValue);
+          if (clonedRemote) {
+            nextMonthlyTotals[monthKey] = clonedRemote;
+          }
+          continue;
+        }
+
+        if (this.valuesEqual(localValue, remoteValue)) {
+          const clonedLocal = this.cloneMonthlyTotalEntry(localValue);
+          if (clonedLocal) {
+            nextMonthlyTotals[monthKey] = clonedLocal;
+          }
+          continue;
+        }
+
+        conflicts.push({
+          type: 'field',
+          field: 'monthlyTotals',
+          monthKey,
+          localValue,
+          remoteValue
+        });
+      }
+      merged.monthlyTotals = nextMonthlyTotals;
 
       const merchantKeys = new Set([
         ...Object.keys(base.merchantMap || {}),
@@ -1208,11 +1282,23 @@
       }
 
       const pendingConflict = this.config.pendingConflict;
-      const cardName = pendingConflict.cardName;
+      const cardName = typeof pendingConflict.cardName === 'string'
+        ? pendingConflict.cardName.trim()
+        : '';
+      if (!cardName) {
+        console.warn('[Sync] Invalid pendingConflict state; clearing without applying changes.', pendingConflict);
+        this.clearPendingConflict();
+        return {
+          success: false,
+          error: 'Invalid pending conflict state. Please retry sync.'
+        };
+      }
       const useStrategy = strategy || 'merge_selected';
       const applySelection = (entry) => {
         if (entry.type === 'field') {
-          const key = `field:${entry.field}`;
+          const key = entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey
+            ? `field:${entry.field}:${entry.monthKey}`
+            : `field:${entry.field}`;
           return selections[key] === 'remote' ? 'remote' : 'local';
         }
         if (entry.type === 'merchant') {
@@ -1230,10 +1316,20 @@
       } else {
         resolvedCard = this.syncClient.syncEngine.sanitizeCardForMerge(pendingConflict.autoMerged);
         const merchantMap = { ...(resolvedCard.merchantMap || {}) };
+        const monthlyTotals = { ...(resolvedCard.monthlyTotals || {}) };
         for (const entry of pendingConflict.conflicts || []) {
           const selectedSource = applySelection(entry);
           const selectedValue = selectedSource === 'remote' ? entry.remoteValue : entry.localValue;
           if (entry.type === 'field') {
+            if (entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey) {
+              const nextMonthData = this.syncClient.syncEngine.cloneMonthlyTotalEntry(selectedValue);
+              if (nextMonthData) {
+                monthlyTotals[entry.monthKey] = nextMonthData;
+              } else {
+                delete monthlyTotals[entry.monthKey];
+              }
+              continue;
+            }
             resolvedCard[entry.field] = selectedValue;
             continue;
           }
@@ -1246,6 +1342,7 @@
           }
         }
         resolvedCard.merchantMap = merchantMap;
+        resolvedCard.monthlyTotals = monthlyTotals;
       }
 
       const latestPull = await this.syncClient.syncEngine.pull();
@@ -2425,10 +2522,10 @@
       <h3 class="${UI_CLASSES.title}">Sync Settings</h3>
       <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
         <p class="${UI_CLASSES.meta}"><strong>Status:</strong> Enabled (${lockStateText})</p>
-        <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${config.email || '-'}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${escapeHtml(config.email || '-')}</p>
         <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${lastSync}</p>
-        <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${config.tier || '-'}</p>
-        ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${bootstrapStatus}${bootstrapStatusAt ? ` (${bootstrapStatusAt})` : ''}</p>` : ''}
+        <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${escapeHtml(config.tier || '-')}</p>
+        ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${escapeHtml(bootstrapStatus)}${bootstrapStatusAt ? ` (${escapeHtml(bootstrapStatusAt)})` : ''}</p>` : ''}
         <p class="${UI_CLASSES.small}">Sync updates only the active card and keeps other cards' remote settings.</p>
       </div>
       ${pendingConflict ? `
@@ -2451,7 +2548,9 @@
               : `sync-conflict-field-${index}`;
             const valueKey = entry.type === 'merchant'
               ? `merchant:${entry.merchantKey}`
-              : `field:${entry.field}`;
+              : (entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey
+                  ? `field:${entry.field}:${entry.monthKey}`
+                  : `field:${entry.field}`);
             return `
             <div class="${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
               <p class="${UI_CLASSES.small}"><strong>${escapeHtml(conflictLabel)}</strong></p>
@@ -2874,7 +2973,7 @@
 
     const RUNTIME_LIMITS = {
       clickContextTimeoutMs: 1500,
-      tableRefreshDebounceMs: 400,
+      tableRefreshDebounceMs: 200,
       cardContextDebounceMs: 600,
       buttonStateDebounceMs: 120
     };

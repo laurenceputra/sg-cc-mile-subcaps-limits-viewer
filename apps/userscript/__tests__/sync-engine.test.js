@@ -239,6 +239,77 @@ describe('SyncEngine', () => {
     });
   });
 
+  describe('mergeActiveCardConflict', () => {
+    it('auto-merges non-overlapping monthlyTotals month keys', async () => {
+      const { SyncEngine } = await loadExports();
+      const engine = new SyncEngine(makeApiClient(), makeCrypto(), makeMemoryStorage());
+
+      const base = {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Others',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 10 }, total_amount: 10 }
+        }
+      };
+      const local = {
+        ...base,
+        monthlyTotals: {
+          ...base.monthlyTotals,
+          '2026-02': { totals: { Travel: 20 }, total_amount: 20 }
+        }
+      };
+      const remote = {
+        ...base,
+        monthlyTotals: {
+          ...base.monthlyTotals,
+          '2026-03': { totals: { Shopping: 30 }, total_amount: 30 }
+        }
+      };
+
+      const result = engine.mergeActiveCardConflict(base, local, remote);
+      assert.equal(result.hasConflicts, false);
+      assert.deepEqual(normalizeValue(result.merged.monthlyTotals), {
+        '2026-01': { totals: { Dining: 10 }, total_amount: 10 },
+        '2026-02': { totals: { Travel: 20 }, total_amount: 20 },
+        '2026-03': { totals: { Shopping: 30 }, total_amount: 30 }
+      });
+    });
+
+    it('creates month-scoped conflict when same monthlyTotals key diverges', async () => {
+      const { SyncEngine } = await loadExports();
+      const engine = new SyncEngine(makeApiClient(), makeCrypto(), makeMemoryStorage());
+
+      const base = {
+        selectedCategories: [],
+        defaultCategory: 'Others',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 10 }, total_amount: 10 }
+        }
+      };
+      const local = {
+        ...base,
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 25 }, total_amount: 25 }
+        }
+      };
+      const remote = {
+        ...base,
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 40 }, total_amount: 40 }
+        }
+      };
+
+      const result = engine.mergeActiveCardConflict(base, local, remote);
+      assert.equal(result.hasConflicts, true);
+      assert.equal(result.conflicts.length, 1);
+      assert.equal(result.conflicts[0].field, 'monthlyTotals');
+      assert.equal(result.conflicts[0].monthKey, '2026-01');
+      assert.deepEqual(normalizeValue(result.merged.monthlyTotals), {});
+    });
+  });
+
   // ── sync (full flow) ──────────────────────────────────────────────────────
 
   describe('sync', () => {

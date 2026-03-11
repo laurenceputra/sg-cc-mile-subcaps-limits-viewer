@@ -315,6 +315,36 @@ describe('sync ui + overlay', () => {
     assert.equal(dismissCalls, 1);
   });
 
+  it('createSyncTab escapes interpolated sync metadata', () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    const manager = {
+      config: {
+        email: '<img src=x onerror=alert(1)>',
+        lastSync: 0,
+        tier: '<svg onload=alert(2)>',
+        rememberUnlock: false,
+        bootstrapRestoreAt: Date.now()
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      shouldShowBootstrapRestoreStatus: () => true,
+      getBootstrapRestoreStatusMessage: () => '<b>restored</b>',
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    assert.match(container.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.match(container.innerHTML, /&lt;svg onload=alert\(2\)&gt;/);
+    assert.match(container.innerHTML, /&lt;b&gt;restored&lt;\/b&gt;/);
+    assert.doesNotMatch(container.innerHTML, /<img src=x onerror=alert\(1\)>/);
+    assert.doesNotMatch(container.innerHTML, /<svg onload=alert\(2\)>/);
+  });
+
   it('createSyncTab resolves pending conflict actions', async () => {
     const doc = makeDocument();
     globalThis.document = doc;
@@ -418,6 +448,42 @@ describe('sync ui + overlay', () => {
 
     assert.equal(refreshed, true);
     assert.match(status.textContent, /Conflict resolution failed/i);
+  });
+
+  it('createSyncTab renders month-scoped conflict selection key', () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: [
+            {
+              type: 'field',
+              field: 'monthlyTotals',
+              monthKey: '2026-01',
+              localValue: { totals: { Dining: 25 }, total_amount: 25 },
+              remoteValue: { totals: { Dining: 40 }, total_amount: 40 }
+            }
+          ]
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      resolvePendingConflict: async () => ({ success: true, cardName: 'XL Rewards Card', resolvedCard: {} }),
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {}, () => {});
+    assert.match(container.innerHTML, /data-conflict-key="field:monthlyTotals:2026-01"/);
   });
 
   it('createSyncTab refreshes when sync now returns a conflict', async () => {

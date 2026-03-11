@@ -448,4 +448,134 @@ describe('SyncManager success paths', () => {
     assert.ok(manager.config.pendingConflict);
     assert.equal(manager.config.pendingConflict.latestVersion, 7);
   });
+
+  it('resolvePendingConflict clears invalid pending conflict card name', async () => {
+    const pendingConflict = {
+      cardName: '   ',
+      latestVersion: 5,
+      local: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      remote: {
+        selectedCategories: ['Dining'],
+        defaultCategory: 'Dining',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      autoMerged: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      conflicts: []
+    };
+
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        deviceId: 'dev-1',
+        serverUrl: 'https://example.com',
+        pendingConflict
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    let clearCalls = 0;
+    const originalClearPendingConflict = manager.clearPendingConflict.bind(manager);
+    manager.clearPendingConflict = () => {
+      clearCalls += 1;
+      originalClearPendingConflict();
+    };
+    manager.syncClient = {
+      syncEngine: {
+        sanitizeCardForMerge: (value) => value,
+        sanitizeDataForSync: (value) => value,
+        pull: async () => ({ success: true, version: 5, data: { cards: {} } }),
+        push: async () => ({ success: true, version: 6 })
+      }
+    };
+
+    const result = await manager.resolvePendingConflict('keep_local');
+    assert.equal(result.success, false);
+    assert.match(result.error, /invalid pending conflict/i);
+    assert.equal(clearCalls, 1);
+    assert.equal(manager.config.pendingConflict, null);
+  });
+
+  it('resolvePendingConflict applies month-scoped monthlyTotals selections', async () => {
+    const pendingConflict = {
+      cardName: 'XL Rewards Card',
+      latestVersion: 5,
+      local: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 25 }, total_amount: 25 }
+        }
+      },
+      remote: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 40 }, total_amount: 40 }
+        }
+      },
+      autoMerged: {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Travel',
+        merchantMap: {},
+        monthlyTotals: {}
+      },
+      conflicts: [
+        {
+          type: 'field',
+          field: 'monthlyTotals',
+          monthKey: '2026-01',
+          localValue: { totals: { Dining: 25 }, total_amount: 25 },
+          remoteValue: { totals: { Dining: 40 }, total_amount: 40 }
+        }
+      ]
+    };
+
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        deviceId: 'dev-1',
+        serverUrl: 'https://example.com',
+        pendingConflict
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    manager.syncClient = {
+      syncEngine: {
+        sanitizeCardForMerge: (value) => ({
+          selectedCategories: Array.isArray(value?.selectedCategories) ? value.selectedCategories.slice() : [],
+          defaultCategory: value?.defaultCategory || 'Others',
+          merchantMap: { ...(value?.merchantMap || {}) },
+          monthlyTotals: { ...(value?.monthlyTotals || {}) }
+        }),
+        cloneMonthlyTotalEntry: (monthData) => monthData ? { totals: { ...(monthData.totals || {}) }, total_amount: monthData.total_amount } : null,
+        mergeActiveCardConflict: (_base, local) => ({
+          merged: local,
+          conflicts: [],
+          hasConflicts: false
+        }),
+        sanitizeDataForSync: (value) => value,
+        pull: async () => ({ success: true, version: 5, data: { cards: { 'XL Rewards Card': pendingConflict.remote } } }),
+        push: async () => ({ success: true, version: 6 })
+      }
+    };
+
+    const result = await manager.resolvePendingConflict('merge_selected', {
+      'field:monthlyTotals:2026-01': 'remote'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.resolvedCard.monthlyTotals['2026-01'].total_amount, 40);
+  });
 });
