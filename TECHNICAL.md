@@ -34,6 +34,8 @@
 ## Sync behavior notes
 
 - `Sync Now` performs encrypted settings synchronization through `GET /sync/data` and `PUT /sync/data`.
+- On first successful setup/unlock per device, bootstrap restore runs once as pull-only: it fetches remote active-card settings and restores them locally only when local active-card state is still empty/default.
+- Bootstrap restore stores local runtime metadata (`bootstrapRestoreDone`, `bootstrapRestoreAt`, `bootstrapRestoreSourceVersion`, `bootstrapRestoreOutcome`) and surfaces status in the Sync tab.
 - On supported bank pages, if sync is enabled, the userscript attempts background sync for the active card only after table-driven updates change local card sync state, without requiring the Subcap Tools overlay to be opened.
 - Sync payload remains card-keyed under a `cards` envelope (`{ cards: { [cardName]: ... } }`), so adding new cards (e.g., `XL Rewards Card`) is backward-compatible and requires no backend schema/API changes.
 - `Sync Now` updates only the active card key from the current page and preserves other remote card keys.
@@ -48,6 +50,9 @@
 - Legacy unlock cache entries from `ccSubcapSyncUnlockCache` are read for backward compatibility and migrated to the host-scoped key.
 - Decrypted payload compatibility is backward-compatible for known legacy layouts (`{ cards: ... }` and card-map-root payloads) and canonical payloads.
 - Legacy payloads are auto-migrated to canonical envelope format on the next successful sync write.
+- Version conflicts (`PUT /sync/data` returns `409 Version conflict`) enter a persisted local `pendingConflict` state and immediately repull latest remote payload for client-side deconfliction.
+- Conflict resolution uses active-card 3-way merge (`base`, `local`, `remote`): non-overlapping edits auto-merge, overlapping edits require explicit `Keep Local`, `Keep Remote`, or `Merge Selected` user choice.
+- `merchantMap` conflicts are tracked per merchant key so same-key remaps require explicit selection.
 
 ## Web dashboard
 
@@ -128,6 +133,9 @@ Use this section to understand why totals might look off.
 - **`Sync is locked...`**: Enter your sync password in the Sync tab to unlock the session after reload/relogin.
 - **Remembered unlock stopped working**: Browser storage clear/profile reset can remove the local vault key, or the local remember window may have expired (30-day rolling TTL). Re-enter password and re-enable remembered sync.
 - **`Sync failed: Invalid sync payload structure`**: This is a client-side decrypted payload validation error, so backend logs may remain empty. Check browser console diagnostics and reconnect/reset sync data if the remote blob is corrupted.
+- **`Bootstrap restore skipped`**: `skipped_local_nonempty` means local active-card data already exists and was not overwritten; `skipped_no_remote` means no remote active-card payload exists yet.
+- **`Bootstrap restore failed`**: Unlock sync and retry from the active card page; the one-time restore gate remains incomplete until a restore/skip succeeds.
+- **Sync conflict panel appears**: A prior `409 Version conflict` is pending; resolve via `Keep Local`, `Keep Remote`, or `Merge Selected` before running `Sync Now`.
 - **`Unlock failed: CSRF validation failed: Invalid origin`**:
   - Verify backend `ALLOWED_ORIGINS` includes both `https://pib.uob.com.sg` and `https://cib.maybank2u.com.sg` in preview/prod.
   - Confirm request carries trusted userscript header (`X-CC-Userscript: tampermonkey-v1`).

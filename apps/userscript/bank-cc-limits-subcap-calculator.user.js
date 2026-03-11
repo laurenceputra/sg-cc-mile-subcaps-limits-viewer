@@ -166,7 +166,14 @@
               pageOrigin
             });
           }
-          throw new Error(errorMessage);
+          const requestError = new Error(errorMessage);
+          requestError.status = response.status;
+          requestError.code = response.data?.error || '';
+          requestError.responseData = response.data || null;
+          if (typeof response.data?.currentVersion === 'number' && Number.isFinite(response.data.currentVersion)) {
+            requestError.currentVersion = response.data.currentVersion;
+          }
+          throw requestError;
         }
 
         return response.data;
@@ -463,9 +470,231 @@
           version: response.version
         };
       } catch (error) {
+        const isVersionConflict =
+          error?.status === 409
+          || /version conflict/i.test(error?.message || '')
+          || /version_conflict/i.test(error?.code || '');
+        if (isVersionConflict) {
+          return {
+            success: false,
+            conflict: true,
+            error: 'Version conflict',
+            currentVersion: typeof error?.currentVersion === 'number' ? error.currentVersion : null
+          };
+        }
         console.error('[SyncEngine] Push failed:', error);
         return { success: false, error: toSyncErrorMessage(error, 'Failed to push sync data') };
       }
+    }
+
+    valuesEqual(a, b) {
+      return JSON.stringify(canonicalizeSyncValue(a)) === JSON.stringify(canonicalizeSyncValue(b));
+    }
+
+    sanitizeCardForMerge(cardSettings) {
+      const sanitized = this.sanitizeCardSettings(cardSettings) || {
+        selectedCategories: [],
+        defaultCategory: 'Others',
+        merchantMap: {},
+        monthlyTotals: {}
+      };
+      return {
+        selectedCategories: Array.isArray(sanitized.selectedCategories) ? sanitized.selectedCategories.slice() : [],
+        defaultCategory: typeof sanitized.defaultCategory === 'string' && sanitized.defaultCategory
+          ? sanitized.defaultCategory
+          : 'Others',
+        merchantMap: isObjectRecord(sanitized.merchantMap) ? { ...sanitized.merchantMap } : {},
+        monthlyTotals: isObjectRecord(sanitized.monthlyTotals) ? { ...sanitized.monthlyTotals } : {}
+      };
+    }
+
+    cloneMonthlyTotalEntry(monthData) {
+      if (!isObjectRecord(monthData)) {
+        return null;
+      }
+      const totals = isObjectRecord(monthData.totals) ? { ...monthData.totals } : {};
+      const totalAmount =
+        typeof monthData.total_amount === 'number' && Number.isFinite(monthData.total_amount)
+          ? monthData.total_amount
+          : Object.values(totals).reduce((sum, value) => sum + value, 0);
+      return { totals, total_amount: totalAmount };
+    }
+
+    mergeActiveCardConflict(baseCard, localCard, remoteCard) {
+      const base = this.sanitizeCardForMerge(baseCard);
+      const local = this.sanitizeCardForMerge(localCard);
+      const remote = this.sanitizeCardForMerge(remoteCard);
+      const merged = {
+        selectedCategories: base.selectedCategories.slice(),
+        defaultCategory: base.defaultCategory,
+        merchantMap: { ...base.merchantMap },
+        monthlyTotals: { ...base.monthlyTotals }
+      };
+      const conflicts = [];
+
+      const mergeField = (field) => {
+        const baseValue = base[field];
+        const localValue = local[field];
+        const remoteValue = remote[field];
+        const localChanged = !this.valuesEqual(localValue, baseValue);
+        const remoteChanged = !this.valuesEqual(remoteValue, baseValue);
+
+        if (!localChanged && !remoteChanged) {
+          merged[field] = baseValue;
+          return;
+        }
+        if (localChanged && !remoteChanged) {
+          merged[field] = localValue;
+          return;
+        }
+        if (!localChanged && remoteChanged) {
+          merged[field] = remoteValue;
+          return;
+        }
+        if (this.valuesEqual(localValue, remoteValue)) {
+          merged[field] = localValue;
+          return;
+        }
+
+        conflicts.push({
+          type: 'field',
+          field,
+          localValue,
+          remoteValue
+        });
+      };
+
+      mergeField('selectedCategories');
+      mergeField('defaultCategory');
+
+      const monthKeys = new Set([
+        ...Object.keys(base.monthlyTotals || {}),
+        ...Object.keys(local.monthlyTotals || {}),
+        ...Object.keys(remote.monthlyTotals || {})
+      ]);
+      const nextMonthlyTotals = {};
+
+      for (const monthKey of monthKeys) {
+        const baseValue = Object.prototype.hasOwnProperty.call(base.monthlyTotals, monthKey)
+          ? base.monthlyTotals[monthKey]
+          : undefined;
+        const localValue = Object.prototype.hasOwnProperty.call(local.monthlyTotals, monthKey)
+          ? local.monthlyTotals[monthKey]
+          : undefined;
+        const remoteValue = Object.prototype.hasOwnProperty.call(remote.monthlyTotals, monthKey)
+          ? remote.monthlyTotals[monthKey]
+          : undefined;
+
+        const localChanged = !this.valuesEqual(localValue, baseValue);
+        const remoteChanged = !this.valuesEqual(remoteValue, baseValue);
+
+        if (!localChanged && !remoteChanged) {
+          const clonedBase = this.cloneMonthlyTotalEntry(baseValue);
+          if (clonedBase) {
+            nextMonthlyTotals[monthKey] = clonedBase;
+          }
+          continue;
+        }
+
+        if (localChanged && !remoteChanged) {
+          const clonedLocal = this.cloneMonthlyTotalEntry(localValue);
+          if (clonedLocal) {
+            nextMonthlyTotals[monthKey] = clonedLocal;
+          }
+          continue;
+        }
+
+        if (!localChanged && remoteChanged) {
+          const clonedRemote = this.cloneMonthlyTotalEntry(remoteValue);
+          if (clonedRemote) {
+            nextMonthlyTotals[monthKey] = clonedRemote;
+          }
+          continue;
+        }
+
+        if (this.valuesEqual(localValue, remoteValue)) {
+          const clonedLocal = this.cloneMonthlyTotalEntry(localValue);
+          if (clonedLocal) {
+            nextMonthlyTotals[monthKey] = clonedLocal;
+          }
+          continue;
+        }
+
+        conflicts.push({
+          type: 'field',
+          field: 'monthlyTotals',
+          monthKey,
+          localValue,
+          remoteValue
+        });
+      }
+      merged.monthlyTotals = nextMonthlyTotals;
+
+      const merchantKeys = new Set([
+        ...Object.keys(base.merchantMap || {}),
+        ...Object.keys(local.merchantMap || {}),
+        ...Object.keys(remote.merchantMap || {})
+      ]);
+
+      const nextMerchantMap = {};
+      for (const merchantKey of merchantKeys) {
+        const baseValue = Object.prototype.hasOwnProperty.call(base.merchantMap, merchantKey)
+          ? base.merchantMap[merchantKey]
+          : undefined;
+        const localValue = Object.prototype.hasOwnProperty.call(local.merchantMap, merchantKey)
+          ? local.merchantMap[merchantKey]
+          : undefined;
+        const remoteValue = Object.prototype.hasOwnProperty.call(remote.merchantMap, merchantKey)
+          ? remote.merchantMap[merchantKey]
+          : undefined;
+
+        const localChanged = localValue !== baseValue;
+        const remoteChanged = remoteValue !== baseValue;
+
+        if (!localChanged && !remoteChanged) {
+          if (typeof baseValue === 'string') {
+            nextMerchantMap[merchantKey] = baseValue;
+          }
+          continue;
+        }
+
+        if (localChanged && !remoteChanged) {
+          if (typeof localValue === 'string') {
+            nextMerchantMap[merchantKey] = localValue;
+          }
+          continue;
+        }
+
+        if (!localChanged && remoteChanged) {
+          if (typeof remoteValue === 'string') {
+            nextMerchantMap[merchantKey] = remoteValue;
+          }
+          continue;
+        }
+
+        if (localValue === remoteValue) {
+          if (typeof localValue === 'string') {
+            nextMerchantMap[merchantKey] = localValue;
+          }
+          continue;
+        }
+
+        conflicts.push({
+          type: 'merchant',
+          field: 'merchantMap',
+          merchantKey,
+          localValue: typeof localValue === 'string' ? localValue : null,
+          remoteValue: typeof remoteValue === 'string' ? remoteValue : null
+        });
+      }
+
+      merged.merchantMap = nextMerchantMap;
+
+      return {
+        merged,
+        conflicts,
+        hasConflicts: conflicts.length > 0
+      };
     }
 
     mergeCardSettings(base, incoming) {
@@ -566,6 +795,52 @@
           success: true,
           data: dataToSync,
           version: pushResult.version
+        };
+      }
+
+      if (pushResult.conflict) {
+        const latestPullResult = await this.pull();
+        if (!latestPullResult.success) {
+          return {
+            success: false,
+            conflict: true,
+            error: 'Version conflict detected, but failed to fetch latest remote state. Retry sync.'
+          };
+        }
+
+        const localCardNames = Object.keys(localCards);
+        const activeCardName = localCardNames.length === 1 ? localCardNames[0] : '';
+        const baseCard = activeCardName ? remoteCards[activeCardName] : null;
+        const localCard = activeCardName ? localCards[activeCardName] : null;
+        const latestRemoteCards = isObjectRecord(latestPullResult.data?.cards) ? latestPullResult.data.cards : {};
+        const latestRemoteCard = activeCardName ? latestRemoteCards[activeCardName] : null;
+
+        if (!activeCardName) {
+          return {
+            success: false,
+            conflict: true,
+            error: 'Version conflict detected. Open Sync tab and retry from the active card page.',
+            latestVersion: latestPullResult.version
+          };
+        }
+
+        const mergeResult = this.mergeActiveCardConflict(baseCard, localCard, latestRemoteCard);
+
+        return {
+          success: false,
+          conflict: true,
+          error: 'Version conflict detected. Resolve conflict in Sync tab.',
+          latestVersion: latestPullResult.version,
+          conflictData: {
+            cardName: activeCardName,
+            baseVersion: pullResult.version,
+            latestVersion: latestPullResult.version,
+            base: this.sanitizeCardForMerge(baseCard),
+            local: this.sanitizeCardForMerge(localCard),
+            remote: this.sanitizeCardForMerge(latestRemoteCard),
+            autoMerged: this.sanitizeCardForMerge(mergeResult.merged),
+            conflicts: mergeResult.conflicts
+          }
         };
       }
 
@@ -932,6 +1207,249 @@
       this.config = config;
     }
 
+    saveBootstrapRestoreOutcome(outcome, options = {}) {
+      const shouldMarkDone = options.markDone !== false;
+      const nextConfig = {
+        ...this.config,
+        bootstrapRestoreOutcome: outcome,
+        bootstrapRestoreAt: Date.now(),
+        bootstrapStatusDismissed: false,
+        bootstrapStatusDismissedAt: 0,
+        bootstrapRestoreSourceVersion:
+          typeof options.sourceVersion === 'number' && Number.isFinite(options.sourceVersion)
+            ? options.sourceVersion
+            : (this.config.bootstrapRestoreSourceVersion || 0)
+      };
+      if (shouldMarkDone) {
+        nextConfig.bootstrapRestoreDone = true;
+      }
+      this.saveSyncConfig(nextConfig);
+    }
+
+    shouldRunBootstrapRestore() {
+      return this.isEnabled() && this.config.bootstrapRestoreDone !== true;
+    }
+
+    getBootstrapRestoreStatusMessage() {
+      switch (this.config.bootstrapRestoreOutcome) {
+        case 'restored':
+          return 'Active-card settings restored from server.';
+        case 'skipped_local_nonempty':
+          return 'Skipped because local active-card settings already contain data.';
+        case 'skipped_no_remote':
+          return 'Skipped because no remote active-card data was found.';
+        case 'failed':
+          return 'Failed. Unlock and retry sync from this card.';
+        default:
+          return '';
+      }
+    }
+
+    shouldShowBootstrapRestoreStatus() {
+      return Boolean(this.config.bootstrapRestoreOutcome) && this.config.bootstrapStatusDismissed !== true;
+    }
+
+    dismissBootstrapRestoreStatus() {
+      if (!this.shouldShowBootstrapRestoreStatus()) {
+        return false;
+      }
+      this.saveSyncConfig({
+        ...this.config,
+        bootstrapStatusDismissed: true,
+        bootstrapStatusDismissedAt: Date.now()
+      });
+      return true;
+    }
+
+    hasPendingConflict() {
+      return isObjectRecord(this.config.pendingConflict);
+    }
+
+    clearPendingConflict() {
+      this.saveSyncConfig({
+        ...this.config,
+        pendingConflict: null,
+        pendingConflictUpdatedAt: Date.now()
+      });
+    }
+
+    async resolvePendingConflict(strategy, selections = {}) {
+      if (!this.hasPendingConflict()) {
+        return { success: false, error: 'No pending sync conflict to resolve.' };
+      }
+      if (!this.syncClient?.syncEngine) {
+        return { success: false, error: 'Sync is locked. Unlock before resolving conflict.' };
+      }
+
+      const pendingConflict = this.config.pendingConflict;
+      const cardName = typeof pendingConflict.cardName === 'string'
+        ? pendingConflict.cardName.trim()
+        : '';
+      if (!cardName) {
+        console.warn('[Sync] Invalid pendingConflict state; clearing without applying changes.', pendingConflict);
+        this.clearPendingConflict();
+        return {
+          success: false,
+          error: 'Invalid pending conflict state. Please retry sync.'
+        };
+      }
+      const useStrategy = strategy || 'merge_selected';
+      const applySelection = (entry) => {
+        if (entry.type === 'field') {
+          const key = entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey
+            ? `field:${entry.field}:${entry.monthKey}`
+            : `field:${entry.field}`;
+          return selections[key] === 'remote' ? 'remote' : 'local';
+        }
+        if (entry.type === 'merchant') {
+          const key = `merchant:${entry.merchantKey}`;
+          return selections[key] === 'remote' ? 'remote' : 'local';
+        }
+        return 'local';
+      };
+
+      let resolvedCard;
+      if (useStrategy === 'keep_local') {
+        resolvedCard = this.syncClient.syncEngine.sanitizeCardForMerge(pendingConflict.local);
+      } else if (useStrategy === 'keep_remote') {
+        resolvedCard = this.syncClient.syncEngine.sanitizeCardForMerge(pendingConflict.remote);
+      } else {
+        resolvedCard = this.syncClient.syncEngine.sanitizeCardForMerge(pendingConflict.autoMerged);
+        const merchantMap = { ...(resolvedCard.merchantMap || {}) };
+        const monthlyTotals = { ...(resolvedCard.monthlyTotals || {}) };
+        for (const entry of pendingConflict.conflicts || []) {
+          const selectedSource = applySelection(entry);
+          const selectedValue = selectedSource === 'remote' ? entry.remoteValue : entry.localValue;
+          if (entry.type === 'field') {
+            if (entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey) {
+              const nextMonthData = this.syncClient.syncEngine.cloneMonthlyTotalEntry(selectedValue);
+              if (nextMonthData) {
+                monthlyTotals[entry.monthKey] = nextMonthData;
+              } else {
+                delete monthlyTotals[entry.monthKey];
+              }
+              continue;
+            }
+            resolvedCard[entry.field] = selectedValue;
+            continue;
+          }
+          if (entry.type === 'merchant') {
+            if (typeof selectedValue === 'string' && selectedValue) {
+              merchantMap[entry.merchantKey] = selectedValue;
+            } else {
+              delete merchantMap[entry.merchantKey];
+            }
+          }
+        }
+        resolvedCard.merchantMap = merchantMap;
+        resolvedCard.monthlyTotals = monthlyTotals;
+      }
+
+      const latestPull = await this.syncClient.syncEngine.pull();
+      if (!latestPull.success) {
+        return { success: false, error: latestPull.error || 'Failed to fetch latest sync state.' };
+      }
+
+      const remoteCards = isObjectRecord(latestPull.data?.cards) ? latestPull.data.cards : {};
+      const latestRemoteCard = remoteCards[cardName];
+      const rebaseResult = this.syncClient.syncEngine.mergeActiveCardConflict(
+        pendingConflict.remote,
+        resolvedCard,
+        latestRemoteCard
+      );
+      if (rebaseResult.hasConflicts) {
+        const nextPendingConflict = {
+          cardName,
+          baseVersion: pendingConflict.latestVersion || latestPull.version,
+          latestVersion: latestPull.version,
+          base: this.syncClient.syncEngine.sanitizeCardForMerge(pendingConflict.remote),
+          local: this.syncClient.syncEngine.sanitizeCardForMerge(resolvedCard),
+          remote: this.syncClient.syncEngine.sanitizeCardForMerge(latestRemoteCard),
+          autoMerged: this.syncClient.syncEngine.sanitizeCardForMerge(rebaseResult.merged),
+          conflicts: rebaseResult.conflicts
+        };
+        this.saveSyncConfig({
+          ...this.config,
+          pendingConflict: nextPendingConflict,
+          pendingConflictUpdatedAt: Date.now()
+        });
+        return {
+          success: false,
+          conflict: true,
+          error: 'Remote data changed again. Review the updated conflict and resolve once more.',
+          conflictData: nextPendingConflict
+        };
+      }
+
+      const rebasedResolvedCard = this.syncClient.syncEngine.sanitizeCardForMerge(rebaseResult.merged);
+      const nextCards = {
+        ...remoteCards,
+        [cardName]: rebasedResolvedCard
+      };
+      const payload = this.syncClient.syncEngine.sanitizeDataForSync({ cards: nextCards });
+      const pushResult = await this.syncClient.syncEngine.push(payload, latestPull.version, this.config.deviceId);
+      if (!pushResult.success) {
+        if (pushResult.conflict) {
+          const retryPull = await this.syncClient.syncEngine.pull();
+          if (!retryPull.success) {
+            return {
+              success: false,
+              conflict: true,
+              error: 'Version conflict detected while applying resolution, and failed to fetch latest remote state.'
+            };
+          }
+
+          const retryRemoteCards = isObjectRecord(retryPull.data?.cards) ? retryPull.data.cards : {};
+          const retryRemoteCard = retryRemoteCards[cardName];
+          const retryMergeResult = this.syncClient.syncEngine.mergeActiveCardConflict(
+            latestRemoteCard,
+            rebasedResolvedCard,
+            retryRemoteCard
+          );
+          const nextPendingConflict = {
+            cardName,
+            baseVersion: latestPull.version,
+            latestVersion: retryPull.version,
+            base: this.syncClient.syncEngine.sanitizeCardForMerge(latestRemoteCard),
+            local: this.syncClient.syncEngine.sanitizeCardForMerge(rebasedResolvedCard),
+            remote: this.syncClient.syncEngine.sanitizeCardForMerge(retryRemoteCard),
+            autoMerged: this.syncClient.syncEngine.sanitizeCardForMerge(retryMergeResult.merged),
+            conflicts: retryMergeResult.conflicts
+          };
+          this.saveSyncConfig({
+            ...this.config,
+            pendingConflict: nextPendingConflict,
+            pendingConflictUpdatedAt: Date.now()
+          });
+          return {
+            success: false,
+            conflict: true,
+            error: 'Version conflict detected again while applying resolution. Review the updated conflict and retry.',
+            conflictData: nextPendingConflict
+          };
+        }
+        return {
+          success: false,
+          error: pushResult.error || 'Failed to push resolved conflict payload.'
+        };
+      }
+
+      this.saveSyncConfig({
+        ...this.config,
+        version: pushResult.version,
+        lastSync: Date.now(),
+        lastSuccessfulSyncVersion: pushResult.version,
+        pendingConflict: null,
+        pendingConflictUpdatedAt: Date.now()
+      });
+      return {
+        success: true,
+        cardName,
+        resolvedCard: nextCards[cardName],
+        version: pushResult.version
+      };
+    }
+
     clearStorageKey(key) {
       if (typeof this.storage.remove === 'function') {
         this.storage.remove(key);
@@ -1283,11 +1801,39 @@
         );
 
         if (result.success) {
+          const cardFingerprints = {
+            ...(isObjectRecord(this.config.lastSuccessfulSyncFingerprintByCard)
+              ? this.config.lastSuccessfulSyncFingerprintByCard
+              : {})
+          };
+          if (isObjectRecord(localData?.cards)) {
+            for (const [cardName, cardData] of Object.entries(localData.cards)) {
+              cardFingerprints[cardName] = JSON.stringify(canonicalizeSyncValue(cardData));
+            }
+          }
           this.saveSyncConfig({
             ...this.config,
             version: result.version,
-            lastSync: Date.now()
+            lastSync: Date.now(),
+            lastSuccessfulSyncVersion: result.version,
+            lastSuccessfulSyncFingerprintByCard: cardFingerprints,
+            pendingConflict: null,
+            pendingConflictUpdatedAt: Date.now()
           });
+        }
+
+        if (!result.success && result.conflict && isObjectRecord(result.conflictData)) {
+          this.saveSyncConfig({
+            ...this.config,
+            pendingConflict: result.conflictData,
+            pendingConflictUpdatedAt: Date.now()
+          });
+          return {
+            success: false,
+            conflict: true,
+            error: result.error || 'Version conflict detected. Resolve it in Sync tab.',
+            conflictData: result.conflictData
+          };
         }
 
         return result;
@@ -1759,6 +2305,16 @@
     statusElement.classList.remove(UI_CLASSES.hidden);
   }
 
+  function escapeHtml(value) {
+    const text = String(value ?? '');
+    return text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function calculateMonthlyTotalsForSync(transactions, cardSettings) {
     const totalsByMonth = {};
     const safeSettings = isObjectRecord(cardSettings) ? cardSettings : {};
@@ -1836,6 +2392,23 @@
     });
   }
 
+  function isBootstrapLocalCardStateEmpty(cardSnapshot) {
+    if (!isObjectRecord(cardSnapshot)) {
+      return true;
+    }
+    const selectedCategories = Array.isArray(cardSnapshot.selectedCategories)
+      ? cardSnapshot.selectedCategories
+      : [];
+    const hasSelectedCategories = selectedCategories.some((value) => typeof value === 'string' && value.trim());
+    const defaultCategory = typeof cardSnapshot.defaultCategory === 'string'
+      ? cardSnapshot.defaultCategory
+      : 'Others';
+    const merchantMapSize = isObjectRecord(cardSnapshot.merchantMap)
+      ? Object.keys(cardSnapshot.merchantMap).length
+      : 0;
+    return !hasSelectedCategories && defaultCategory === 'Others' && merchantMapSize === 0;
+  }
+
   async function syncActiveCardInBackground(syncManager, cardName, cardSettings, storedTransactions) {
     if (!syncManager || typeof syncManager.isEnabled !== 'function' || !syncManager.isEnabled()) {
       return { attempted: false, success: false, reason: 'sync_disabled' };
@@ -1880,7 +2453,15 @@
     return hasUnsyncedCardChanges === true && backgroundSyncRetryRequested === true;
   }
 
-  function createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged = () => {}) {
+  function createSyncTab(
+    syncManager,
+    cardName,
+    cardSettings,
+    storedTransactions,
+    THEME,
+    onSyncStateChanged = () => {},
+    onConflictResolved = () => {}
+  ) {
     ensureUiStyles(THEME);
     const container = document.createElement('div');
     container.id = 'cc-subcap-sync';
@@ -1916,6 +2497,45 @@
     const isUnlocked = syncManager.isUnlocked();
     const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
     const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
+    const showBootstrapStatus = typeof syncManager.shouldShowBootstrapRestoreStatus === 'function'
+      ? syncManager.shouldShowBootstrapRestoreStatus()
+      : true;
+    const bootstrapStatus = showBootstrapStatus && typeof syncManager.getBootstrapRestoreStatusMessage === 'function'
+      ? syncManager.getBootstrapRestoreStatusMessage()
+      : '';
+    const bootstrapStatusAt = bootstrapStatus && typeof config.bootstrapRestoreAt === 'number' && Number.isFinite(config.bootstrapRestoreAt)
+      ? new Date(config.bootstrapRestoreAt).toLocaleString()
+      : '';
+    const getLivePendingConflictState = () => {
+      const liveConfig = syncManager.config || {};
+      const livePendingConflict =
+        typeof syncManager.hasPendingConflict === 'function'
+        && syncManager.hasPendingConflict()
+        && isObjectRecord(liveConfig.pendingConflict)
+          ? liveConfig.pendingConflict
+          : null;
+      const updatedAt =
+        typeof liveConfig.pendingConflictUpdatedAt === 'number'
+        && Number.isFinite(liveConfig.pendingConflictUpdatedAt)
+          ? liveConfig.pendingConflictUpdatedAt
+          : 0;
+      const latestVersion =
+        livePendingConflict && typeof livePendingConflict.latestVersion === 'number'
+          ? livePendingConflict.latestVersion
+          : 0;
+      const cardNameForToken = livePendingConflict && typeof livePendingConflict.cardName === 'string'
+        ? livePendingConflict.cardName
+        : '';
+      return {
+        pendingConflict: livePendingConflict,
+        token: `${cardNameForToken}|${latestVersion}|${updatedAt}`
+      };
+    };
+
+    const { pendingConflict, token: renderedConflictToken } = getLivePendingConflictState();
+    const conflictRows = Array.isArray(pendingConflict?.conflicts)
+      ? pendingConflict.conflicts
+      : [];
     const lockStateText = isUnlocked
       ? 'Unlocked'
       : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
@@ -1926,11 +2546,51 @@
       <h3 class="${UI_CLASSES.title}">Sync Settings</h3>
       <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
         <p class="${UI_CLASSES.meta}"><strong>Status:</strong> Enabled (${lockStateText})</p>
-        <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${config.email || '-'}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${escapeHtml(config.email || '-')}</p>
         <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${lastSync}</p>
-        <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${config.tier || '-'}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${escapeHtml(config.tier || '-')}</p>
+        ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${escapeHtml(bootstrapStatus)}${bootstrapStatusAt ? ` (${escapeHtml(bootstrapStatusAt)})` : ''}</p>` : ''}
         <p class="${UI_CLASSES.small}">Sync updates only the active card and keeps other cards' remote settings.</p>
       </div>
+      ${pendingConflict ? `
+      <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionAccent} ${UI_CLASSES.stackTight}">
+        <p class="${UI_CLASSES.meta}"><strong>Conflict detected</strong> for ${escapeHtml(pendingConflict.cardName || cardName)}. Choose how to resolve before syncing.</p>
+        <div class="${UI_CLASSES.buttonRow}">
+          <button id="sync-conflict-keep-local" type="button" class="${UI_CLASSES.secondaryButton}">Keep Local</button>
+          <button id="sync-conflict-keep-remote" type="button" class="${UI_CLASSES.secondaryButton}">Keep Remote</button>
+          <button id="sync-conflict-merge" type="button" class="${UI_CLASSES.primaryButton}">Merge Selected</button>
+        </div>
+        <div id="sync-conflict-list" class="${UI_CLASSES.stackTight}">
+          ${conflictRows.length === 0 ? `<p class="${UI_CLASSES.small}">No explicit conflicts. Merge Selected will apply auto-merge result.</p>` : conflictRows.map((entry, index) => {
+            const conflictLabel = entry.type === 'merchant'
+              ? `Merchant "${entry.merchantKey}" category`
+              : `Field "${entry.field}"`;
+            const localValue = escapeHtml(JSON.stringify(entry.localValue));
+            const remoteValue = escapeHtml(JSON.stringify(entry.remoteValue));
+            const name = entry.type === 'merchant'
+              ? `sync-conflict-merchant-${index}`
+              : `sync-conflict-field-${index}`;
+            const valueKey = entry.type === 'merchant'
+              ? `merchant:${entry.merchantKey}`
+              : (entry.field === 'monthlyTotals' && typeof entry.monthKey === 'string' && entry.monthKey
+                  ? `field:${entry.field}:${entry.monthKey}`
+                  : `field:${entry.field}`);
+            return `
+            <div class="${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
+              <p class="${UI_CLASSES.small}"><strong>${escapeHtml(conflictLabel)}</strong></p>
+              <label class="${UI_CLASSES.checkboxLabel}">
+                <input type="radio" name="${name}" value="local" data-conflict-key="${escapeHtml(valueKey)}" checked />
+                Local: ${localValue}
+              </label>
+              <label class="${UI_CLASSES.checkboxLabel}">
+                <input type="radio" name="${name}" value="remote" data-conflict-key="${escapeHtml(valueKey)}" />
+                Remote: ${remoteValue}
+              </label>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      ` : ''}
       ${isUnlocked ? '' : `
       <div class="${UI_CLASSES.stackTight}">
         <label for="sync-unlock-passphrase" class="${UI_CLASSES.fieldLabel}">Password (unlock for this session)</label>
@@ -1999,6 +2659,15 @@
     syncNowButton.addEventListener('click', async () => {
       setStatusMessage(statusDiv, 'Syncing...', 'info');
 
+        const liveConflictState = getLivePendingConflictState();
+        if (liveConflictState.pendingConflict) {
+          setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
+          if (!pendingConflict) {
+            onSyncStateChanged();
+          }
+          return;
+        }
+
       if (!syncManager.isUnlocked()) {
         const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
         if (unlockedFromCache) {
@@ -2029,11 +2698,90 @@
 
       if (result.success) {
         setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+        if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
+          const dismissed = syncManager.dismissBootstrapRestoreStatus();
+          if (dismissed) {
+            const bootstrapRow = container.querySelector('#sync-bootstrap-status-row');
+            if (bootstrapRow && typeof bootstrapRow.remove === 'function') {
+              bootstrapRow.remove();
+            }
+          }
+        }
         window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
       } else {
+        if (result.conflict) {
+          setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'warning');
+          onSyncStateChanged();
+          return;
+        }
         setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
       }
     });
+
+    const readConflictSelections = () => {
+      const selections = {};
+      const radios = container.querySelectorAll('input[type="radio"][data-conflict-key]');
+      for (const radio of radios) {
+        if (!radio.checked) {
+          continue;
+        }
+        const key = radio.getAttribute('data-conflict-key');
+        if (!key) {
+          continue;
+        }
+        selections[key] = radio.value === 'remote' ? 'remote' : 'local';
+      }
+      return selections;
+    };
+
+    const wireConflictAction = (selector, strategy) => {
+      const button = container.querySelector(selector);
+      if (!button) {
+        return;
+      }
+      button.addEventListener('click', async () => {
+        const liveConflictState = getLivePendingConflictState();
+        if (!liveConflictState.pendingConflict) {
+          setStatusMessage(statusDiv, 'Conflict already cleared. Refreshing sync status...', 'info');
+          onSyncStateChanged();
+          return;
+        }
+        if (renderedConflictToken && liveConflictState.token !== renderedConflictToken) {
+          setStatusMessage(statusDiv, 'Conflict state changed. Review the latest conflict before resolving.', 'info');
+          onSyncStateChanged();
+          return;
+        }
+
+        if (!syncManager.isUnlocked()) {
+          setStatusMessage(statusDiv, 'Unlock sync before resolving conflict.', 'warning');
+          return;
+        }
+        if (!confirm('Apply this conflict resolution and push to server?')) {
+          return;
+        }
+
+        setStatusMessage(statusDiv, 'Resolving sync conflict...', 'info');
+        const selections = strategy === 'merge_selected' ? readConflictSelections() : {};
+        const resolveResult = await syncManager.resolvePendingConflict(strategy, selections);
+        if (!resolveResult.success) {
+          if (resolveResult.conflict) {
+            setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'warning');
+            onSyncStateChanged();
+            return;
+          }
+          setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'error');
+          return;
+        }
+
+        onConflictResolved(resolveResult.cardName, resolveResult.resolvedCard);
+        setStatusMessage(statusDiv, 'Conflict resolved and synced.', 'success');
+        onSyncStateChanged();
+      });
+    };
+
+    wireConflictAction('#sync-conflict-keep-local', 'keep_local');
+    wireConflictAction('#sync-conflict-keep-remote', 'keep_remote');
+    wireConflictAction('#sync-conflict-merge', 'merge_selected');
 
     container.querySelector('#disable-sync-btn').addEventListener('click', () => {
       if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
@@ -2147,6 +2895,7 @@
       buildSyncCardSnapshot,
       canonicalizeSyncValue,
       buildSyncCardFingerprint,
+      isBootstrapLocalCardStateEmpty,
       syncActiveCardInBackground,
       shouldApplyBackgroundSyncCooldown,
       shouldRetryBackgroundSyncAfterFlight,
@@ -2264,7 +3013,7 @@
 
     const RUNTIME_LIMITS = {
       clickContextTimeoutMs: 1500,
-      tableRefreshDebounceMs: 400,
+      tableRefreshDebounceMs: 200,
       cardContextDebounceMs: 600,
       buttonStateDebounceMs: 120
     };
@@ -2587,6 +3336,105 @@
       }
 
       return cardSettings;
+    }
+
+    async function maybeBootstrapRestoreActiveCard(cardName, cardConfig) {
+      if (!syncManager.shouldRunBootstrapRestore()) {
+        return { success: true, outcome: syncManager.config.bootstrapRestoreOutcome || '' };
+      }
+
+      if (!syncManager.isUnlocked()) {
+        const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+        if (!unlockedFromCache && !syncManager.isUnlocked()) {
+          return { success: false, pendingUnlock: true, outcome: 'failed' };
+        }
+      }
+
+      if (!syncManager.syncClient?.syncEngine) {
+        return { success: false, pendingUnlock: true, outcome: 'failed' };
+      }
+
+      const latestSettings = loadSettings();
+      const localCardSettings = ensureCardSettings(latestSettings, cardName, cardConfig);
+      const localTransactions = getStoredTransactions(cardName, localCardSettings);
+      const localSnapshot = buildSyncCardSnapshot(cardName, localCardSettings, localTransactions);
+
+      if (!isBootstrapLocalCardStateEmpty(localSnapshot)) {
+        syncManager.saveBootstrapRestoreOutcome('skipped_local_nonempty', { markDone: true, sourceVersion: syncManager.config.version || 0 });
+        return { success: true, outcome: 'skipped_local_nonempty' };
+      }
+
+      const pullResult = await syncManager.syncClient.syncEngine.pull();
+      if (!pullResult.success) {
+        syncManager.saveBootstrapRestoreOutcome('failed', { markDone: false, sourceVersion: 0 });
+        return { success: false, outcome: 'failed', error: pullResult.error || 'Failed to pull remote settings for bootstrap restore.' };
+      }
+
+      const remoteCards = isObjectRecord(pullResult.data?.cards) ? pullResult.data.cards : {};
+      if (!isObjectRecord(remoteCards[cardName])) {
+        syncManager.saveBootstrapRestoreOutcome('skipped_no_remote', {
+          markDone: true,
+          sourceVersion: pullResult.version || 0
+        });
+        return { success: true, outcome: 'skipped_no_remote' };
+      }
+
+      const restoredCard = syncManager.syncClient.syncEngine.sanitizeCardForMerge(remoteCards[cardName]);
+      const nextSettings = loadSettings();
+      const targetCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+      targetCardSettings.selectedCategories = Array.from({ length: cardConfig.subcapSlots }, (_, index) => {
+        const value = restoredCard.selectedCategories?.[index];
+        return typeof value === 'string' ? value : '';
+      });
+      targetCardSettings.defaultCategory =
+        typeof restoredCard.defaultCategory === 'string' && restoredCard.defaultCategory
+          ? restoredCard.defaultCategory
+          : 'Others';
+      targetCardSettings.merchantMap = isObjectRecord(restoredCard.merchantMap)
+        ? { ...restoredCard.merchantMap }
+        : {};
+      targetCardSettings.monthlyTotals = isObjectRecord(restoredCard.monthlyTotals)
+        ? { ...restoredCard.monthlyTotals }
+        : {};
+      saveSettings(nextSettings);
+
+      syncManager.saveBootstrapRestoreOutcome('restored', {
+        markDone: true,
+        sourceVersion: pullResult.version || 0
+      });
+
+      return {
+        success: true,
+        outcome: 'restored',
+        restoredCard
+      };
+    }
+
+    function applyResolvedCardSettingsToLocalStore(resolvedCardName, resolvedCardSettings) {
+      if (!resolvedCardName || !isObjectRecord(resolvedCardSettings)) {
+        return;
+      }
+      const nextSettings = loadSettings();
+      const resolvedCardConfig = CARD_CONFIGS[resolvedCardName];
+      if (!resolvedCardConfig) {
+        return;
+      }
+      const targetCardSettings = ensureCardSettings(nextSettings, resolvedCardName, resolvedCardConfig);
+      targetCardSettings.selectedCategories = Array.from({ length: resolvedCardConfig.subcapSlots }, (_, index) => {
+        const value = resolvedCardSettings.selectedCategories?.[index];
+        return typeof value === 'string' ? value : '';
+      });
+      targetCardSettings.defaultCategory =
+        typeof resolvedCardSettings.defaultCategory === 'string' && resolvedCardSettings.defaultCategory
+          ? resolvedCardSettings.defaultCategory
+          : 'Others';
+      targetCardSettings.merchantMap = isObjectRecord(resolvedCardSettings.merchantMap)
+        ? { ...resolvedCardSettings.merchantMap }
+        : {};
+      targetCardSettings.monthlyTotals = isObjectRecord(resolvedCardSettings.monthlyTotals)
+        ? { ...resolvedCardSettings.monthlyTotals }
+        : {};
+      saveSettings(nextSettings);
     }
 
     function removeUI(options = {}) {
@@ -4870,7 +5718,15 @@
         spendContent.id = UI_IDS.spendContent;
         spendContent.classList.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
-        syncContent = createSyncTab(syncManager, cardName, cardSettings, storedTransactions, THEME, onSyncStateChanged);
+        syncContent = createSyncTab(
+          syncManager,
+          cardName,
+          cardSettings,
+          storedTransactions,
+          THEME,
+          onSyncStateChanged,
+          applyResolvedCardSettingsToLocalStore
+        );
         syncContent.id = UI_IDS.syncContent;
         syncContent.classList.add(UI_CLASSES.hidden);
 
@@ -4920,7 +5776,8 @@
           cardSettings,
           storedTransactions,
           THEME,
-          onSyncStateChanged
+          onSyncStateChanged,
+          applyResolvedCardSettingsToLocalStore
         );
         nextSyncContent.id = UI_IDS.syncContent;
         syncContent.replaceWith(nextSyncContent);
@@ -4974,8 +5831,13 @@
         return;
       }
 
-      const initialSettings = loadSettings();
-      const initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      let initialSettings = loadSettings();
+      let initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      if (syncManager.isEnabled()) {
+        await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
+        initialSettings = loadSettings();
+        initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      }
       let backgroundSyncInFlight = false;
       let hasUnsyncedCardChanges = false;
       let lastKnownCardFingerprint = '';
@@ -5131,6 +5993,9 @@
             return;
           }
           await ensureCapPolicyLoaded();
+          if (syncManager.isEnabled()) {
+            await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
+          }
           const settings = loadSettings();
           const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
           let data;

@@ -239,6 +239,77 @@ describe('SyncEngine', () => {
     });
   });
 
+  describe('mergeActiveCardConflict', () => {
+    it('auto-merges non-overlapping monthlyTotals month keys', async () => {
+      const { SyncEngine } = await loadExports();
+      const engine = new SyncEngine(makeApiClient(), makeCrypto(), makeMemoryStorage());
+
+      const base = {
+        selectedCategories: ['Travel'],
+        defaultCategory: 'Others',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 10 }, total_amount: 10 }
+        }
+      };
+      const local = {
+        ...base,
+        monthlyTotals: {
+          ...base.monthlyTotals,
+          '2026-02': { totals: { Travel: 20 }, total_amount: 20 }
+        }
+      };
+      const remote = {
+        ...base,
+        monthlyTotals: {
+          ...base.monthlyTotals,
+          '2026-03': { totals: { Shopping: 30 }, total_amount: 30 }
+        }
+      };
+
+      const result = engine.mergeActiveCardConflict(base, local, remote);
+      assert.equal(result.hasConflicts, false);
+      assert.deepEqual(normalizeValue(result.merged.monthlyTotals), {
+        '2026-01': { totals: { Dining: 10 }, total_amount: 10 },
+        '2026-02': { totals: { Travel: 20 }, total_amount: 20 },
+        '2026-03': { totals: { Shopping: 30 }, total_amount: 30 }
+      });
+    });
+
+    it('creates month-scoped conflict when same monthlyTotals key diverges', async () => {
+      const { SyncEngine } = await loadExports();
+      const engine = new SyncEngine(makeApiClient(), makeCrypto(), makeMemoryStorage());
+
+      const base = {
+        selectedCategories: [],
+        defaultCategory: 'Others',
+        merchantMap: {},
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 10 }, total_amount: 10 }
+        }
+      };
+      const local = {
+        ...base,
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 25 }, total_amount: 25 }
+        }
+      };
+      const remote = {
+        ...base,
+        monthlyTotals: {
+          '2026-01': { totals: { Dining: 40 }, total_amount: 40 }
+        }
+      };
+
+      const result = engine.mergeActiveCardConflict(base, local, remote);
+      assert.equal(result.hasConflicts, true);
+      assert.equal(result.conflicts.length, 1);
+      assert.equal(result.conflicts[0].field, 'monthlyTotals');
+      assert.equal(result.conflicts[0].monthKey, '2026-01');
+      assert.deepEqual(normalizeValue(result.merged.monthlyTotals), {});
+    });
+  });
+
   // ── sync (full flow) ──────────────────────────────────────────────────────
 
   describe('sync', () => {
@@ -275,6 +346,66 @@ describe('SyncEngine', () => {
       const uob = result.data.cards.UOB;
       assert.deepEqual(uob.selectedCategories, ['Dining']);
       assert.equal(uob.merchantMap.GRAB, 'Transport');
+    });
+
+    it('returns conflict package after 409 and remote repull', async () => {
+      const { SyncEngine } = await loadExports();
+      let pullCount = 0;
+      const initialRemotePayload = {
+        version: 1,
+        deviceId: 'dev-remote',
+        timestamp: Date.now(),
+        data: { cards: { 'XL Rewards Card': { selectedCategories: ['Travel'], defaultCategory: 'Others', merchantMap: { GRAB: 'Travel' }, monthlyTotals: {} } } }
+      };
+      const latestRemotePayload = {
+        version: 2,
+        deviceId: 'dev-remote-2',
+        timestamp: Date.now(),
+        data: { cards: { 'XL Rewards Card': { selectedCategories: ['Dining'], defaultCategory: 'Dining', merchantMap: { GRAB: 'Dining' }, monthlyTotals: {} } } }
+      };
+
+      const engine = new SyncEngine(
+        makeApiClient({
+          getSyncData: async () => {
+            pullCount += 1;
+            const payload = pullCount === 1 ? initialRemotePayload : latestRemotePayload;
+            return {
+              version: payload.version,
+              encryptedData: {
+                ciphertext: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),
+                iv: 'iv',
+                salt: 'salt'
+              }
+            };
+          },
+          putSyncData: async () => {
+            const err = new Error('Version conflict');
+            err.status = 409;
+            err.currentVersion = 2;
+            throw err;
+          }
+        }),
+        makeCrypto(),
+        makeMemoryStorage()
+      );
+
+      const localData = {
+        cards: {
+          'XL Rewards Card': {
+            selectedCategories: ['Travel'],
+            defaultCategory: 'Travel',
+            merchantMap: { GRAB: 'Transport' },
+            monthlyTotals: {}
+          }
+        }
+      };
+      const result = await engine.sync(localData, 1, 'dev-local');
+      assert.equal(result.success, false);
+      assert.equal(result.conflict, true);
+      assert.equal(result.latestVersion, 2);
+      assert.equal(result.conflictData.cardName, 'XL Rewards Card');
+      assert.ok(Array.isArray(result.conflictData.conflicts));
+      assert.equal(pullCount, 2);
     });
   });
 });

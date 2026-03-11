@@ -116,7 +116,10 @@ function createQueryElement(selector, doc) {
     '#sync-now-btn',
     '#disable-sync-btn',
     '#sync-setup-save',
-    '#sync-setup-cancel'
+    '#sync-setup-cancel',
+    '#sync-conflict-keep-local',
+    '#sync-conflict-keep-remote',
+    '#sync-conflict-merge'
   ]);
 
   if (inputSelectors.has(selector)) {
@@ -279,6 +282,248 @@ describe('sync ui + overlay', () => {
     await disableButton.click();
     assert.equal(disabled, true);
     timers.unbindFromWindow();
+  });
+
+  it('createSyncTab dismisses bootstrap status after successful sync', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    let dismissCalls = 0;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        rememberUnlock: false,
+        bootstrapRestoreAt: Date.now()
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      shouldShowBootstrapRestoreStatus: () => true,
+      getBootstrapRestoreStatusMessage: () => 'Active-card settings restored from server.',
+      dismissBootstrapRestoreStatus: () => { dismissCalls += 1; return true; },
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    await syncNowButton.click();
+
+    assert.equal(dismissCalls, 1);
+  });
+
+  it('createSyncTab escapes interpolated sync metadata', () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    const manager = {
+      config: {
+        email: '<img src=x onerror=alert(1)>',
+        lastSync: 0,
+        tier: '<svg onload=alert(2)>',
+        rememberUnlock: false,
+        bootstrapRestoreAt: Date.now()
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      shouldShowBootstrapRestoreStatus: () => true,
+      getBootstrapRestoreStatusMessage: () => '<b>restored</b>',
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    assert.match(container.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.match(container.innerHTML, /&lt;svg onload=alert\(2\)&gt;/);
+    assert.match(container.innerHTML, /&lt;b&gt;restored&lt;\/b&gt;/);
+    assert.doesNotMatch(container.innerHTML, /<img src=x onerror=alert\(1\)>/);
+    assert.doesNotMatch(container.innerHTML, /<svg onload=alert\(2\)>/);
+  });
+
+  it('createSyncTab resolves pending conflict actions', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let resolveCalls = 0;
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: []
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      getBootstrapRestoreStatusMessage: () => 'Bootstrap restore: active-card settings restored from server.',
+      resolvePendingConflict: async () => {
+        resolveCalls += 1;
+        return {
+          success: true,
+          cardName: 'XL Rewards Card',
+          resolvedCard: {
+            selectedCategories: ['Dining'],
+            defaultCategory: 'Dining',
+            merchantMap: { GRAB: 'Dining' },
+            monthlyTotals: {}
+          }
+        };
+      },
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; },
+      () => {}
+    );
+
+    const mergeButton = container.querySelector('#sync-conflict-merge');
+    const status = container.querySelector('#sync-status');
+    await mergeButton.click();
+
+    assert.equal(resolveCalls, 1);
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Conflict resolved and synced/i);
+  });
+
+  it('createSyncTab refreshes when conflict resolution returns conflict again', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: []
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      resolvePendingConflict: async () => ({
+        success: false,
+        conflict: true,
+        error: 'Remote data changed again.'
+      }),
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; },
+      () => {}
+    );
+
+    const mergeButton = container.querySelector('#sync-conflict-merge');
+    const status = container.querySelector('#sync-status');
+    await mergeButton.click();
+
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Conflict resolution failed/i);
+  });
+
+  it('createSyncTab renders month-scoped conflict selection key', () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        pendingConflict: {
+          cardName: 'XL Rewards Card',
+          conflicts: [
+            {
+              type: 'field',
+              field: 'monthlyTotals',
+              monthKey: '2026-01',
+              localValue: { totals: { Dining: 25 }, total_amount: 25 },
+              remoteValue: { totals: { Dining: 40 }, total_amount: 40 }
+            }
+          ]
+        }
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      hasPendingConflict: () => true,
+      resolvePendingConflict: async () => ({ success: true, cardName: 'XL Rewards Card', resolvedCard: {} }),
+      sync: async () => ({ success: true })
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {}, () => {});
+    assert.match(container.innerHTML, /data-conflict-key="field:monthlyTotals:2026-01"/);
+  });
+
+  it('createSyncTab refreshes when sync now returns a conflict', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    globalThis.confirm = () => true;
+
+    let refreshed = false;
+    const manager = {
+      config: {
+        email: 'user@example.com',
+        lastSync: 0,
+        tier: 'free',
+        rememberUnlock: false
+      },
+      isEnabled: () => true,
+      isUnlocked: () => true,
+      hasRememberedUnlockCache: () => false,
+      tryUnlockFromRememberedCache: async () => false,
+      unlockSync: async () => ({ success: true }),
+      sync: async () => ({ success: false, conflict: true, error: 'Version conflict detected.' }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(
+      manager,
+      'XL Rewards Card',
+      {},
+      [],
+      makeTheme(),
+      () => { refreshed = true; }
+    );
+
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const status = container.querySelector('#sync-status');
+    await syncNowButton.click();
+
+    assert.equal(refreshed, true);
+    assert.match(status.textContent, /Sync failed: Version conflict detected/i);
   });
 
   it('createOverlay builds UI and switchTab toggles content', () => {
