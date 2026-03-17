@@ -97,11 +97,20 @@ describe('SyncManager', () => {
       assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('INVALID CREDENTIALS'), true);
     });
 
-    it('returns true for "unauthorized" message', async () => {
+    it('returns false for generic "unauthorized" message', async () => {
       const { SyncManager } = await loadExports();
       const manager = new SyncManager(makeMemoryStorage());
-      assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Unauthorized'), true);
-      assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Request unauthorized'), true);
+      assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Unauthorized'), false);
+      assert.equal(manager.isConfirmedRememberedUnlockAuthFailure('Request unauthorized'), false);
+    });
+
+    it('returns true for invalid_credentials code', async () => {
+      const { SyncManager } = await loadExports();
+      const manager = new SyncManager(makeMemoryStorage());
+      assert.equal(
+        manager.isConfirmedRememberedUnlockAuthFailure({ error: 'Unauthorized', code: 'invalid_credentials' }),
+        true
+      );
     });
 
     it('returns false for unrelated messages', async () => {
