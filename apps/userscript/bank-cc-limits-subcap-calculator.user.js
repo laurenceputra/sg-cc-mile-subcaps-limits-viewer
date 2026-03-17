@@ -976,9 +976,20 @@
       }
     }
 
-    isConfirmedRememberedUnlockAuthFailure(message) {
-      const normalized = typeof message === 'string' ? message.toLowerCase() : '';
-      return normalized.includes('invalid credentials') || normalized.includes('unauthorized');
+    isConfirmedRememberedUnlockAuthFailure(failure) {
+      const message = typeof failure?.error === 'string'
+        ? failure.error
+        : (typeof failure === 'string' ? failure : '');
+      const normalizedMessage = message.toLowerCase();
+      const normalizedCode = typeof failure?.code === 'string' ? failure.code.toLowerCase() : '';
+
+      if (normalizedMessage.includes('invalid credentials')) {
+        return true;
+      }
+      if (normalizedCode === 'invalid_credentials') {
+        return true;
+      }
+      return false;
     }
 
     isMalformedRememberedUnlockError(error) {
@@ -1115,7 +1126,7 @@
           fromRememberedCache: true
         });
         if (!result.success) {
-          if (this.isConfirmedRememberedUnlockAuthFailure(result.error)) {
+          if (this.isConfirmedRememberedUnlockAuthFailure(result)) {
             this.clearRememberedUnlockCache(true);
           }
           return false;
@@ -1187,7 +1198,13 @@
         return await this.unlockInProgress;
       } catch (error) {
         console.error('[SyncManager] Unlock failed:', error);
-        return { success: false, error: error.message };
+        return {
+          success: false,
+          error: error?.message || 'Unlock failed',
+          status: typeof error?.status === 'number' ? error.status : 0,
+          code: typeof error?.code === 'string' ? error.code : '',
+          responseData: error?.responseData || null
+        };
       } finally {
         this.unlockInProgress = null;
       }

@@ -59,6 +59,66 @@ describe('SyncManager flows', () => {
     assert.equal(result, false);
   });
 
+  it('tryUnlockFromRememberedCache keeps cache on generic unauthorized errors', async () => {
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        email: 'a@example.com',
+        serverUrl: 'https://example.com',
+        rememberUnlock: true
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    const cacheKey = manager.getRememberedUnlockCacheKey();
+    storage.set(cacheKey, JSON.stringify({
+      expiresAt: Date.now() + 10000,
+      encrypted: { ciphertext: 'x', iv: 'y' },
+      email: 'a@example.com'
+    }));
+    manager.secretVault.decryptText = async () => 'passphrase';
+    manager.unlockSync = async () => ({
+      success: false,
+      error: 'Unauthorized',
+      status: 401,
+      code: 'unauthorized'
+    });
+
+    const result = await manager.tryUnlockFromRememberedCache();
+    assert.equal(result, false);
+    assert.notEqual(storage.get(cacheKey, ''), '', 'remembered cache should remain for transient auth failures');
+    assert.equal(manager.config.rememberUnlock, true);
+  });
+
+  it('tryUnlockFromRememberedCache clears cache on invalid credentials', async () => {
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({
+        enabled: true,
+        email: 'a@example.com',
+        serverUrl: 'https://example.com',
+        rememberUnlock: true
+      })
+    });
+    const manager = new exports.SyncManager(storage);
+    const cacheKey = manager.getRememberedUnlockCacheKey();
+    storage.set(cacheKey, JSON.stringify({
+      expiresAt: Date.now() + 10000,
+      encrypted: { ciphertext: 'x', iv: 'y' },
+      email: 'a@example.com'
+    }));
+    manager.secretVault.decryptText = async () => 'passphrase';
+    manager.unlockSync = async () => ({
+      success: false,
+      error: 'Invalid credentials',
+      status: 401,
+      code: 'invalid_credentials'
+    });
+
+    const result = await manager.tryUnlockFromRememberedCache();
+    assert.equal(result, false);
+    assert.equal(storage.get(cacheKey, ''), '', 'remembered cache should be removed for bad credentials');
+    assert.equal(manager.config.rememberUnlock, false);
+  });
+
   it('setupSync validates server URL and handles login/register flow', async () => {
     const manager = new exports.SyncManager(makeMemoryStorage());
     manager.syncClient = null;
