@@ -43,6 +43,34 @@ describe('SyncManager flows', () => {
     assert.match(result.warning, /failed to remember/, 'warning should mention remember failure');
   });
 
+  it('unlockSync returns structured auth metadata from login failures', async () => {
+    const storage = makeMemoryStorage({
+      ccSubcapSyncConfig: JSON.stringify({ enabled: true, email: 'test@example.com', serverUrl: 'https://example.com' })
+    });
+    const manager = new exports.SyncManager(storage);
+    manager.syncClient = {
+      init: async () => {},
+      login: async () => {
+        const error = new Error('invalid credentials');
+        error.status = 401;
+        error.code = 'invalid_credentials';
+        error.responseData = { message: 'invalid credentials', code: 'invalid_credentials' };
+        throw error;
+      },
+      api: { setToken: () => {} }
+    };
+
+    const result = await manager.unlockSync('passphrase');
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'invalid credentials');
+    assert.equal(result.status, 401);
+    assert.equal(result.code, 'invalid_credentials');
+    assert.deepEqual(result.responseData, {
+      message: 'invalid credentials',
+      code: 'invalid_credentials'
+    });
+  });
+
   it('tryUnlockFromRememberedCache returns false on email mismatch', async () => {
     const storage = makeMemoryStorage({
       ccSubcapSyncConfig: JSON.stringify({ enabled: true, email: 'a@example.com', serverUrl: 'https://example.com' })

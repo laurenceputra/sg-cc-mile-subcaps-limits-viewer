@@ -158,6 +158,10 @@
 
         if (!response.ok) {
           const errorMessage = response.data?.message || response.statusText || `HTTP ${response.status}`;
+          const error = new Error(errorMessage);
+          error.status = response.status;
+          error.code = typeof response.data?.code === 'string' ? response.data.code : '';
+          error.responseData = response.data || null;
           if (endpoint.startsWith('/auth/')) {
             console.warn('[ApiClient] Auth request failed:', {
               endpoint,
@@ -166,7 +170,7 @@
               pageOrigin
             });
           }
-          throw new Error(errorMessage);
+          throw error;
         }
 
         return response.data;
