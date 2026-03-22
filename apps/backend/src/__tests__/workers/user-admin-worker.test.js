@@ -16,6 +16,7 @@ function createEncryptedData() {
   return {
     iv: crypto.randomBytes(16).toString('base64'),
     ciphertext: crypto.randomBytes(32).toString('base64'),
+    salt: crypto.randomBytes(16).toString('base64'),
     tag: crypto.randomBytes(8).toString('base64')
   };
 }

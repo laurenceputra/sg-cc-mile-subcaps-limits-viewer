@@ -148,7 +148,9 @@ export class Database {
 
     for (const mapping of mappings) {
       const merchantRaw = mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant;
-      await this.run(insertSql, userId, merchantRaw, mapping.category, mapping.cardType);
+      const category = mapping.suggestedCategory ?? mapping.category;
+      const cardType = typeof mapping.cardType === 'string' ? mapping.cardType.toUpperCase() : mapping.cardType;
+      await this.run(insertSql, userId, merchantRaw, category, cardType);
     }
   }
 
