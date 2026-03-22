@@ -102,6 +102,21 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `GET /shared/mappings/:cardType` - Get shared merchant mappings
 - `POST /shared/mappings/contribute` - Contribute merchant mappings
 
+### Verified public contract notes
+
+- `POST /auth/register` and `POST /auth/login` return `{ token, userId, tier }`, where `userId` is numeric.
+- `POST /auth/login` and `POST /auth/refresh` manage the `ccSubcapRefreshToken` cookie with `HttpOnly`, `SameSite=Strict`, `Path=/auth`, 30-day lifetime, and `Secure` in production.
+- `PUT /sync/data` requires `encryptedData.ciphertext`, `encryptedData.iv`, and `encryptedData.salt`; legacy `encryptedData.tag` remains accepted and is preserved if present.
+- `GET /shared/mappings/:cardType` returns camelCase public fields (`merchant`, `merchantNormalized`, `suggestedCategory`, `cardType`, `contributionCount`, `lastUpdated`) and also includes `category` as a compatibility alias for `suggestedCategory`.
+- `POST /shared/mappings/contribute` accepts canonical `suggestedCategory` and legacy `category`, normalizing `cardType` to uppercase before persistence.
+
+### Failure-mode highlights
+
+- `POST /auth/login` returns `401` for invalid credentials; `POST /auth/refresh` returns `401` for missing, expired, revoked, or reused refresh cookies.
+- `PUT /sync/data` returns `400` for invalid encrypted payloads and `409` with `{ error: "Version conflict", currentVersion }` on optimistic-lock conflicts.
+- `GET /shared/mappings/:cardType` returns `400` for invalid card types.
+- Full verified request/response shapes live in `../contracts/sync-api.md`.
+
 ### User (requires auth)
 - `DELETE /user/data` - Delete all user data
 - `GET /user/export` - Export user data

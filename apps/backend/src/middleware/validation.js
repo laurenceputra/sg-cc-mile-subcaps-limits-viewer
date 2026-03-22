@@ -208,11 +208,13 @@ export const schemas = {
       // Validate required structure
       if (!value.iv || typeof value.iv !== 'string') return 'Encrypted data must contain valid iv';
       if (!value.ciphertext || typeof value.ciphertext !== 'string') return 'Encrypted data must contain valid ciphertext';
+      if (!value.salt || typeof value.salt !== 'string') return 'Encrypted data must contain valid salt';
       if (value.tag && typeof value.tag !== 'string') return 'Encrypted data tag must be a string';
       
       // Check for control characters in string fields
       if (CONTROL_CHARS_REGEX.test(value.iv)) return 'IV contains invalid control characters';
       if (CONTROL_CHARS_REGEX.test(value.ciphertext)) return 'Ciphertext contains invalid control characters';
+      if (CONTROL_CHARS_REGEX.test(value.salt)) return 'Salt contains invalid control characters';
       if (value.tag && CONTROL_CHARS_REGEX.test(value.tag)) return 'Tag contains invalid control characters';
       
       // Check size (stringified JSON)
@@ -246,17 +248,20 @@ export const schemas = {
           return `Mapping item ${i}: Merchant name must be a string`;
         }
         
-        // Validate category field
-        if (item.category !== undefined) {
-          const categoryError = schemas.category.validate(item.category);
-          if (categoryError) return `Mapping item ${i}: ${categoryError}`;
+        // Validate category field (support suggestedCategory as canonical public name)
+        const categoryValue = item.suggestedCategory ?? item.category;
+        if (categoryValue === undefined) {
+          return `Mapping item ${i}: suggestedCategory is required`;
         }
+        const categoryError = schemas.category.validate(categoryValue);
+        if (categoryError) return `Mapping item ${i}: ${categoryError}`;
         
         // Validate cardType field
-        if (item.cardType !== undefined) {
-          const cardTypeError = schemas.cardType.validate(item.cardType);
-          if (cardTypeError) return `Mapping item ${i}: ${cardTypeError}`;
+        if (item.cardType === undefined) {
+          return `Mapping item ${i}: cardType is required`;
         }
+        const cardTypeError = schemas.cardType.validate(item.cardType);
+        if (cardTypeError) return `Mapping item ${i}: ${cardTypeError}`;
       }
       
       return null;

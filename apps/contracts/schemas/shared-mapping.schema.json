@@ -2,34 +2,55 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "apps/contracts/schemas/shared-mapping.schema.json",
   "title": "SharedMapping",
+  "description": "Canonical public shared mapping object for the shared mappings API. suggestedCategory is canonical; category remains a legacy alias for compatibility.",
   "type": "object",
-  "required": ["merchant", "suggestedCategory", "cardType"],
+  "required": ["suggestedCategory", "cardType"],
+  "anyOf": [
+    {
+      "required": ["merchant"]
+    },
+    {
+      "required": ["merchantRaw"]
+    },
+    {
+      "required": ["merchantNormalized"]
+    }
+  ],
   "properties": {
     "merchant": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Public merchant key. For approved shared mappings this is the normalized merchant string."
     },
     "merchantRaw": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "merchantNormalized": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "suggestedCategory": {
       "type": "string",
       "minLength": 1
     },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legacy alias for suggestedCategory."
+    },
     "contributionCount": {
-      "type": "number",
+      "type": "integer",
       "minimum": 0
     },
     "lastUpdated": {
-      "type": "number",
+      "type": "integer",
       "exclusiveMinimum": 0
     },
     "cardType": {
       "type": "string",
-      "minLength": 1
+      "enum": ["ONE", "LADY", "PPV", "SOLITAIRE"],
+      "description": "Public API normalizes cardType to uppercase."
     }
   },
   "additionalProperties": true
