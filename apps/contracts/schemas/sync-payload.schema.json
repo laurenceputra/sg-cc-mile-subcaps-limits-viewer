@@ -2,19 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "apps/contracts/schemas/sync-payload.schema.json",
   "title": "SyncPayload",
+  "description": "Canonical decrypted payload stored inside encryptedData for /sync/data. The transport envelope requires encryptedData.ciphertext, encryptedData.iv, and encryptedData.salt; legacy encryptedData.tag may still be present.",
   "type": "object",
   "required": ["version", "deviceId", "timestamp", "data"],
   "properties": {
     "version": {
-      "type": "number",
+      "type": "integer",
       "minimum": 0
     },
     "deviceId": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+$"
     },
     "timestamp": {
-      "type": "number",
+      "type": "integer",
       "exclusiveMinimum": 0
     },
     "data": {
@@ -22,7 +25,8 @@
       "required": ["cards"],
       "properties": {
         "cards": {
-          "type": "object"
+          "type": "object",
+          "description": "Card-keyed sync payload map."
         }
       },
       "additionalProperties": true
