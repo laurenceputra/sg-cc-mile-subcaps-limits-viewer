@@ -108,7 +108,7 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `POST /auth/login` and `POST /auth/refresh` manage the `ccSubcapRefreshToken` cookie with `HttpOnly`, `SameSite=Strict`, `Path=/auth`, 30-day lifetime, and `Secure` in production.
 - `PUT /sync/data` requires `encryptedData.ciphertext`, `encryptedData.iv`, and `encryptedData.salt`; legacy `encryptedData.tag` remains accepted and is preserved if present.
 - `GET /shared/mappings/:cardType` returns camelCase public fields (`merchant`, `merchantNormalized`, `suggestedCategory`, `cardType`, `contributionCount`, `lastUpdated`) and also includes `category` as a compatibility alias for `suggestedCategory`.
-- `POST /shared/mappings/contribute` accepts canonical `suggestedCategory` and legacy `category`, normalizing `cardType` to uppercase before persistence.
+- `POST /shared/mappings/contribute` accepts canonical `suggestedCategory` and legacy `category`, normalizing `cardType` to uppercase before persistence and rejecting unsupported card types.
 
 ### Failure-mode highlights
 

@@ -171,7 +171,7 @@ Request body:
   - one of `merchant`, `merchantRaw`, or `merchantNormalized` (string)
   - `suggestedCategory` (string, canonical public field)
   - `category` (string, optional legacy alias for `suggestedCategory`)
-  - `cardType` (string)
+  - `cardType` (string; accepted values normalize to `ONE`, `LADY`, `PPV`, or `SOLITAIRE`)
 
 Success response body (`200`):
 - `success` (boolean)
@@ -180,12 +180,12 @@ Success response body (`200`):
 Behavior notes:
 - `suggestedCategory` is the canonical public request field.
 - The backend still accepts legacy `category` in request payloads for backward compatibility.
-- `cardType` is normalized to uppercase before persistence.
+- `cardType` is normalized to uppercase before persistence and rejects unsupported values.
 - This is the only public API path that writes user mapping contributions (`mapping_contributions`).
 - `shared_mappings` entries are created/updated via admin approval flows, not direct user sync.
 
 Failure modes:
-- `400` invalid mapping payload
+- `400` invalid mapping payload, including unsupported `cardType`
 - `401` missing or invalid bearer token
 - `500` contribution failure
 

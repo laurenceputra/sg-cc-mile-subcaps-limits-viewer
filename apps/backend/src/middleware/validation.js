@@ -62,6 +62,7 @@ const ALLOWED_CATEGORIES = [
 
 // Allowed tiers
 const ALLOWED_TIERS = ['free', 'paid'];
+export const ALLOWED_SHARED_MAPPING_CARD_TYPES = ['ONE', 'LADY', 'PPV', 'SOLITAIRE'];
 
 /**
  * Validation schema definitions
@@ -168,9 +169,13 @@ export const schemas = {
     maxLength: 100,
     validate: (value) => {
       if (typeof value !== 'string') return 'Card type must be a string';
-      if (value.length === 0) return 'Card type cannot be empty';
-      if (value.length > 100) return 'Card type exceeds maximum length (100 characters)';
+      const normalized = value.trim().toUpperCase();
+      if (normalized.length === 0) return 'Card type cannot be empty';
+      if (normalized.length > 100) return 'Card type exceeds maximum length (100 characters)';
       if (CONTROL_CHARS_REGEX.test(value)) return 'Card type contains invalid control characters';
+      if (!ALLOWED_SHARED_MAPPING_CARD_TYPES.includes(normalized)) {
+        return `Card type must be one of: ${ALLOWED_SHARED_MAPPING_CARD_TYPES.join(', ')}`;
+      }
       return null;
     }
   },

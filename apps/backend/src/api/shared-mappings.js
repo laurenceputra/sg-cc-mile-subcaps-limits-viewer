@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { normalizeMerchant } from '../lib/merchant-normalization.js';
-import { validateFields, validateInput } from '../middleware/validation.js';
+import { ALLOWED_SHARED_MAPPING_CARD_TYPES, validateFields, validateInput } from '../middleware/validation.js';
 
 const sharedMappings = new Hono();
-const ALLOWED_SHARED_MAPPING_CARD_TYPES = new Set(['ONE', 'LADY', 'PPV', 'SOLITAIRE']);
+const ALLOWED_SHARED_MAPPING_CARD_TYPE_SET = new Set(ALLOWED_SHARED_MAPPING_CARD_TYPES);
 
 function normalizeCardType(cardType) {
   return typeof cardType === 'string' ? cardType.trim().toUpperCase() : cardType;
@@ -30,10 +30,13 @@ sharedMappings.get('/mappings/:cardType', async (c) => {
   const rawCardType = c.req.param('cardType');
   const cardTypeError = validateInput(rawCardType, 'cardType');
   if (cardTypeError) {
-    return c.json({ error: cardTypeError }, 400);
+    const errorMessage = cardTypeError.includes('Card type must be one of:')
+      ? 'Invalid card type'
+      : cardTypeError;
+    return c.json({ error: errorMessage }, 400);
   }
   const cardType = normalizeCardType(rawCardType);
-  if (!ALLOWED_SHARED_MAPPING_CARD_TYPES.has(cardType)) {
+  if (!ALLOWED_SHARED_MAPPING_CARD_TYPE_SET.has(cardType)) {
     return c.json({ error: 'Invalid card type' }, 400);
   }
   
@@ -63,7 +66,9 @@ sharedMappings.post('/mappings/contribute',
       return c.json({ success: true, message: 'Sharing disabled for paid user' });
     }
 
-    const normalizedMappings = mappings.map((mapping) => {
+    const normalizedMappings = [];
+
+    for (const mapping of mappings) {
       const merchantRaw = mapping.merchantRaw || mapping.merchantNormalized || mapping.merchant;
       const merchant = mapping.merchant || mapping.merchantNormalized || mapping.merchantRaw;
       const merchantNormalized = normalizeMerchant(mapping.merchantNormalized || mapping.merchantRaw || mapping.merchant || '');
@@ -71,26 +76,27 @@ sharedMappings.post('/mappings/contribute',
       const cardType = normalizeCardType(mapping.cardType);
       const merchantError = validateInput(merchantNormalized, 'merchantName');
       if (merchantError) {
-        throw new Error(merchantError);
+        return c.json({ error: merchantError }, 400);
       }
-      return {
+      const cardTypeError = validateInput(cardType, 'cardType');
+      if (cardTypeError) {
+        return c.json({ error: cardTypeError }, 400);
+      }
+      normalizedMappings.push({
         merchantRaw,
         merchant,
         merchantNormalized,
         suggestedCategory,
         category: suggestedCategory,
         cardType
-      };
-    });
+      });
+    }
 
     await db.contributeMappings(user.userId, normalizedMappings);
 
     return c.json({ success: true, contributed: mappings.length });
   } catch (error) {
     console.error('[SharedMappings] Contribute error:', error);
-    if (error?.message?.includes('Merchant name')) {
-      return c.json({ error: error.message }, 400);
-    }
     return c.json({ error: 'Failed to contribute mappings' }, 500);
   }
 });

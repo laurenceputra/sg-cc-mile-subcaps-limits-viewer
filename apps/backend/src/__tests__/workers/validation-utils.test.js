@@ -16,6 +16,8 @@ describe('validation utils', () => {
 
     assert.equal(validateInput('device-123', 'deviceId'), null);
     assert.equal(validateInput('device 123', 'deviceId'), 'Invalid device ID format');
+    assert.equal(validateInput('one', 'cardType'), null);
+    assert.match(validateInput('foo', 'cardType'), /Card type must be one of/);
   });
 
   it('sanitizes control characters and trims', () => {
