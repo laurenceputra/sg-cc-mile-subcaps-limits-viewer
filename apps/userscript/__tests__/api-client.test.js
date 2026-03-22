@@ -85,7 +85,38 @@ describe('ApiClient', () => {
     const client = new exports.ApiClient('https://example.com');
     await assert.rejects(
       () => client.request('/auth/login', { method: 'POST' }),
-      /nope/
+      (error) => {
+        assert.equal(error.message, 'nope');
+        assert.equal(error.status, 500);
+        assert.equal(error.code, '');
+        assert.deepEqual(error.responseData, { message: 'nope' });
+        return true;
+      }
+    );
+  });
+
+  it('request exposes code metadata from non-ok response payload', async () => {
+    globalThis.GM_xmlhttpRequest = undefined;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: async () => '{"message":"invalid credentials","code":"invalid_credentials"}'
+    });
+
+    const client = new exports.ApiClient('https://example.com');
+    await assert.rejects(
+      () => client.request('/auth/login', { method: 'POST' }),
+      (error) => {
+        assert.equal(error.message, 'invalid credentials');
+        assert.equal(error.status, 401);
+        assert.equal(error.code, 'invalid_credentials');
+        assert.deepEqual(error.responseData, {
+          message: 'invalid credentials',
+          code: 'invalid_credentials'
+        });
+        return true;
+      }
     );
   });
 
