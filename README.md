@@ -34,7 +34,10 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - Raw transactions remain local to your browser.
 - Synced encrypted payload contains card settings + monthly totals only.
 - `Sync Now` updates the active card key while preserving other remote card keys.
+- On first successful unlock/setup for a device, bootstrap restore performs a one-time pull-only check and restores remote active-card settings only when local active-card settings are still empty/default.
+- Bootstrap restore outcomes are persisted locally (`restored`, `skipped_local_nonempty`, `skipped_no_remote`, `failed`) and shown in the Sync tab.
 - When sync is enabled, the userscript attempts background sync for the active card after table-driven local state changes on supported bank pages (if unlocked or remembered unlock is available).
+- If sync push returns `409 Version conflict`, the Sync tab presents `Keep Local`, `Keep Remote`, and `Merge Selected` resolution actions instead of silently overwriting overlapping edits.
 
 ## Documentation
 

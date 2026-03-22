@@ -73,6 +73,46 @@ describe('userscript sync core', () => {
     assert.equal(fingerprintA, fingerprintB);
   });
 
+  it('detects bootstrap empty/default local active-card state', async () => {
+    const { isBootstrapLocalCardStateEmpty } = await loadExports();
+
+    assert.equal(
+      isBootstrapLocalCardStateEmpty({
+        selectedCategories: ['', ''],
+        defaultCategory: 'Others',
+        merchantMap: {}
+      }),
+      true
+    );
+
+    assert.equal(
+      isBootstrapLocalCardStateEmpty({
+        selectedCategories: ['Dining'],
+        defaultCategory: 'Others',
+        merchantMap: {}
+      }),
+      false
+    );
+
+    assert.equal(
+      isBootstrapLocalCardStateEmpty({
+        selectedCategories: ['', ''],
+        defaultCategory: 'Travel',
+        merchantMap: {}
+      }),
+      false
+    );
+
+    assert.equal(
+      isBootstrapLocalCardStateEmpty({
+        selectedCategories: ['', ''],
+        defaultCategory: 'Others',
+        merchantMap: { GRAB: 'Transport' }
+      }),
+      false
+    );
+  });
+
   it('parses canonical and legacy payloads', async () => {
     const { parseSyncPayload } = await loadExports();
     const canonical = parseSyncPayload({
