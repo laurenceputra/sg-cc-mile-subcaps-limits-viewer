@@ -1,3 +1,8 @@
+import {
+  isAllowedSharedMappingCardType,
+  normalizeSharedMappingCardType
+} from '../lib/shared-mapping-card-type.js';
+
 export class Database {
   constructor(db) {
     this.db = db;
@@ -184,6 +189,11 @@ export class Database {
   }
 
   async approveMappings(merchantNormalized, category, cardType) {
+    const normalizedCardType = normalizeSharedMappingCardType(cardType);
+    if (!isAllowedSharedMappingCardType(normalizedCardType)) {
+      throw new Error('Invalid card type');
+    }
+
     await this.run(
       `
         INSERT INTO shared_mappings (merchant_normalized, suggested_category, card_type, status, contribution_count)
@@ -195,7 +205,7 @@ export class Database {
       `,
       merchantNormalized,
       category,
-      cardType
+      normalizedCardType
     );
   }
 

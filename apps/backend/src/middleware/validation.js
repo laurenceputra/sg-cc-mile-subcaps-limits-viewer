@@ -8,6 +8,7 @@
  */
 
 import { rateLimitConfig } from './rate-limit-config.js';
+import { isAllowedSharedMappingCardType, normalizeSharedMappingCardType } from '../lib/shared-mapping-card-type.js';
 
 // RFC 5321 compliant email regex (simplified but practical)
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -171,6 +172,9 @@ export const schemas = {
       if (value.length === 0) return 'Card type cannot be empty';
       if (value.length > 100) return 'Card type exceeds maximum length (100 characters)';
       if (CONTROL_CHARS_REGEX.test(value)) return 'Card type contains invalid control characters';
+      if (!isAllowedSharedMappingCardType(normalizeSharedMappingCardType(value))) {
+        return 'Invalid card type';
+      }
       return null;
     }
   },

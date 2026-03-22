@@ -1,18 +1,17 @@
 import { Hono } from 'hono';
 import { normalizeMerchant } from '../lib/merchant-normalization.js';
+import {
+  isAllowedSharedMappingCardType,
+  normalizeSharedMappingCardType
+} from '../lib/shared-mapping-card-type.js';
 import { validateFields, validateInput } from '../middleware/validation.js';
 
 const sharedMappings = new Hono();
-const ALLOWED_SHARED_MAPPING_CARD_TYPES = new Set(['ONE', 'LADY', 'PPV', 'SOLITAIRE']);
-
-function normalizeCardType(cardType) {
-  return typeof cardType === 'string' ? cardType.trim().toUpperCase() : cardType;
-}
 
 function toPublicSharedMapping(row) {
   const merchantNormalized = row?.merchant_normalized ?? '';
   const suggestedCategory = row?.suggested_category ?? '';
-  const cardType = normalizeCardType(row?.card_type ?? '');
+  const cardType = normalizeSharedMappingCardType(row?.card_type ?? '');
 
   return {
     merchant: merchantNormalized,
@@ -32,8 +31,8 @@ sharedMappings.get('/mappings/:cardType', async (c) => {
   if (cardTypeError) {
     return c.json({ error: cardTypeError }, 400);
   }
-  const cardType = normalizeCardType(rawCardType);
-  if (!ALLOWED_SHARED_MAPPING_CARD_TYPES.has(cardType)) {
+  const cardType = normalizeSharedMappingCardType(rawCardType);
+  if (!isAllowedSharedMappingCardType(cardType)) {
     return c.json({ error: 'Invalid card type' }, 400);
   }
   
@@ -68,7 +67,7 @@ sharedMappings.post('/mappings/contribute',
       const merchant = mapping.merchant || mapping.merchantNormalized || mapping.merchantRaw;
       const merchantNormalized = normalizeMerchant(mapping.merchantNormalized || mapping.merchantRaw || mapping.merchant || '');
       const suggestedCategory = mapping.suggestedCategory ?? mapping.category;
-      const cardType = normalizeCardType(mapping.cardType);
+      const cardType = normalizeSharedMappingCardType(mapping.cardType);
       const merchantError = validateInput(merchantNormalized, 'merchantName');
       if (merchantError) {
         throw new Error(merchantError);

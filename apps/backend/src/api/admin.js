@@ -1,4 +1,8 @@
 import { Hono } from 'hono';
+import {
+  isAllowedSharedMappingCardType,
+  normalizeSharedMappingCardType
+} from '../lib/shared-mapping-card-type.js';
 import { validateFields } from '../middleware/validation.js';
 import { adminAuthMiddleware } from '../middleware/auth.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
@@ -62,22 +66,30 @@ admin.post('/mappings/approve',
   }),
   async (c) => {
   const { merchantNormalized, category, cardType } = c.get('validatedBody') || await c.req.json();
+  const normalizedCardType = normalizeSharedMappingCardType(cardType);
 
   const db = c.get('db');
   
   try {
-    await db.approveMappings(merchantNormalized, category, cardType);
+    if (!isAllowedSharedMappingCardType(normalizedCardType)) {
+      return c.json({ error: 'Invalid card type' }, 400);
+    }
+
+    await db.approveMappings(merchantNormalized, category, normalizedCardType);
     
     // Audit log admin approval
     await logAuditEvent(db, {
       eventType: AuditEventType.ADMIN_MAPPING_APPROVE,
       request: c.req.raw,
       userId: null, // Admin action, no user ID
-      details: { merchantNormalized, category, cardType }
+      details: { merchantNormalized, category, cardType: normalizedCardType }
     });
     
     return c.json({ success: true });
   } catch (error) {
+    if (error?.message === 'Invalid card type') {
+      return c.json({ error: error.message }, 400);
+    }
     console.error('[Admin] Approve error:', error);
     return c.json({ error: 'Failed to approve mapping' }, 500);
   }

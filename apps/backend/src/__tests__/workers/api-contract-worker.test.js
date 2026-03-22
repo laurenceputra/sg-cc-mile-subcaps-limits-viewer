@@ -257,6 +257,21 @@ describe('Workers userscript API contract', () => {
       }, 400, 'shared mapping contribution without category');
       assert.match(invalidContributionJson.error, /suggestedCategory/i);
 
+      const { json: invalidCardContributionJson } = await fetchJson(app, env, '/shared/mappings/contribute', {
+        method: 'POST',
+        token,
+        body: {
+          mappings: [
+            {
+              merchantRaw: 'Coffee Bean',
+              suggestedCategory: 'dining',
+              cardType: 'foo'
+            }
+          ]
+        }
+      }, 400, 'shared mapping contribution with invalid card type');
+      assert.match(invalidCardContributionJson.error, /invalid card type/i);
+
       const { json: adminLoginJson } = await loginAdmin(env);
       expectJwtLike(adminLoginJson.token, 'admin token');
       const approveRes = await app.fetch(new Request('http://localhost/admin/mappings/approve', {
@@ -269,7 +284,7 @@ describe('Workers userscript API contract', () => {
         body: JSON.stringify({
           merchantNormalized: 'coffee bean',
           category: 'dining',
-          cardType: 'ONE'
+          cardType: 'one'
         })
       }), env);
       const approveJson = await approveRes.json();
