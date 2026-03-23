@@ -141,6 +141,28 @@ Failure modes:
 - `409` optimistic-lock conflict
 - `500` sync write failure
 
+## Retired endpoints
+
+The following previously documented endpoints are intentionally retired from the public contract and are expected to return `404 Not Found`:
+
+- `GET /shared/mappings/:cardType`
+- `POST /shared/mappings/contribute`
+- `DELETE /user/data`
+- `GET /user/export`
+- `PATCH /user/settings`
+- `POST /auth/logout-all`
+- `POST /auth/device/register`
+- `DELETE /auth/device/:deviceId`
+- `GET /auth/devices`
+- `POST /admin/auth/login`
+- `POST /admin/auth/logout`
+- `GET /admin/mappings/pending`
+- `POST /admin/mappings/approve`
+- `GET /admin/health/cleanup`
+
+Compatibility note:
+- Consumers should migrate to auth + sync + dashboard/session endpoints documented above.
+
 ## Required normalization and validation behavior
 
 - Merchant normalization: lowercase, collapse internal whitespace to single spaces, trim, then remove characters not matching `[A-Za-z0-9_\s-]`.

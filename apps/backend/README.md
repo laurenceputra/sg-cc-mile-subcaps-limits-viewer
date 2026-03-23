@@ -96,6 +96,10 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `GET /sync/data` - Get encrypted sync data
 - `PUT /sync/data` - Update encrypted sync data
 
+### Retired endpoints
+- Legacy shared-mappings, user-management, device-management, and admin-moderation routes were removed from runtime and return `404`.
+- See `../contracts/sync-api.md` for the canonical retired-endpoint list and active contract surface.
+
 ### Verified public contract notes
 
 - `POST /auth/register` and `POST /auth/login` return `{ token, userId, tier }`, where `userId` is numeric.
