@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { generateToken, constantTimeEqual } from '../auth/jwt.js';
-import { validateFields, validateOptionalFields, normalizeEmail, validateInput } from '../middleware/validation.js';
+import { validateFields, validateOptionalFields, normalizeEmail } from '../middleware/validation.js';
 import { logAuditEvent, AuditEventType } from '../audit/logger.js';
 
 const auth = new Hono();
@@ -11,19 +11,6 @@ const ACCESS_TOKEN_TTL_SECONDS_MAX = 24 * 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const REFRESH_COOKIE_NAME = 'ccSubcapRefreshToken';
 const REFRESH_COOKIE_PATH = '/auth';
-
-// Device limits by tier
-const DEVICE_LIMITS = {
-  free: 5,
-  paid: 10
-};
-
-// Mock email notification function
-async function sendDeviceRegistrationEmail(email, deviceName) {
-  console.log(`[Email] Would send device registration notification to ${email} for device: ${deviceName}`);
-  // In production, integrate with email service (SendGrid, AWS SES, etc.)
-  return Promise.resolve();
-}
 
 function getAccessTokenTtlSeconds(env) {
   const rawValue = Number(env?.ACCESS_TOKEN_TTL_SECONDS);
@@ -305,130 +292,6 @@ export default function createAuthRoutes(rateLimiters) {
     } catch (error) {
       console.error('[Auth] Logout error:', error);
       return c.json({ error: 'Logout failed' }, 500);
-    }
-  });
-
-  auth.post('/logout-all', async (c) => {
-    const user = c.get('user');
-    if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-    const db = c.get('db');
-    
-    try {
-      await db.blacklistAllUserTokens(user.userId, 'logout_all');
-      await db.revokeAllRefreshTokens(user.userId, 'logout_all');
-      
-      // Audit log logout all
-      await logAuditEvent(db, {
-        eventType: AuditEventType.LOGOUT_ALL,
-        request: c.req.raw,
-        userId: user.userId,
-        details: {}
-      });
-      
-      c.header('Set-Cookie', clearRefreshCookie(c.env));
-      return c.json({ success: true, message: 'All devices logged out successfully' });
-    } catch (error) {
-      console.error('[Auth] Logout all error:', error);
-      return c.json({ error: 'Logout all failed' }, 500);
-    }
-  });
-
-  auth.post('/device/register', async (c) => {
-    const user = c.get('user');
-    const body = c.get('validatedBody') || await c.req.json();
-    const deviceId = body.deviceId || body.deviceFingerprint;
-    const name = body.name || body.deviceName;
-
-    const db = c.get('db');
-    
-    try {
-      if (!deviceId || !name) {
-        return c.json({ error: 'Device ID and name are required' }, 400);
-      }
-
-      const deviceIdError = validateInput(deviceId, 'deviceId');
-      if (deviceIdError) {
-        return c.json({ error: deviceIdError }, 400);
-      }
-      const deviceNameError = validateInput(name, 'deviceName');
-      if (deviceNameError) {
-        return c.json({ error: deviceNameError }, 400);
-      }
-      const userData = await db.getUserById(user.userId);
-      const limit = DEVICE_LIMITS[userData.tier] || DEVICE_LIMITS.free;
-      const registration = await db.registerDeviceWithLimit(user.userId, deviceId, name, limit);
-
-      if (!registration.ok) {
-        return c.json({ 
-          error: 'Device limit reached',
-          message: `Maximum ${limit} devices allowed for ${userData.tier} tier`,
-          limit,
-          current: registration.count
-        }, 400);
-      }
-      
-      // Send email notification (mock)
-      await sendDeviceRegistrationEmail(userData.email, name);
-      
-      // Audit log device registration
-      await logAuditEvent(db, {
-        eventType: AuditEventType.DEVICE_REGISTER,
-        request: c.req.raw,
-        userId: user.userId,
-        deviceId,
-        details: { deviceName: name }
-      });
-      
-      return c.json({ success: true, deviceId });
-    } catch (error) {
-      console.error('[Auth] Device registration error:', error);
-      return c.json({ error: 'Device registration failed' }, 500);
-    }
-  });
-
-  auth.delete('/device/:deviceId', async (c) => {
-    const user = c.get('user');
-    const deviceId = c.req.param('deviceId');
-    const db = c.get('db');
-    
-    try {
-      await db.deleteDevice(deviceId, user.userId);
-      
-      // Audit log device removal
-      await logAuditEvent(db, {
-        eventType: AuditEventType.DEVICE_REMOVE,
-        request: c.req.raw,
-        userId: user.userId,
-        deviceId,
-        details: {}
-      });
-      
-      return c.json({ success: true, message: 'Device removed successfully' });
-    } catch (error) {
-      console.error('[Auth] Device removal error:', error);
-      return c.json({ error: 'Device removal failed' }, 500);
-    }
-  });
-
-  auth.get('/devices', async (c) => {
-    const user = c.get('user');
-    const db = c.get('db');
-    
-    try {
-      const devices = await db.getDevicesByUser(user.userId);
-      const userData = await db.getUserById(user.userId);
-      const limit = DEVICE_LIMITS[userData.tier] || DEVICE_LIMITS.free;
-      
-      return c.json({ 
-        devices,
-        limit,
-        count: devices.length
-      });
-    } catch (error) {
-      console.error('[Auth] Get devices error:', error);
-      return c.json({ error: 'Failed to fetch devices' }, 500);
     }
   });
 

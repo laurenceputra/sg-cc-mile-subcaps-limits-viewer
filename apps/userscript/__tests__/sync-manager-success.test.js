@@ -146,25 +146,6 @@ describe('SyncManager success paths', () => {
     assert.equal(unlockCalls, 1);
   });
 
-  it('getSharedMappings and contributeMappings honor config', async () => {
-    const storage = makeMemoryStorage({
-      ccSubcapSyncConfig: JSON.stringify({ enabled: true, shareMappings: false })
-    });
-    const manager = new exports.SyncManager(storage);
-    manager.syncClient = {
-      getSharedMappings: async () => ({ mappings: ['A', 'B'] }),
-      contributeMappings: async () => {}
-    };
-
-    const shared = await manager.getSharedMappings('UOB');
-    assert.equal(shared.success, true);
-    assert.deepEqual(shared.mappings, ['A', 'B']);
-
-    const contributed = await manager.contributeMappings([{ merchant: 'X', category: 'Dining' }]);
-    assert.equal(contributed.success, true);
-    assert.equal(contributed.message, 'Sharing disabled');
-  });
-
   it('hashPassphrase derives a deterministic hex hash', async () => {
     const storage = makeMemoryStorage({
       ccSubcapSyncConfig: JSON.stringify({ enabled: true, email: 'user@example.com' })

@@ -1,6 +1,6 @@
 # Bank CC Sync Backend
 
-Optional sync backend for encrypted settings and shared mappings. Runs on **Cloudflare Workers + D1** only.
+Optional sync backend for encrypted settings and dashboard views. Runs on **Cloudflare Workers + D1** only.
 
 ## App boundary
 
@@ -55,8 +55,6 @@ Re-run the workflow on a previous commit or use `wrangler versions deploy` with 
 6. Set secrets:
    ```bash
    wrangler secret put JWT_SECRET
-   wrangler secret put ADMIN_LOGIN_PEPPER
-   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
    ```
 7. Start locally: `npm --prefix apps/backend run dev`
 8. Deploy: `npm --prefix apps/backend run deploy`
@@ -85,7 +83,7 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `POST /auth/register` - Create account
 - `POST /auth/login` - Login and get JWT
 - `POST /auth/refresh` - Rotate refresh token and get new access token
-- `POST /auth/device/register` - Register device
+- `POST /auth/logout` - Logout and clear refresh cookie
 
 ### Web Pages
 - `GET /login` - Login page (email + password) for sync credentials
@@ -98,34 +96,17 @@ Security controls (validation, CSRF, rate limits, audit logging, headers) are do
 - `GET /sync/data` - Get encrypted sync data
 - `PUT /sync/data` - Update encrypted sync data
 
-### Shared Mappings (requires auth)
-- `GET /shared/mappings/:cardType` - Get shared merchant mappings
-- `POST /shared/mappings/contribute` - Contribute merchant mappings
-
 ### Verified public contract notes
 
 - `POST /auth/register` and `POST /auth/login` return `{ token, userId, tier }`, where `userId` is numeric.
 - `POST /auth/login` and `POST /auth/refresh` manage the `ccSubcapRefreshToken` cookie with `HttpOnly`, `SameSite=Strict`, `Path=/auth`, 30-day lifetime, and `Secure` in production.
 - `PUT /sync/data` requires `encryptedData.ciphertext`, `encryptedData.iv`, and `encryptedData.salt`; legacy `encryptedData.tag` remains accepted and is preserved if present.
-- `GET /shared/mappings/:cardType` returns camelCase public fields (`merchant`, `merchantNormalized`, `suggestedCategory`, `cardType`, `contributionCount`, `lastUpdated`) and also includes `category` as a compatibility alias for `suggestedCategory`.
-- `POST /shared/mappings/contribute` accepts canonical `suggestedCategory` and legacy `category`, normalizing `cardType` to uppercase before persistence.
 
 ### Failure-mode highlights
 
 - `POST /auth/login` returns `401` for invalid credentials; `POST /auth/refresh` returns `401` for missing, expired, revoked, or reused refresh cookies.
 - `PUT /sync/data` returns `400` for invalid encrypted payloads and `409` with `{ error: "Version conflict", currentVersion }` on optimistic-lock conflicts.
-- `GET /shared/mappings/:cardType` returns `400` for invalid card types.
 - Full verified request/response shapes live in `../contracts/sync-api.md`.
-
-### User (requires auth)
-- `DELETE /user/data` - Delete all user data
-- `GET /user/export` - Export user data
-- `PATCH /user/settings` - Update user settings
-
-### Admin (requires admin JWT)
-- `POST /admin/auth/login` - Get admin JWT
-- `GET /admin/mappings/pending` - Get pending contributions
-- `POST /admin/mappings/approve` - Approve mapping
 
 ## Audit Logging
 
@@ -133,10 +114,8 @@ The backend automatically logs all security-relevant events:
 
 - Login attempts (success and failure)
 - User registration
-- Device registration/removal
-- Data exports
-- Settings changes
-- Admin actions
+- Logout
+- Refresh token reuse/revocation events
 
 ## Security Best Practices
 

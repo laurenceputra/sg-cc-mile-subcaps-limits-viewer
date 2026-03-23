@@ -19,8 +19,6 @@ Set secrets and environment variables before running the server:
 
 ```bash
 JWT_SECRET=<secure-random-secret>
-ADMIN_LOGIN_PASSWORD_HASH=<sha256(password:pepper)>
-ADMIN_LOGIN_PEPPER=<secure-random-secret>
 ALLOWED_ORIGINS=https://pib.uob.com.sg,https://your-domain.com
 ENVIRONMENT=production   # or development
 ```
@@ -35,8 +33,7 @@ Notes:
 - **CSRF:** Origin header required in production for state-changing requests.
 - **Payload size:** Maximum 1MB JSON payload.
 - **JSON depth:** Max nesting depth is 10.
-- **Auth:** Bearer token required for `/sync`, `/shared`, `/user`.
-- **Admin:** Bearer token with `role=admin` required for `/admin` (issued by `POST /admin/auth/login`).
+- **Auth:** Bearer token required for `/sync` and protected auth operations.
 
 ## Input Validation Summary
 
@@ -44,14 +41,8 @@ Notes:
 | --- | --- | --- | --- |
 | `email` | string | 254 | RFC 5321 format, no control chars, disposable domains blocked |
 | `passwordHash` | string | 1024 | Base64/hex-like, no control chars |
-| `merchantName` | string | 200 | No control chars |
-| `category` | string | 100 | Must match allowed list |
-| `deviceName` | string | 100 | No control chars |
-| `deviceId` | string | 128 | Alphanumeric + `_`/`-` |
-| `cardType` | string | 100 | No control chars |
 | `tier` | string | - | `free` or `paid` |
 | `version` | int | - | 0 to MAX_SAFE_INTEGER |
-| `shareMappings` | boolean | - | true/false |
 
 ### Encrypted Data (`encryptedData`)
 ```json
@@ -61,10 +52,6 @@ Notes:
 - Optional `tag`
 - String fields cannot contain control characters
 - JSON size max 1MB
-
-### Mappings Array (`mappings`)
-- Array of up to 100 items
-- Each item supports `merchant`, `category`, `cardType` with standard validation
 
 ## CSRF Protection
 
@@ -79,8 +66,6 @@ Notes:
 | Login | 5 attempts | 1 minute | 1 hour |
 | Registration | 3 attempts | 1 minute | 24 hours |
 | Sync | 100 requests | 1 minute | - |
-| Shared mappings | 20 requests | 1 minute | - |
-| Admin | 10 requests | 1 minute | - |
 | Payload size | 1MB | - | - |
 
 Login attempts include progressive delay (exponential backoff).
@@ -96,12 +81,8 @@ Login attempts include progressive delay (exponential backoff).
 Audit logs capture security-relevant events:
 - Login success/failure
 - Registration
-- Device registration/removal
-- Data export/delete
-- Settings changes
-- Admin login success/failure
-- Admin token rejected
-- Admin actions
+- Logout
+- Refresh token reuse detection/revocation
 
 Retention: **90 days**, with sensitive fields removed (passwords, tokens, secrets).
 

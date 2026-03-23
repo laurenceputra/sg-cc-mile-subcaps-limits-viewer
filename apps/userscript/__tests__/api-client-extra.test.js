@@ -44,19 +44,4 @@ describe('ApiClient extra coverage', () => {
     assert.equal(lastEndpoint, '/auth/register');
   });
 
-  it('deleteUserData calls DELETE endpoint', async () => {
-    let endpoint = '';
-    let method = '';
-    const client = new exports.ApiClient('https://example.com');
-    client.request = async (path, options) => {
-      endpoint = path;
-      method = options.method;
-      return { ok: true };
-    };
-
-    const result = await client.deleteUserData();
-    assert.deepEqual(result, { ok: true });
-    assert.equal(endpoint, '/user/data');
-    assert.equal(method, 'DELETE');
-  });
 });
