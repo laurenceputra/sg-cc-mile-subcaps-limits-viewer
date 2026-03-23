@@ -218,30 +218,37 @@ describe('Workers userscript API contract', () => {
       const { json: loginJson } = await loginUser(env, email, passwordHash);
       const token = loginJson.token;
 
-      const retiredPaths = [
-        '/shared/mappings/ONE',
-        '/shared/mappings/contribute',
-        '/user/export',
-        '/user/data',
-        '/user/settings',
-        '/auth/device/register',
-        '/auth/devices',
-        '/auth/logout-all',
-        '/admin/auth/login',
-        '/admin/mappings/pending'
+      const retiredEndpoints = [
+        { method: 'GET', path: '/shared/mappings/ONE' },
+        { method: 'POST', path: '/shared/mappings/contribute' },
+        { method: 'DELETE', path: '/user/data' },
+        { method: 'GET', path: '/user/export' },
+        { method: 'PATCH', path: '/user/settings' },
+        { method: 'POST', path: '/auth/logout-all' },
+        { method: 'POST', path: '/auth/device/register' },
+        { method: 'DELETE', path: '/auth/device/device-123' },
+        { method: 'GET', path: '/auth/devices' },
+        { method: 'POST', path: '/admin/auth/login' },
+        { method: 'POST', path: '/admin/auth/logout' },
+        { method: 'GET', path: '/admin/mappings/pending' },
+        { method: 'POST', path: '/admin/mappings/approve' },
+        { method: 'GET', path: '/admin/health/cleanup' }
       ];
 
-      for (const path of retiredPaths) {
-        const res = await app.fetch(new Request(`http://localhost${path}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Origin': 'https://pib.uob.com.sg',
-            'Content-Type': 'application/json'
-          },
-          body: '{}'
-        }), env);
-        expectStatus(res, 404, `retired endpoint ${path}`);
+      for (const { method, path } of retiredEndpoints) {
+        const headers = {
+          'Authorization': `Bearer ${token}`,
+          'Origin': 'https://pib.uob.com.sg'
+        };
+        const init = { method, headers };
+
+        if (method === 'POST' || method === 'PATCH') {
+          headers['Content-Type'] = 'application/json';
+          init.body = '{}';
+        }
+
+        const res = await app.fetch(new Request(`http://localhost${path}`, init), env);
+        expectStatus(res, 404, `retired endpoint ${method} ${path}`);
       }
     } finally {
       await disposeTestDatabase(mf);
