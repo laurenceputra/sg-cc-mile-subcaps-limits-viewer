@@ -54,6 +54,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - Security-first workflow: [AGENTS.md](AGENTS.md)
 - Workflow gates (canonical): [docs/workflow/gates.md](docs/workflow/gates.md)
 - Workflow handoff contract: [docs/workflow/handoff-format.md](docs/workflow/handoff-format.md)
+- Per-task execution plan: [spec/plan.md](spec/plan.md) - Create or refresh this before non-trivial implementation so scope, acceptance criteria, verification, and PR handoff stay explicit
 - Skill catalog: [.agents/skills/README.md](.agents/skills/README.md)
 - Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
 - Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)

@@ -6,6 +6,7 @@ This repo uses a security-first, local-first workflow for a Tampermonkey userscr
 
 - Mandatory gates: `docs/workflow/gates.md`
 - Authoritative handoff contract: `docs/workflow/handoff-format.md`
+- Canonical per-task execution plan: `spec/plan.md` (create or refresh before non-trivial implementation)
 - Skill catalog and classification: `.agents/skills/README.md`
 
 Moved policy sections:
@@ -111,4 +112,4 @@ Locked policy decisions may be overridden only when a hard contradiction cannot 
 - `TECHNICAL.md`
 - `PHASES_4B_5_COMPLETE.md`
 
-**Last Updated:** 2026-03-02
+**Last Updated:** 2026-03-23
