@@ -143,7 +143,7 @@ Failure modes:
 
 ## Retired endpoints
 
-The following previously documented endpoints are intentionally retired from the public contract and are expected to return `404 Not Found`:
+The following previously documented endpoints are intentionally retired from the public contract and are no longer routed. For requests that pass baseline middleware (for example CSRF and validation), these endpoints return `404 Not Found`; earlier middleware may still return other statuses (such as `400` or `403`) before routing is reached:
 
 - `GET /shared/mappings/:cardType`
 - `POST /shared/mappings/contribute`

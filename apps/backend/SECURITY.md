@@ -66,6 +66,8 @@ Notes:
 | Login | 5 attempts | 1 minute | 1 hour |
 | Registration | 3 attempts | 1 minute | 24 hours |
 | Sync | 100 requests | 1 minute | - |
+| Logout | 10 requests | 1 minute | - |
+| Refresh | 20 requests | 1 minute | - |
 | Payload size | 1MB | - | - |
 
 Login attempts include progressive delay (exponential backoff).
