@@ -14,7 +14,7 @@ This backend runs **only** on Cloudflare Workers with D1 storage.
 1. Cloudflare account
 2. Node.js 20+
 3. Wrangler CLI (`npm install -g wrangler`)
-4. Cloudflare Worker secrets for JWT and admin authentication
+4. Cloudflare Worker secret for JWT authentication
 
 ### Generate Secure Secrets
 
@@ -27,13 +27,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 # Python
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-### Generate Admin Login Hash
-
-```bash
-ADMIN_LOGIN_PEPPER="$(openssl rand -base64 32)"
-ADMIN_LOGIN_PASSWORD_HASH="$(node -e 'const crypto=require("crypto");const password="your-admin-password";const pepper=process.env.ADMIN_LOGIN_PEPPER;console.log(crypto.createHash("sha256").update(password + ":" + pepper).digest("hex"))')"
 ```
 
 ## Setup
@@ -59,8 +52,6 @@ ADMIN_LOGIN_PASSWORD_HASH="$(node -e 'const crypto=require("crypto");const passw
 6. Set Worker secrets on the base Worker script (`bank-cc-sync`):
    ```bash
    wrangler secret put JWT_SECRET
-   wrangler secret put ADMIN_LOGIN_PEPPER
-   wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
    ```
 7. Confirm rate limiting bindings in `wrangler.toml` match your Cloudflare account.
 
@@ -128,7 +119,7 @@ Required repository secret (for deterministic preview URLs in PR comments):
 
 - `CLOUDFLARE_WORKERS_SUBDOMAIN` for deterministic preview URLs in PR comments.
 
-JWT/admin secrets live only in Cloudflare Worker secrets (not GitHub).
+JWT secrets live only in Cloudflare Worker secrets (not GitHub).
 
 Enable required reviewers (and optional wait timers) on `backend-production`.
 
@@ -138,8 +129,6 @@ Rotate secrets directly in Cloudflare and redeploy:
 
 ```bash
 wrangler secret put JWT_SECRET
-wrangler secret put ADMIN_LOGIN_PEPPER
-wrangler secret put ADMIN_LOGIN_PASSWORD_HASH
 ```
 
 Then re-run the preview or production deployment workflows.
@@ -153,12 +142,12 @@ Then re-run the preview or production deployment workflows.
 ## Troubleshooting
 
 - **Missing D1 binding:** ensure `[[d1_databases]]` is configured in `wrangler.toml`.
-- **Invalid secrets:** set `JWT_SECRET`, `ADMIN_LOGIN_PASSWORD_HASH`, and `ADMIN_LOGIN_PEPPER` with `wrangler secret put`.
+- **Invalid secrets:** set `JWT_SECRET` with `wrangler secret put`.
 - **CSRF errors:** verify `ALLOWED_ORIGINS` and Origin headers in requests.
 
 ## Security Hardening Checklist
 
 - Secrets are strong and stored via Wrangler secrets.
 - `ALLOWED_ORIGINS` contains only approved HTTPS origins.
-- Rate limiting bindings are enabled for auth, sync, user, and admin routes.
+- Rate limiting bindings are enabled for auth and sync routes.
 - No sensitive data is logged.

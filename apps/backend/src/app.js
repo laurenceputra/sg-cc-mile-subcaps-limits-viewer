@@ -5,11 +5,7 @@ import { validateJsonMiddleware } from './middleware/validation.js';
 import { securityHeadersMiddleware } from './middleware/security-headers.js';
 import { errorHandler } from './middleware/error-handler.js';
 import createAuthRoutes from './api/auth.js';
-import createAdminAuthRoutes from './api/admin-auth.js';
 import sync from './api/sync.js';
-import sharedMappings from './api/shared-mappings.js';
-import admin from './api/admin.js';
-import user from './api/user.js';
 import web from './api/web.js';
 
 export function createApp(rateLimiters) {
@@ -83,26 +79,14 @@ export function createApp(rateLimiters) {
 
   // Apply auth middleware and rate limiting for protected auth routes
   app.use('/auth/logout', authMiddleware, rateLimiters.logoutRateLimiter);
-  app.use('/auth/logout-all', authMiddleware, rateLimiters.logoutRateLimiter);
-  app.use('/auth/device/*', authMiddleware, rateLimiters.logoutRateLimiter);
-  app.use('/auth/devices', authMiddleware, rateLimiters.logoutRateLimiter);
 
   // Auth routes (some public, some protected)
   app.route('/auth', createAuthRoutes(rateLimiters));
 
   // Protected routes with rate limiting
   app.use('/sync/*', authMiddleware, rateLimiters.syncRateLimiter);
-  app.use('/shared/*', authMiddleware, rateLimiters.sharedMappingsRateLimiter);
-  app.use('/user/*', authMiddleware);
 
   app.route('/sync', sync);
-  app.route('/shared', sharedMappings);
-  app.route('/user', user);
-
-  // Admin routes (separate auth + strict rate limiting)
-  app.use('/admin/*', rateLimiters.adminRateLimiter);
-  app.route('/admin/auth', createAdminAuthRoutes(rateLimiters));
-  app.route('/admin', admin);
 
   return app;
 }

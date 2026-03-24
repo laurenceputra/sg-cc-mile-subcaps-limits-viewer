@@ -42,9 +42,6 @@
 - Each synced card payload includes `selectedCategories`, `defaultCategory`, `merchantMap`, and `monthlyTotals`; it excludes raw `transactions`.
 - On bank pages with strict `connect-src`, sync/auth network requests use Tampermonkey transport (`GM_xmlhttpRequest`) with `fetch` fallback.
 - Userscript auth/sync transport identifies trusted requests with `X-CC-Userscript: tampermonkey-v1`; it does not rely on forcing `Origin`/`Referer` headers.
-- `Sync Now` does not create rows in `mapping_contributions` or `shared_mappings`.
-- Shared mapping contributions are only written when the client explicitly calls `POST /shared/mappings/contribute`.
-- Free tier enables sharing permission by default, but this does not imply automatic contribution on every sync.
 - After page reload/login, sync can remain configured as enabled but runtime crypto stays locked until password is re-entered for that browser session.
 - Users can opt in to "Remember sync on this device": the local unlock cache is stored per host (`ccSubcapSyncUnlockCache:<hostname>`) with a 30-day rolling TTL, independent of JWT access-token expiry, and is cleared on explicit logout/disable sync. The password is encrypted locally, with ciphertext in userscript storage and device key material kept in browser IndexedDB.
 - Legacy unlock cache entries from `ccSubcapSyncUnlockCache` are read for backward compatibility and migrated to the host-scoped key.

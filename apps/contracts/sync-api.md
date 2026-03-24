@@ -129,7 +129,6 @@ Conflict response body (`409`):
 
 Behavior notes:
 - This endpoint only persists encrypted sync blobs (`sync_blobs`).
-- It does not create shared mapping contributions.
 - Userscript sync payload remains under `data.cards` and is card-keyed.
 - Current client behavior syncs only the active card from the current portal page while preserving other remote card keys.
 - Synced card data is minimized to settings + aggregates (`selectedCategories`, `defaultCategory`, `merchantMap`, `monthlyTotals`) and excludes raw `transactions`.
@@ -142,52 +141,27 @@ Failure modes:
 - `409` optimistic-lock conflict
 - `500` sync write failure
 
-### `GET /shared/mappings/:cardType` (auth required)
-Path param:
-- `cardType` one of `ONE`, `LADY`, `PPV`, `SOLITAIRE`
+## Retired endpoints
 
-Success response body (`200`):
-- `mappings` (array of mapping objects)
-  - `merchant` (string)
-  - `merchantNormalized` (string)
-  - `suggestedCategory` (string, canonical public field)
-  - `category` (string, legacy alias of `suggestedCategory`)
-  - `cardType` (string, uppercase)
-  - `contributionCount` (number)
-  - `lastUpdated` (number Unix timestamp)
+The following previously documented endpoints are intentionally retired from the public contract and are no longer routed. For requests that pass baseline middleware (for example CSRF and validation), these endpoints return `404 Not Found`; earlier middleware may still return other statuses (such as `400` or `403`) before routing is reached:
 
-Behavior notes:
-- Public responses are camelCase, even though the backing D1 rows are snake_case.
-- `cardType` is normalized to uppercase before lookup.
+- `GET /shared/mappings/:cardType`
+- `POST /shared/mappings/contribute`
+- `DELETE /user/data`
+- `GET /user/export`
+- `PATCH /user/settings`
+- `POST /auth/logout-all`
+- `POST /auth/device/register`
+- `DELETE /auth/device/:deviceId`
+- `GET /auth/devices`
+- `POST /admin/auth/login`
+- `POST /admin/auth/logout`
+- `GET /admin/mappings/pending`
+- `POST /admin/mappings/approve`
+- `GET /admin/health/cleanup`
 
-Failure modes:
-- `400` invalid card type
-- `401` missing or invalid bearer token
-- `500` shared mapping read failure
-
-### `POST /shared/mappings/contribute` (auth required)
-Request body:
-- `mappings` (array of objects)
-  - one of `merchant`, `merchantRaw`, or `merchantNormalized` (string)
-  - `suggestedCategory` (string, canonical public field)
-  - `category` (string, optional legacy alias for `suggestedCategory`)
-  - `cardType` (string)
-
-Success response body (`200`):
-- `success` (boolean)
-- `contributed` (number, optional)
-
-Behavior notes:
-- `suggestedCategory` is the canonical public request field.
-- The backend still accepts legacy `category` in request payloads for backward compatibility.
-- `cardType` is normalized to uppercase before persistence.
-- This is the only public API path that writes user mapping contributions (`mapping_contributions`).
-- `shared_mappings` entries are created/updated via admin approval flows, not direct user sync.
-
-Failure modes:
-- `400` invalid mapping payload
-- `401` missing or invalid bearer token
-- `500` contribution failure
+Compatibility note:
+- Consumers should migrate to auth + sync + dashboard/session endpoints documented above.
 
 ## Required normalization and validation behavior
 
@@ -198,11 +172,9 @@ Failure modes:
   - `{ data: { cards: { ... } } }`
   - `{ "<CARD_NAME>": { selectedCategories, defaultCategory, merchantMap, ... } }`
 - On successful sync using a legacy decrypted payload, clients should write back canonical envelope format on the next `PUT /sync/data` to migrate stored blobs.
-- Shared mapping structure must validate against `schemas/shared-mapping.schema.json`.
-- `suggestedCategory` is canonical for shared mapping interchange; `category` remains a supported alias where documented.
 - Sync clients must derive decrypt keys using the payload `salt` field before AES-GCM decryption.
 
 ## Versioning
 
 - Contract version follows repo commits.
-- Breaking API changes must update this document and both schemas in the same pull request.
+- Breaking API changes must update this document and relevant schemas in the same pull request.

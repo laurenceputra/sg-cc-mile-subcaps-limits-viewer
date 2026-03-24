@@ -221,26 +221,4 @@ describe('SyncManager flows', () => {
     assert.ok(manager.config.lastSync > 0, 'lastSync should be a positive timestamp');
   });
 
-  it('getSharedMappings returns empty when disabled', async () => {
-    const manager = new exports.SyncManager(makeMemoryStorage());
-    const result = await manager.getSharedMappings('UOB');
-    assert.equal(result.success, false);
-    assert.deepEqual(result.mappings, []);
-  });
-
-  it('contributeMappings respects shareMappings and errors', async () => {
-    const storage = makeMemoryStorage({
-      ccSubcapSyncConfig: JSON.stringify({ enabled: true, shareMappings: false, serverUrl: 'https://example.com' })
-    });
-    const manager = new exports.SyncManager(storage);
-    manager.syncClient = { contributeMappings: async () => { throw new Error('bad'); } };
-
-    const blocked = await manager.contributeMappings([{ merchant: 'A', category: 'Dining' }]);
-    assert.equal(blocked.success, true);
-    assert.equal(blocked.message, 'Sharing disabled');
-
-    manager.config.shareMappings = true;
-    const result = await manager.contributeMappings([{ merchant: 'A', category: 'Dining' }]);
-    assert.equal(result.success, false);
-  });
 });

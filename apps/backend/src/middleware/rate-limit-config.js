@@ -33,13 +33,7 @@ export const rateLimitConfig = {
     windowMs: 60 * 1000 // per minute per location in Workers
   },
 
-  // Shared mappings - higher frequency for active browsing
-  sharedMappings: {
-    maxRequests: 20,
-    windowMs: 60 * 1000 // per minute per location in Workers
-  },
-
-  // Logout and device management - prevent abuse
+  // Logout - prevent abuse
   logout: {
     maxRequests: 10,
     windowMs: 60 * 1000 // per minute per location in Workers
@@ -48,12 +42,6 @@ export const rateLimitConfig = {
   // Refresh token exchange - moderate limits
   refresh: {
     maxRequests: 20,
-    windowMs: 60 * 1000 // per minute per location in Workers
-  },
-
-  // Admin endpoints - very strict
-  admin: {
-    maxRequests: 10,
     windowMs: 60 * 1000 // per minute per location in Workers
   },
 
@@ -86,8 +74,6 @@ export function getRateLimitErrorMessage(limitType, retryAfterSeconds) {
     sync: 'Rate limit exceeded. Please wait before syncing again.',
     logout: 'Rate limit exceeded. Please wait before logging out again.',
     refresh: 'Rate limit exceeded. Please wait before refreshing again.',
-    sharedMappings: 'Rate limit exceeded. Please wait before accessing mappings.',
-    admin: 'Admin rate limit exceeded. Please wait before retrying.',
     default: 'Rate limit exceeded. Please try again later.'
   };
 

@@ -14,7 +14,7 @@ Use this checklist before deploying changes to production.
 ### ✅ Test Anti-Pattern Guardrails
 - [ ] Do not execute event callbacks inside listener registration stubs (register first, dispatch explicitly)
 - [ ] Do not collapse debounce/observer timers into synchronous `setTimeout: (fn) => fn()` shortcuts
-- [ ] Prefer route-level contract assertions for worker integration tests (`/sync/data`, `/user/export`, `/admin/mappings/pending`) over direct imports from `apps/backend/src/api/*.js`
+- [ ] Prefer route-level contract assertions for worker integration tests (`/sync/data`, `/auth/refresh`, `/meta/cap-policy`) over direct imports from `apps/backend/src/api/*.js`
 - [ ] Run `npm run test:anti-patterns` to catch known anti-pattern strings before merge
 - [ ] Review manual-only anti-patterns: coverage-only assertions, permissive default mocks, order-dependent shared state, and vague error expectations
 
@@ -32,13 +32,11 @@ Use this checklist before deploying changes to production.
 - [ ] User registration works
 - [ ] User login with correct credentials works
 - [ ] Failed login attempts rate limited
-- [ ] Device registration and management works
+- [ ] Dashboard login page and dashboard page load
+- [ ] Refresh-token rotation works (`/auth/refresh`)
+- [ ] Logout clears refresh cookie (`/auth/logout`)
 - [ ] Sync upload and download works
 - [ ] Version conflict detection works
-- [ ] Data export works (GDPR)
-- [ ] Complete data deletion works (GDPR)
-- [ ] Admin endpoints secured
-- [ ] Shared mappings contribution works
 
 ### ✅ Performance Testing
 - [ ] Response times acceptable (<100ms for most operations)
@@ -54,16 +52,12 @@ Use this checklist before deploying changes to production.
 - [ ] D1 writes complete successfully
 
 ### ✅ Compliance
-- [ ] GDPR data deletion complete and irreversible
-- [ ] Data export includes all user data
 - [ ] Audit logs capture security events
-- [ ] Privacy settings respected
+- [ ] Privacy model preserved (encrypted payload only)
 
 ### ✅ Configuration
 - [ ] Environment variables set correctly
 - [ ] JWT_SECRET is strong and secret
-- [ ] ADMIN_LOGIN_PASSWORD_HASH is set and secure
-- [ ] ADMIN_LOGIN_PEPPER is strong and secret
 - [ ] ALLOWED_ORIGINS configured
 - [ ] Rate limit values appropriate
 
@@ -84,10 +78,9 @@ Use this checklist before deploying changes to production.
 ### Scenario 1: New User Registration and Sync
 1. Register new account
 2. Login
-3. Register device
-4. Upload sync data
-5. Logout and login again
-6. Verify sync data retrieved
+3. Upload sync data
+4. Logout and login again
+5. Verify sync data retrieved
 
 **Expected**: All steps succeed, data preserved
 
@@ -116,21 +109,14 @@ Use this checklist before deploying changes to production.
 
 **Expected**: All attacks blocked with 400 or 403
 
-### Scenario 5: GDPR Compliance
-1. Create account with data
-2. Export data (verify complete)
-3. Delete account
-4. Verify all data removed (sync, devices, contributions)
+### Scenario 5: Dashboard Session Flow
+1. Open `/login`
+2. Login with valid credentials
+3. Open `/dashboard`
+4. Trigger refresh flow
+5. Logout and verify protected fetches fail
 
-**Expected**: Complete deletion, no trace left
-
-### Scenario 6: Admin Moderation
-1. User contributes mapping
-2. Admin views pending (with valid key)
-3. Admin approves mapping
-4. Mapping appears in shared mappings
-
-**Expected**: Complete moderation workflow works
+**Expected**: Session bootstrap, rotation, and logout flow work as expected
 
 ## Automated Test Runs
 

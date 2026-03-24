@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import app from '../../index.js';
 import {
-  TEST_ADMIN_EMAIL,
-  TEST_ADMIN_PASSWORD,
   createTestDatabase,
   createTestEnv,
   disposeTestDatabase,
@@ -55,13 +53,6 @@ async function loginUser(env, email, passwordHash, origin = 'https://pib.uob.com
     origin,
     body: { email, passwordHash }
   }, 200, 'login user');
-}
-
-async function loginAdmin(env) {
-  return fetchJson(app, env, '/admin/auth/login', {
-    method: 'POST',
-    body: { email: TEST_ADMIN_EMAIL, password: TEST_ADMIN_PASSWORD }
-  }, 200, 'admin login');
 }
 
 describe('Workers userscript API contract', () => {
@@ -217,97 +208,48 @@ describe('Workers userscript API contract', () => {
     }
   });
 
-  test('verifies shared mappings contract with canonical response fields and legacy request alias', async () => {
+  test('verifies retired endpoints are not routed', async () => {
     const { mf, db } = await createTestDatabase();
     try {
       const env = { ...createTestEnv(), db };
-      const email = randomEmail('mappings');
+      const email = randomEmail('retired-endpoints');
       const passwordHash = crypto.randomBytes(32).toString('hex');
       await registerUser(env, email, passwordHash);
       const { json: loginJson } = await loginUser(env, email, passwordHash);
       const token = loginJson.token;
 
-      const { json: contributeJson } = await fetchJson(app, env, '/shared/mappings/contribute', {
-        method: 'POST',
-        token,
-        body: {
-          mappings: [
-            {
-              merchantRaw: 'Coffee Bean',
-              category: 'dining',
-              cardType: 'one'
-            }
-          ]
-        }
-      }, 200, 'shared mapping contribution');
-      assert.equal(contributeJson.success, true);
-      assert.equal(contributeJson.contributed, 1);
+      const retiredEndpoints = [
+        { method: 'GET', path: '/shared/mappings/ONE' },
+        { method: 'POST', path: '/shared/mappings/contribute' },
+        { method: 'DELETE', path: '/user/data' },
+        { method: 'GET', path: '/user/export' },
+        { method: 'PATCH', path: '/user/settings' },
+        { method: 'POST', path: '/auth/logout-all' },
+        { method: 'POST', path: '/auth/device/register' },
+        { method: 'DELETE', path: '/auth/device/device-123' },
+        { method: 'GET', path: '/auth/devices' },
+        { method: 'POST', path: '/admin/auth/login' },
+        { method: 'POST', path: '/admin/auth/logout' },
+        { method: 'GET', path: '/admin/mappings/pending' },
+        { method: 'POST', path: '/admin/mappings/approve' },
+        { method: 'GET', path: '/admin/health/cleanup' }
+      ];
 
-      const { json: invalidContributionJson } = await fetchJson(app, env, '/shared/mappings/contribute', {
-        method: 'POST',
-        token,
-        body: {
-          mappings: [
-            {
-              merchantRaw: 'Coffee Bean',
-              cardType: 'ONE'
-            }
-          ]
-        }
-      }, 400, 'shared mapping contribution without category');
-      assert.match(invalidContributionJson.error, /suggestedCategory/i);
-
-      const { json: adminLoginJson } = await loginAdmin(env);
-      expectJwtLike(adminLoginJson.token, 'admin token');
-      const approveRes = await app.fetch(new Request('http://localhost/admin/mappings/approve', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${adminLoginJson.token}`,
-          'Content-Type': 'application/json',
-          'Origin': 'https://pib.uob.com.sg'
-        },
-        body: JSON.stringify({
-          merchantNormalized: 'coffee bean',
-          category: 'dining',
-          cardType: 'ONE'
-        })
-      }), env);
-      const approveJson = await approveRes.json();
-      expectStatus(approveRes, 200, 'approve shared mapping');
-      assert.equal(approveJson.success, true);
-
-      const getRes = await app.fetch(new Request('http://localhost/shared/mappings/one', {
-        method: 'GET',
-        headers: {
+      for (const { method, path } of retiredEndpoints) {
+        const headers = {
           'Authorization': `Bearer ${token}`,
           'Origin': 'https://pib.uob.com.sg'
-        }
-      }), env);
-      const getJson = await getRes.json();
-      expectStatus(getRes, 200, 'shared mapping read');
-      assert.ok(Array.isArray(getJson.mappings));
-      assert.equal(getJson.mappings.length, 1);
-      assert.deepEqual(getJson.mappings[0], {
-        merchant: 'coffee bean',
-        merchantNormalized: 'coffee bean',
-        suggestedCategory: 'dining',
-        category: 'dining',
-        cardType: 'ONE',
-        contributionCount: 1,
-        lastUpdated: getJson.mappings[0].lastUpdated
-      });
-      assert.equal(typeof getJson.mappings[0].lastUpdated, 'number');
+        };
+        const init = { method, headers };
 
-      const invalidCardTypeRes = await app.fetch(new Request('http://localhost/shared/mappings/not-a-card', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Origin': 'https://pib.uob.com.sg'
+        if (method === 'POST' || method === 'PATCH') {
+          headers['Content-Type'] = 'application/json';
+          init.body = '{}';
         }
-      }), env);
-      const invalidCardTypeJson = await invalidCardTypeRes.json();
-      expectStatus(invalidCardTypeRes, 400, 'invalid shared mapping card type');
-      assert.equal(invalidCardTypeJson.error, 'Invalid card type');
+
+        const res = await app.fetch(new Request(`http://localhost${path}`, init), env);
+        expectStatus(res, 404, `retired endpoint ${method} ${path}`);
+      }
     } finally {
       await disposeTestDatabase(mf);
     }

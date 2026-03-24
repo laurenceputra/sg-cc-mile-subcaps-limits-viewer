@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      0.7.3
+// @version      0.8.0
 // @description  Extract credit card transactions and manage subcap categories with optional sync
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
@@ -213,23 +213,6 @@
       return this.request('/sync/data', {
         method: 'PUT',
         body: JSON.stringify({ encryptedData, version })
-      });
-    }
-
-    async getSharedMappings(cardType) {
-      return this.request(`/shared/mappings/${encodeURIComponent(cardType)}`);
-    }
-
-    async contributeMappings(mappings) {
-      return this.request('/shared/mappings/contribute', {
-        method: 'POST',
-        body: JSON.stringify({ mappings })
-      });
-    }
-
-    async deleteUserData() {
-      return this.request('/user/data', {
-        method: 'DELETE'
       });
     }
   }
@@ -1004,14 +987,6 @@
       }
       return this.syncEngine.sync(localData, currentVersion, deviceId);
     }
-
-    async getSharedMappings(cardType) {
-      return this.api.getSharedMappings(cardType);
-    }
-
-    async contributeMappings(mappings) {
-      return this.api.contributeMappings(mappings);
-    }
   }
 
   function isCryptoKey(value) {
@@ -1762,7 +1737,6 @@
           token: authResult.token,
           tokenExpiresAt: getJwtTokenExpiryMs(authResult.token) || 0,
           tier: authResult.tier,
-          shareMappings: authResult.tier === 'free', // Free users share by default
           lastSync: 0,
           serverUrl: actualServerUrl, // Store custom server URL
           rememberUnlock: false
@@ -1853,38 +1827,6 @@
         return result;
       } catch (error) {
         console.error('[SyncManager] Sync failed:', error);
-        return { success: false, error: error.message };
-      }
-    }
-
-    async getSharedMappings(cardType) {
-      if (!this.isEnabled() || !this.syncClient) {
-        return { success: false, mappings: [] };
-      }
-
-      try {
-        const result = await this.syncClient.getSharedMappings(cardType);
-        return { success: true, mappings: result.mappings || [] };
-      } catch (error) {
-        console.error('[SyncManager] Get shared mappings failed:', error);
-        return { success: false, mappings: [] };
-      }
-    }
-
-    async contributeMappings(mappings) {
-      if (!this.isEnabled() || !this.syncClient) {
-        return { success: false };
-      }
-
-      if (!this.config.shareMappings) {
-        return { success: true, message: 'Sharing disabled' };
-      }
-
-      try {
-        await this.syncClient.contributeMappings(mappings);
-        return { success: true, contributed: mappings.length };
-      } catch (error) {
-        console.error('[SyncManager] Contribute mappings failed:', error);
         return { success: false, error: error.message };
       }
     }
