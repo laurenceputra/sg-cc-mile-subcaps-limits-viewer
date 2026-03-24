@@ -1,19 +1,10 @@
 {
   "root": true,
   "env": {
-    "browser": true,
     "es2022": true
   },
   "parserOptions": {
-    "ecmaVersion": "latest",
-    "sourceType": "script"
-  },
-  "globals": {
-    "GM_getValue": "readonly",
-    "GM_setValue": "readonly",
-    "GM_deleteValue": "readonly",
-    "GM_xmlhttpRequest": "readonly",
-    "GM_addStyle": "readonly"
+    "ecmaVersion": "latest"
   },
   "extends": [
     "eslint:recommended"
@@ -22,5 +13,38 @@
     "no-undef": "error",
     "no-unused-vars": "off",
     "no-prototype-builtins": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "apps/userscript/bank-cc-limits-subcap-calculator.user.js"
+      ],
+      "env": {
+        "browser": true
+      },
+      "parserOptions": {
+        "sourceType": "script"
+      },
+      "globals": {
+        "GM_getValue": "readonly",
+        "GM_setValue": "readonly",
+        "GM_deleteValue": "readonly",
+        "GM_xmlhttpRequest": "readonly",
+        "GM_addStyle": "readonly"
+      }
+    },
+    {
+      "files": [
+        "check-test-antipatterns.mjs",
+        "scripts/**/*.mjs",
+        "apps/backend/scripts/**/*.mjs"
+      ],
+      "env": {
+        "node": true
+      },
+      "parserOptions": {
+        "sourceType": "module"
+      }
+    }
+  ]
 }
