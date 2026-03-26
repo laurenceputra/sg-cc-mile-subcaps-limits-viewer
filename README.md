@@ -71,6 +71,41 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 - It catches high-confidence syntax patterns (for example callback execution during listener registration, synchronous timer callback shortcuts, direct worker-test imports from `apps/backend/src/api/*.js`, and broad alternation regex in `assert.rejects`).
 - It does **not** replace manual review for semantic anti-patterns (for example weak behavior assertions, permissive default mocks, or order-dependent shared state).
 
+## Release notes drafting
+
+Draft paste-ready Markdown release notes from local git history without creating tags, publishing a GitHub Release, or changing remote state.
+
+- Command: `npm run release-notes:draft -- --from <ref> [--to <ref>]`
+- `--from` is required and `--to` defaults to `HEAD`.
+- Commit subjects are grouped by conventional-commit type (`feat`, `fix`, `docs`, `chore`, and related types). Non-conforming subjects fall back to `Other Changes`.
+- Changed files are included under each bullet so the draft stays useful even when commit messages are terse.
+
+Example:
+
+```bash
+npm run release-notes:draft -- --from origin/main --to HEAD
+```
+
+Example output structure:
+
+```md
+# Release Notes Draft
+
+Range: `origin/main..HEAD`
+
+Summary:
+- 3 commits across 5 files
+- Features: 1
+- Fixes: 1
+- Documentation: 1
+
+## Features
+- Add a local release-note drafter (`abc1234`)
+  - Files: `scripts/draft-release-notes.mjs`, `package.json`
+```
+
+This tool only drafts notes locally for copy/paste into PR descriptions or GitHub Releases. It does not publish, tag, or automate a release.
+
 ## Disclaimer
 
 Not affiliated with UOB. Use only on your own accounts and comply with the bank’s Terms of Service.
