@@ -135,6 +135,38 @@ describe('storage flows', () => {
     assert.equal(list[0].amount_value, 12);
   });
 
+  it('getStoredTransactions repairs overflow iso dates and blanks unparseable months', () => {
+    const cardSettings = {
+      defaultCategory: 'Others',
+      merchantMap: {},
+      transactions: {
+        repaired: {
+          ref_no: 'REPAIRED',
+          merchant_detail: 'Shop',
+          posting_date: '29 Feb 2024',
+          posting_date_iso: '2024-02-31',
+          amount_text: '10.00'
+        },
+        invalid: {
+          ref_no: 'INVALID',
+          merchant_detail: 'Shop',
+          posting_date: '31 Feb 2024',
+          posting_date_iso: '2024-02-31',
+          amount_text: '8.00'
+        }
+      }
+    };
+
+    const list = exports.getStoredTransactions('UOB', cardSettings);
+    const repaired = list.find((entry) => entry.ref_no === 'REPAIRED');
+    const invalid = list.find((entry) => entry.ref_no === 'INVALID');
+
+    assert.equal(repaired.posting_date_iso, '2024-02-29');
+    assert.equal(repaired.posting_month, '2024-02');
+    assert.equal(invalid.posting_date_iso, '');
+    assert.equal(invalid.posting_month, '');
+  });
+
   it('updateStoredTransactions drops stored entries with overflow iso dates', () => {
     const settings = {
       cards: {
