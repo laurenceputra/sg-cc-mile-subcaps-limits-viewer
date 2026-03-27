@@ -68,4 +68,17 @@ describe('transaction parsing extended', () => {
     assert.equal(result.diagnostics.invalid_posting_date, 1);
     assert.equal(result.diagnostics.invalid_amount, 1);
   });
+
+  it('buildTransactions rejects overflow posting dates without rolling them forward', () => {
+    const cardSettings = { defaultCategory: 'Others', merchantMap: {}, transactions: {} };
+    const rows = [
+      makeRow([makeCell('31 Feb 2024'), makeCell('30 Jan 2024'), makeCell('STARBUCKS\nREF002'), makeCell('SGD 10.00')])
+    ];
+
+    const result = exports.buildTransactions(makeTbody(rows), "LADY'S SOLITAIRE CARD", cardSettings);
+
+    assert.equal(result.transactions.length, 1);
+    assert.equal(result.diagnostics.invalid_posting_date, 1);
+    assert.equal(result.transactions[0].posting_date_iso, '');
+  });
 });

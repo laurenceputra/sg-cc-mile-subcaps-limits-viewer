@@ -135,6 +135,31 @@ describe('storage flows', () => {
     assert.equal(list[0].amount_value, 12);
   });
 
+  it('updateStoredTransactions drops stored entries with overflow iso dates', () => {
+    const settings = {
+      cards: {
+        UOB: {
+          defaultCategory: 'Others',
+          merchantMap: {},
+          transactions: {
+            overflow: {
+              ref_no: 'OVERFLOW',
+              posting_date: '2024-02-31',
+              posting_date_iso: '2024-02-31',
+              amount_value: 10,
+              category: 'Dining'
+            }
+          }
+        }
+      }
+    };
+    const cardConfig = { subcapSlots: 1, categories: ['Dining'] };
+
+    exports.updateStoredTransactions(settings, 'UOB', cardConfig, []);
+
+    assert.deepEqual(settings.cards.UOB.transactions, {});
+  });
+
   it('createOverlay wires tabs and sync section replacement', () => {
     const { documentStub, elementsById } = stubDocument();
     globalThis.document = documentStub;

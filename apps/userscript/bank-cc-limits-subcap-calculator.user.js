@@ -3998,6 +3998,21 @@
       return `${year}-${month}-${day}`;
     }
 
+    function createValidatedLocalDate(year, monthIndex, day) {
+      const date = new Date(year, monthIndex, day);
+      if (Number.isNaN(date.getTime())) {
+        return null;
+      }
+      if (
+        date.getFullYear() !== year ||
+        date.getMonth() !== monthIndex ||
+        date.getDate() !== day
+      ) {
+        return null;
+      }
+      return date;
+    }
+
     function fromISODate(value) {
       if (!value) {
         return null;
@@ -4012,8 +4027,7 @@
       if (!year || !month || !day) {
         return null;
       }
-      const date = new Date(year, month - 1, day);
-      return Number.isNaN(date.getTime()) ? null : date;
+      return createValidatedLocalDate(year, month - 1, day);
     }
 
     function parsePostingDate(value) {
@@ -4045,8 +4059,7 @@
       if (!Object.prototype.hasOwnProperty.call(monthMap, monthName)) {
         return null;
       }
-      const date = new Date(year, monthMap[monthName], day);
-      return Number.isNaN(date.getTime()) ? null : date;
+      return createValidatedLocalDate(year, monthMap[monthName], day);
     }
 
     function getCalendarCutoffDate(months) {

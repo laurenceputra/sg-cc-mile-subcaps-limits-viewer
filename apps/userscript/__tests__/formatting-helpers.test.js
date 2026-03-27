@@ -17,6 +17,9 @@ describe('formatting helpers', () => {
     assert.equal(parsed instanceof Date, true, 'valid date string should return a Date instance');
     assert.equal(parsed.getFullYear(), 2024, 'parsed year should be 2024');
     assert.equal(exports.parsePostingDate('01 Foo 2024'), null);
+    assert.equal(exports.parsePostingDate('31 Feb 2024'), null);
+    assert.equal(exports.parsePostingDate('31 Apr 2024'), null);
+    assert.equal(exports.parsePostingDate('29 Feb 2023'), null);
   });
 
   it('toISODate/fromISODate round trip', () => {
@@ -26,6 +29,10 @@ describe('formatting helpers', () => {
     const parsed = exports.fromISODate(iso);
     assert.equal(parsed instanceof Date, true, 'fromISODate should return a Date instance');
     assert.equal(parsed.getFullYear(), 2024, 'round-tripped year should be 2024');
+    assert.equal(exports.fromISODate('2024-02-31'), null);
+    assert.equal(exports.fromISODate('2024-04-31'), null);
+    assert.equal(exports.fromISODate('2023-02-29'), null);
+    assert.equal(exports.fromISODate('2024-13-01'), null);
   });
 
   it('normalizeKey and normalizeRefNo clean input', () => {
