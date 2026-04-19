@@ -51,6 +51,7 @@ Keep this table in sync with `.agents/skills/`.
 | qa-testing | Plan and execute coverage-focused testing and regression validation. | [.agents/skills/qa-testing/SKILL.md](.agents/skills/qa-testing/SKILL.md) |
 | refactoring-expert | Refactor safely with behavior-preserving, incremental changes. | [.agents/skills/refactoring-expert/SKILL.md](.agents/skills/refactoring-expert/SKILL.md) |
 | release-management | Coordinate release readiness, migration safety, deploy gates, and rollback planning. | [.agents/skills/release-management/SKILL.md](.agents/skills/release-management/SKILL.md) |
+| bump-versions | Bump repository version fields in lockstep for releases. | [.agents/skills/bump-versions/SKILL.md](.agents/skills/bump-versions/SKILL.md) |
 | requirements-researcher | Clarify scope, constraints, and trade-offs before specification and implementation. | [.agents/skills/requirements-researcher/SKILL.md](.agents/skills/requirements-researcher/SKILL.md) |
 | security-risk | Perform threat modeling and security/privacy risk assessment with mitigations. | [.agents/skills/security-risk/SKILL.md](.agents/skills/security-risk/SKILL.md) |
 | spec-writer | Write or update actionable implementation plans and specs. | [.agents/skills/spec-writer/SKILL.md](.agents/skills/spec-writer/SKILL.md) |
