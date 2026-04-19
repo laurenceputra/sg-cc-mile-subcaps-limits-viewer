@@ -210,11 +210,21 @@ describe('SyncEngine', () => {
 
       const normalized = engine.sanitizeCardSettings({
         selectedCategories: ['Dining', 42, null, 'Travel'],
-        merchantMap: { GRAB: 'Transport', BAD: 42, COFFEE: 'Dining' }
+        merchantMap: {
+          GRAB: 'Transport',
+          BAD: 42,
+          COFFEE: 'Dining',
+          ['__proto__']: 'Blocked',
+          constructor: 'Blocked',
+          prototype: 'Blocked'
+        }
       });
       assert.deepEqual(normalized.selectedCategories, ['Dining', '', '', 'Travel']);
       assert.equal(normalized.defaultCategory, 'Others');
       assert.deepEqual(normalized.merchantMap, { GRAB: 'Transport', COFFEE: 'Dining' });
+      assert.equal(Object.prototype.hasOwnProperty.call(normalized.merchantMap, '__proto__'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(normalized.merchantMap, 'constructor'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(normalized.merchantMap, 'prototype'), false);
     });
   });
 
@@ -232,10 +242,23 @@ describe('SyncEngine', () => {
       assert.equal(merged.defaultCategory, 'Dining');
 
       const baseMap = { merchantMap: { GRAB: 'Transport', STARBUCKS: 'Coffee' }, selectedCategories: [], defaultCategory: 'Others', monthlyTotals: {} };
-      const incomingMap = { merchantMap: { GRAB: 'Dining' }, selectedCategories: [], defaultCategory: 'Others', monthlyTotals: {} };
+      const incomingMap = {
+        merchantMap: {
+          GRAB: 'Dining',
+          ['__proto__']: 'Blocked',
+          constructor: 'Blocked',
+          prototype: 'Blocked'
+        },
+        selectedCategories: [],
+        defaultCategory: 'Others',
+        monthlyTotals: {}
+      };
       const mergedMap = engine.mergeCardSettings(baseMap, incomingMap);
       assert.equal(mergedMap.merchantMap.GRAB, 'Dining');
       assert.equal(mergedMap.merchantMap.STARBUCKS, 'Coffee');
+      assert.equal(Object.prototype.hasOwnProperty.call(mergedMap.merchantMap, '__proto__'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(mergedMap.merchantMap, 'constructor'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(mergedMap.merchantMap, 'prototype'), false);
     });
   });
 

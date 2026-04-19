@@ -221,6 +221,19 @@
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
+  function isSafeObjectKey(value) {
+    return typeof value === 'string' && value !== '__proto__' && value !== 'prototype' && value !== 'constructor';
+  }
+
+  function toSafeStringMap(value) {
+    if (!isObjectRecord(value)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(value).filter(([key, mapValue]) => isSafeObjectKey(key) && typeof mapValue === 'string')
+    );
+  }
+
   function hasValidTimestamp(value) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
   }
@@ -717,7 +730,7 @@
         defaultCategory: (typeof incoming.defaultCategory === 'string' && incoming.defaultCategory)
           ? incoming.defaultCategory
           : (base.defaultCategory || 'Others'),
-        merchantMap: { ...(base.merchantMap || {}), ...(incoming.merchantMap || {}) },
+        merchantMap: { ...toSafeStringMap(base.merchantMap), ...toSafeStringMap(incoming.merchantMap) },
         monthlyTotals: { ...(base.monthlyTotals || {}), ...(incoming.monthlyTotals || {}) }
       };
     }
@@ -734,13 +747,7 @@
         typeof cardSettings.defaultCategory === 'string' && cardSettings.defaultCategory
           ? cardSettings.defaultCategory
           : 'Others';
-      const merchantMap = isObjectRecord(cardSettings.merchantMap)
-        ? Object.fromEntries(
-            Object.entries(cardSettings.merchantMap).filter(
-              ([merchant, category]) => typeof merchant === 'string' && typeof category === 'string'
-            )
-          )
-        : {};
+      const merchantMap = toSafeStringMap(cardSettings.merchantMap);
       const monthlyTotals = isObjectRecord(cardSettings.monthlyTotals)
         ? Object.fromEntries(
             Object.entries(cardSettings.monthlyTotals).map(([monthKey, monthData]) => {
@@ -1334,6 +1341,9 @@
             continue;
           }
           if (entry.type === 'merchant') {
+            if (!isSafeObjectKey(entry.merchantKey)) {
+              continue;
+            }
             if (typeof selectedValue === 'string' && selectedValue) {
               merchantMap[entry.merchantKey] = selectedValue;
             } else {
