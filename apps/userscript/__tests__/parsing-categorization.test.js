@@ -179,6 +179,21 @@ describe('parsing and categorization helpers', () => {
       const settings = { defaultCategory: 'Fashion' };
       assert.equal(resolveCategory('RANDOM MERCHANT', settings, "LADY'S SOLITAIRE CARD"), 'Fashion');
     });
+
+    it('ignores unsafe merchantMap internal keys', async () => {
+      const { resolveCategory } = await loadExports();
+      const settings = {
+        defaultCategory: 'Others',
+        merchantMap: {
+          constructor: 'Dining',
+          prototype: 'Shopping',
+          ['__proto__']: 'Travel'
+        }
+      };
+      assert.equal(resolveCategory('constructor', settings), 'Others');
+      assert.equal(resolveCategory('prototype', settings), 'Others');
+      assert.equal(resolveCategory('__proto__', settings), 'Others');
+    });
   });
 
   // ── parseAmount ──────────────────────────────────────────────────────────

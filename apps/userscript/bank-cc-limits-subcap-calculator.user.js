@@ -4773,27 +4773,40 @@
         return cardSettings.defaultCategory || 'Others';
       }
       
-      if (cardSettings.merchantMap) {
-        // First try exact match for backward compatibility and performance
-        if (cardSettings.merchantMap[merchantName]) {
-          return cardSettings.merchantMap[merchantName];
+      if (isObjectRecord(cardSettings.merchantMap)) {
+        const merchantMap = cardSettings.merchantMap;
+
+        // First try exact match for backward compatibility and performance.
+        // Guard against inherited/object-internal keys.
+        if (
+          isSafeObjectKey(merchantName)
+          && Object.prototype.hasOwnProperty.call(merchantMap, merchantName)
+          && merchantMap[merchantName]
+        ) {
+          return merchantMap[merchantName];
         }
-        
+
         // Then try case-insensitive exact matching
         const normalizedName = merchantName.toUpperCase();
         const hasLiteralAsterisk = merchantName.includes('*');
-        for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
+        for (const [pattern, category] of Object.entries(merchantMap)) {
+          if (!isSafeObjectKey(pattern)) {
+            continue;
+          }
           const normalizedPattern = normalizeExactPattern(pattern).toUpperCase();
           if ((!hasUnescapedWildcard(pattern) || hasLiteralAsterisk) && normalizedPattern === normalizedName) {
             return category;
           }
         }
-        
+
         // Then try wildcard matching (only check patterns with wildcards).
         // NOTE: Patterns are evaluated in the insertion order of cardSettings.merchantMap.
         // The first matching pattern in that order wins, so define merchantMap entries
         // in priority order when using overlapping wildcard patterns.
-        for (const [pattern, category] of Object.entries(cardSettings.merchantMap)) {
+        for (const [pattern, category] of Object.entries(merchantMap)) {
+          if (!isSafeObjectKey(pattern)) {
+            continue;
+          }
           if (hasUnescapedWildcard(pattern) && matchesWildcard(merchantName, pattern)) {
             return category; // Return immediately on first match in insertion order
           }
@@ -5419,7 +5432,10 @@
         const select = document.createElement('select');
         select.classList?.add(UI_CLASSES.input);
 
-        const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
+        const hasExactRule =
+          isSafeObjectKey(merchant)
+          && Object.prototype.hasOwnProperty.call(cardSettings.merchantMap || {}, merchant);
+        const currentValue = hasExactRule ? cardSettings.merchantMap[merchant] : cardSettings.defaultCategory;
         const options = getMappingOptions(cardSettings, currentValue);
 
         options.forEach((category) => {
@@ -5433,6 +5449,9 @@
 
         select.addEventListener('change', () => {
           const value = select.value;
+          if (!isSafeObjectKey(merchant)) {
+            return;
+          }
           onChange((nextSettings) => {
             nextSettings.merchantMap[merchant] = value;
           });
@@ -5464,9 +5483,9 @@
 
       const merchantMap = isObjectRecord(cardSettings.merchantMap) ? cardSettings.merchantMap : {};
       const wildcardPatterns = Object.entries(merchantMap)
-        .filter(([pattern]) => hasUnescapedWildcard(pattern));
+        .filter(([pattern]) => isSafeObjectKey(pattern) && hasUnescapedWildcard(pattern));
       const exactMappings = Object.keys(merchantMap)
-        .filter((merchant) => !hasUnescapedWildcard(merchant))
+        .filter((merchant) => isSafeObjectKey(merchant) && !hasUnescapedWildcard(merchant))
         .sort((a, b) => {
           const countDiff = (merchantCounts.get(b) || 0) - (merchantCounts.get(a) || 0);
           return countDiff || a.localeCompare(b);
@@ -5482,7 +5501,13 @@
       }
 
       const uncategorized = Array.from(merchantCounts.entries())
-        .filter(([merchant]) => !merchantMap[merchant] && !coveredByWildcard.has(merchant))
+        .filter(([merchant]) => {
+          if (!isSafeObjectKey(merchant)) {
+            return false;
+          }
+          const hasExactRule = Object.prototype.hasOwnProperty.call(merchantMap, merchant);
+          return !hasExactRule && !coveredByWildcard.has(merchant);
+        })
         .sort((a, b) => {
           if (a[1] !== b[1]) {
             return b[1] - a[1];
@@ -5554,7 +5579,9 @@
 
       const updateWildcardActionState = () => {
         const pattern = patternInput.value.trim();
-        const existingCategory = pattern ? merchantMap[pattern] : '';
+        const existingCategory = pattern && isSafeObjectKey(pattern)
+          ? merchantMap[pattern]
+          : '';
         addButton.textContent = existingCategory ? 'Update rule' : 'Add rule';
         if (!pattern) {
           wildcardHint.textContent = 'Use exact merchant rules below when you only want to change one merchant.';
@@ -5587,12 +5614,16 @@
           showStatus('Wildcard rules need at least one unescaped * character.', false);
           return;
         }
+        if (!isSafeObjectKey(pattern)) {
+          showStatus('This rule key is not allowed. Use a normal merchant pattern.', false);
+          return;
+        }
         if (literalChars.length < 2) {
           showStatus('Wildcard rule is too broad. Add at least 2 non-* characters.', false);
           return;
         }
 
-        const existingCategory = merchantMap[pattern];
+        const existingCategory = isSafeObjectKey(pattern) ? merchantMap[pattern] : '';
         onChange((nextSettings) => {
           if (!nextSettings.merchantMap) {
             nextSettings.merchantMap = {};
@@ -5689,6 +5720,9 @@
 
         onChange((nextSettings) => {
           uncategorized.forEach((merchant) => {
+            if (!isSafeObjectKey(merchant)) {
+              return;
+            }
             nextSettings.merchantMap[merchant] = nextSettings.defaultCategory;
           });
         });
@@ -5722,7 +5756,8 @@
           const select = document.createElement('select');
           select.classList?.add(UI_CLASSES.input);
 
-          const currentValue = merchantMap[merchant] || cardSettings.defaultCategory;
+          const hasExactRule = Object.prototype.hasOwnProperty.call(merchantMap, merchant);
+          const currentValue = hasExactRule ? merchantMap[merchant] : cardSettings.defaultCategory;
           const nextOptions = getMappingOptions(cardSettings, currentValue);
 
           nextOptions.forEach((category) => {
@@ -5735,6 +5770,9 @@
           select.value = currentValue;
           select.addEventListener('change', () => {
             const value = select.value;
+            if (!isSafeObjectKey(merchant)) {
+              return;
+            }
             onChange((nextSettings) => {
               nextSettings.merchantMap[merchant] = value;
             });
