@@ -6566,6 +6566,8 @@
         getParsedDate,
         buildCardContext,
         buildEmptyCardContext,
+        getSyncSummaryState,
+        buildSyncSummaryBanner,
         setStatusMessage,
         createSyncTab,
         showSyncSetupDialog,

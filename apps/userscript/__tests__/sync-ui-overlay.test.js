@@ -221,22 +221,25 @@ describe('sync ui + overlay', () => {
     exports.showSyncSetupDialog(manager, makeTheme(), () => { syncStateChanged = true; });
     const overlay = doc.body.children[0];
     const status = overlay.querySelector('#sync-setup-status');
+    const form = overlay.querySelector('#sync-setup-form');
     const saveButton = overlay.querySelector('#sync-setup-save');
     const serverInput = overlay.querySelector('#sync-server-url');
     const emailInput = overlay.querySelector('#sync-email');
     const passInput = overlay.querySelector('#sync-passphrase');
 
-    await saveButton.click();
+    assert.equal(saveButton._events.click, undefined, 'save button should rely on form submit only');
+
+    await submitForm(form);
     assert.equal(status.textContent, 'All fields are required.');
 
     serverInput.value = 'ftp://example.com';
     emailInput.value = 'user@example.com';
     passInput.value = 'secret';
-    await saveButton.click();
+    await submitForm(form);
     assert.match(status.textContent, /HTTP or HTTPS/, 'should show protocol validation error');
 
     serverInput.value = 'https://example.com';
-    await saveButton.click();
+    await submitForm(form);
     assert.equal(setupCalls, 1);
     assert.equal(syncStateChanged, false, 'dialog close callback should be delayed');
     assert.equal(overlay._removed, undefined, 'dialog should remain open before timeout advances');
@@ -246,6 +249,110 @@ describe('sync ui + overlay', () => {
     assert.equal(syncStateChanged, true);
     assert.equal(overlay._removed, true);
     timers.unbindFromWindow();
+  });
+
+  it('getSyncSummaryState and buildSyncSummaryBanner cover key sync states', () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+
+    const cases = [
+      {
+        name: 'sync off',
+        manager: {
+          isEnabled: () => false
+        },
+        cardName: 'XL Rewards Card',
+        expected: {
+          badge: 'Sync off',
+          detail: 'Local-only mode. Raw transactions and category rules stay on this device.',
+          tabLabel: 'Sync'
+        }
+      },
+      {
+        name: 'locked',
+        manager: {
+          config: {},
+          isEnabled: () => true,
+          hasPendingConflict: () => false,
+          isUnlocked: () => false,
+          hasRememberedUnlockCache: () => false
+        },
+        cardName: 'XL Rewards Card',
+        expected: {
+          badge: 'Sync locked',
+          detail: 'Last sync: Never. Open the Sync tab to unlock before pushing changes.',
+          tabLabel: 'Sync • Locked'
+        }
+      },
+      {
+        name: 'auto unlock available',
+        manager: {
+          config: {},
+          isEnabled: () => true,
+          hasPendingConflict: () => false,
+          isUnlocked: () => false,
+          hasRememberedUnlockCache: () => true
+        },
+        cardName: 'XL Rewards Card',
+        expected: {
+          badge: 'Sync locked (auto unlock available)',
+          detail: 'Last sync: Never. Open the Sync tab to unlock before pushing changes.',
+          tabLabel: 'Sync • Auto unlock'
+        }
+      },
+      {
+        name: 'unlocked',
+        manager: {
+          config: {},
+          isEnabled: () => true,
+          hasPendingConflict: () => false,
+          isUnlocked: () => true,
+          hasRememberedUnlockCache: () => false
+        },
+        cardName: 'XL Rewards Card',
+        expected: {
+          badge: 'Sync ready',
+          detail: 'Active card only. Last sync: Never.',
+          tabLabel: 'Sync • Ready'
+        }
+      },
+      {
+        name: 'pending conflict',
+        manager: {
+          config: {
+            pendingConflict: {
+              cardName: 'Visa Signature'
+            }
+          },
+          isEnabled: () => true,
+          hasPendingConflict: () => true,
+          isUnlocked: () => false,
+          hasRememberedUnlockCache: () => false
+        },
+        cardName: 'XL Rewards Card',
+        expected: {
+          badge: 'Sync needs attention',
+          detail: 'Sync is paused until you resolve the conflict for Visa Signature.',
+          tabLabel: 'Sync • Resolve'
+        }
+      }
+    ];
+
+    for (const { name, manager, cardName, expected } of cases) {
+      const summary = exports.getSyncSummaryState(manager, cardName);
+      assert.equal(summary.badge, expected.badge, `${name}: badge`);
+      assert.equal(summary.detail, expected.detail, `${name}: detail`);
+      assert.equal(summary.tabLabel, expected.tabLabel, `${name}: tab label`);
+
+      const banner = exports.buildSyncSummaryBanner(manager, cardName, makeTheme());
+      const [textWrap, pill] = banner.children;
+      const [title, detail] = textWrap.children;
+
+      assert.equal(banner.id, 'cc-subcap-sync-summary', `${name}: banner id`);
+      assert.equal(title.innerHTML, `<strong>Sync status:</strong> ${expected.badge}`, `${name}: banner title`);
+      assert.equal(detail.textContent, expected.detail, `${name}: banner detail`);
+      assert.equal(pill.textContent, expected.badge, `${name}: banner badge pill`);
+    }
   });
 
   it('createSyncTab handles unlock, sync, forget, and disable', async () => {
