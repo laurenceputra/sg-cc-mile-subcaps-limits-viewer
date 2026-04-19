@@ -2268,7 +2268,7 @@
     }
     .${UI_CLASSES.responsiveGridTwo} {
       display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px 12px;
       align-items: center;
     }
