@@ -157,7 +157,7 @@
             : await this.requestWithFetch(url, config);
 
         if (!response.ok) {
-          const errorMessage = response.data?.message || response.statusText || `HTTP ${response.status}`;
+          const errorMessage = response.data?.message || response.data?.error || response.statusText || `HTTP ${response.status}`;
           const error = new Error(errorMessage);
           error.status = response.status;
           error.code = typeof response.data?.code === 'string' ? response.data.code : '';
@@ -363,7 +363,7 @@
   }
 
   function toSyncErrorMessage(error, fallback = 'Unknown sync error') {
-    const message = typeof error?.message === 'string' ? error.message : '';
+    const message = typeof error?.message === 'string' ? error.message.trim() : '';
     const isPayloadStructureError =
       error?.name === 'SyncPayloadError' ||
       /invalid sync payload structure/i.test(message);
@@ -378,6 +378,34 @@
 
     if (isCryptoOperationError) {
       return 'Unable to decrypt synced data. Verify your password and reconnect sync if needed.';
+    }
+
+    if (/network connection failed/i.test(message)) {
+      return 'Cannot reach the sync server. Check the server URL or your network connection and try again.';
+    }
+
+    if (/timed out/i.test(message)) {
+      return 'The sync server took too long to respond. Try again in a moment.';
+    }
+
+    if (/invalid credentials/i.test(message)) {
+      return 'Incorrect email or password.';
+    }
+
+    if (/registration failed/i.test(message)) {
+      return 'Unable to create a sync account. If this email already exists, try your existing password instead.';
+    }
+
+    if (/authentication failed/i.test(message)) {
+      return 'The sync server rejected the request. Try again, or check the backend if this keeps happening.';
+    }
+
+    if (/csrf validation failed/i.test(message)) {
+      return 'The sync server blocked this request. Check allowed origins and userscript header settings.';
+    }
+
+    if (/too many/i.test(message)) {
+      return 'Too many attempts right now. Wait a bit, then try again.';
     }
 
     return message || fallback;
@@ -1690,7 +1718,7 @@
         console.error('[SyncManager] Unlock failed:', error);
         return {
           success: false,
-          error: error?.message || 'Unlock failed',
+          error: toSyncErrorMessage(error, 'Unlock failed'),
           status: typeof error?.status === 'number' ? error.status : 0,
           code: typeof error?.code === 'string' ? error.code : '',
           responseData: error?.responseData || null
@@ -1722,12 +1750,28 @@
         // Hash passphrase before sending to server
         const hashedPassphrase = await this.hashPassphrase(passphrase);
         
-        // Try login first, fallback to register
+        // Try login first, then register only for first-time setup style auth misses.
         let authResult;
         try {
           authResult = await this.syncClient.login(email, hashedPassphrase);
-        } catch (error) {
-          authResult = await this.syncClient.register(email, hashedPassphrase);
+        } catch (loginError) {
+          const loginLooksRecoverable =
+            loginError?.status === 401 ||
+            /invalid credentials/i.test(loginError?.message || '');
+          if (!loginLooksRecoverable) {
+            throw loginError;
+          }
+
+          try {
+            authResult = await this.syncClient.register(email, hashedPassphrase);
+          } catch (registerError) {
+            const registerLooksLikeExistingUser =
+              registerError?.status === 400 && /registration failed/i.test(registerError?.message || '');
+            if (registerLooksLikeExistingUser) {
+              throw loginError;
+            }
+            throw registerError;
+          }
         }
 
         this.saveSyncConfig({
@@ -1761,7 +1805,7 @@
         return { success: true };
       } catch (error) {
         console.error('[SyncManager] Setup failed:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: toSyncErrorMessage(error, 'Sync setup failed') };
       }
     }
 
@@ -1827,7 +1871,7 @@
         return result;
       } catch (error) {
         console.error('[SyncManager] Sync failed:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: toSyncErrorMessage(error, 'Sync failed') };
       }
     }
 
@@ -1922,7 +1966,15 @@
     primaryButton: 'cc-subcap-btn-primary',
     secondaryButton: 'cc-subcap-btn-secondary',
     dangerButton: 'cc-subcap-btn-danger',
-    dialogBackdrop: 'cc-subcap-dialog-backdrop'
+    dialogBackdrop: 'cc-subcap-dialog-backdrop',
+    syncSummary: 'cc-subcap-sync-summary',
+    badge: 'cc-subcap-badge',
+    helperText: 'cc-subcap-helper-text',
+    responsiveGridTwo: 'cc-subcap-grid-two',
+    responsiveGridThree: 'cc-subcap-grid-three',
+    merchantTable: 'cc-subcap-merchant-table',
+    toolbar: 'cc-subcap-toolbar',
+    code: 'cc-subcap-code'
   };
 
   let uiStylesInjected = false;
@@ -1978,11 +2030,21 @@
       background: ${theme.surface};
       border: 1px solid ${theme.border};
       box-shadow: ${theme.shadow};
-      width: min(500px, 92vw);
+      width: min(560px, 92vw);
+      max-height: min(88vh, 720px);
+      overflow-y: auto;
+      outline: none;
     }
     .${UI_CLASSES.buttonRow} {
       display: flex;
       gap: 8px;
+      flex-wrap: wrap;
+    }
+    .${UI_CLASSES.toolbar} {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
       flex-wrap: wrap;
     }
     .${UI_CLASSES.status} {
@@ -2095,6 +2157,7 @@
       font-weight: 600;
       cursor: pointer;
       border: 1px solid ${theme.border};
+      white-space: nowrap;
     }
     .${UI_CLASSES.closeButton},
     .${UI_CLASSES.secondaryButton} {
@@ -2155,6 +2218,60 @@
       gap: 8px;
       color: ${theme.muted};
       font-size: 12px;
+    }
+    .${UI_CLASSES.syncSummary} {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid ${theme.border};
+      background: ${theme.surface};
+    }
+    .${UI_CLASSES.badge} {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      border: 1px solid ${theme.border};
+      background: ${theme.accentSoft};
+      color: ${theme.accentText};
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .${UI_CLASSES.helperText} {
+      margin: 0;
+      font-size: 12px;
+      color: ${theme.muted};
+      line-height: 1.5;
+    }
+    .${UI_CLASSES.code} {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: ${theme.panel};
+      border: 1px solid ${theme.border};
+    }
+    .${UI_CLASSES.responsiveGridTwo} {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 8px 12px;
+      align-items: center;
+    }
+    .${UI_CLASSES.responsiveGridThree} {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .${UI_CLASSES.merchantTable} {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 8px 12px;
     }
 
     .${UI_CLASSES.spendMonthHeader} {
@@ -2224,12 +2341,40 @@
       color: ${theme.muted};
     }
     @media (max-width: 768px) {
+      .${UI_CLASSES.fab} {
+        right: 16px;
+        bottom: 16px;
+        width: calc(100vw - 32px);
+        max-width: 320px;
+      }
       .${UI_CLASSES.panel} {
         width: min(98vw, 98vw);
-        max-height: 92vh;
+        max-height: 94vh;
+        padding: 14px;
       }
+      .${UI_CLASSES.panelHeader},
+      .${UI_CLASSES.syncSummary},
+      .${UI_CLASSES.toolbar},
+      .${UI_CLASSES.spendMonthHeader} {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .${UI_CLASSES.buttonRow} > button,
+      .${UI_CLASSES.toolbar} > button {
+        flex: 1 1 100%;
+      }
+      .${UI_CLASSES.responsiveGridTwo},
+      .${UI_CLASSES.responsiveGridThree},
+      .${UI_CLASSES.merchantTable},
       .${UI_CLASSES.spendDetailsTable} {
         grid-template-columns: 1fr;
+      }
+      .${UI_CLASSES.tab} {
+        padding: 12px 4px;
+      }
+      .${UI_CLASSES.modal} {
+        width: min(96vw, 96vw);
+        padding: 18px;
       }
     }
     `;
@@ -2252,13 +2397,13 @@
     }
     if (!message) {
       statusElement.textContent = '';
-      statusElement.classList.add(UI_CLASSES.hidden);
-      statusElement.removeAttribute('data-variant');
+      statusElement.classList?.add?.(UI_CLASSES.hidden);
+      statusElement.removeAttribute?.('data-variant');
       return;
     }
     statusElement.textContent = message;
-    statusElement.setAttribute('data-variant', variant);
-    statusElement.classList.remove(UI_CLASSES.hidden);
+    statusElement.setAttribute?.('data-variant', variant);
+    statusElement.classList?.remove?.(UI_CLASSES.hidden);
   }
 
   function escapeHtml(value) {
@@ -2269,6 +2414,226 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  function formatLocalDateTime(value, fallback = 'Never') {
+    if (!value) {
+      return fallback;
+    }
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : fallback;
+  }
+
+  function formatMonthKeyForDisplay(monthKey) {
+    const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
+    if (!match) {
+      return String(monthKey || '-');
+    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIndex = Number(match[2]) - 1;
+    return monthNames[monthIndex] ? `${monthNames[monthIndex]} ${match[1]}` : String(monthKey || '-');
+  }
+
+  function summarizeConflictValue(value, entry = {}) {
+    if (Array.isArray(value)) {
+      const items = value.filter((item) => typeof item === 'string' && item.trim());
+      return items.length ? items.join(', ') : 'None selected';
+    }
+
+    if (entry?.field === 'monthlyTotals' && isObjectRecord(value)) {
+      const totals = isObjectRecord(value.totals) ? value.totals : {};
+      const parts = Object.entries(totals)
+        .filter(([, amount]) => typeof amount === 'number' && Number.isFinite(amount))
+        .map(([category, amount]) => `${category} ${amount.toFixed(2)}`);
+      const totalAmount = typeof value.total_amount === 'number' && Number.isFinite(value.total_amount)
+        ? value.total_amount
+        : null;
+      const monthLabel = entry.monthKey ? `${formatMonthKeyForDisplay(entry.monthKey)}:` : 'Monthly totals:';
+      if (!parts.length) {
+        return totalAmount === null ? `${monthLabel} none` : `${monthLabel} Total ${totalAmount.toFixed(2)}`;
+      }
+      const summary = parts.join(', ');
+      return totalAmount === null ? `${monthLabel} ${summary}` : `${monthLabel} ${summary}. Total ${totalAmount.toFixed(2)}`;
+    }
+
+    if (isObjectRecord(value)) {
+      const compact = JSON.stringify(value);
+      return compact && compact.length <= 160 ? compact : 'Structured value';
+    }
+
+    if (value === null || value === undefined || value === '') {
+      return 'Empty';
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value.toFixed(2);
+    }
+
+    return String(value);
+  }
+
+  function setButtonBusy(button, isBusy, labels = {}) {
+    if (!button) {
+      return;
+    }
+
+    const idleText = labels.idle || button.getAttribute?.('data-idle-label') || button.textContent || '';
+    button.setAttribute?.('data-idle-label', idleText);
+    if (isBusy) {
+      button.disabled = true;
+      button.setAttribute?.('aria-busy', 'true');
+      if (labels.busy) {
+        button.textContent = labels.busy;
+      }
+      return;
+    }
+
+    button.disabled = false;
+    button.removeAttribute?.('aria-busy');
+    button.textContent = idleText;
+  }
+
+  function getFocusableElements(root) {
+    if (!root?.querySelectorAll) {
+      return [];
+    }
+    return Array.from(root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+      .filter((element) => !element.disabled && element.getAttribute?.('aria-hidden') !== 'true');
+  }
+
+  function attachDialogA11y(overlay, dialog, closeDialog, initialFocusSelector = '') {
+    const previousActiveElement = document.activeElement && typeof document.activeElement.focus === 'function'
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body?.style?.overflow || '';
+
+    if (document.body?.style) {
+      document.body.style.overflow = 'hidden';
+    }
+
+    dialog?.setAttribute?.('role', 'dialog');
+    dialog?.setAttribute?.('aria-modal', 'true');
+    dialog?.setAttribute?.('tabindex', '-1');
+
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key !== 'Tab') {
+        return;
+      }
+      const focusable = getFocusableElements(dialog);
+      if (!focusable.length) {
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus?.();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus?.();
+      }
+    };
+
+    overlay?.addEventListener?.('keydown', handleKeydown);
+    window.setTimeout(() => {
+      const initialTarget = initialFocusSelector ? overlay?.querySelector?.(initialFocusSelector) : null;
+      (initialTarget || dialog)?.focus?.();
+    }, 0);
+
+    return () => {
+      overlay?.removeEventListener?.('keydown', handleKeydown);
+      if (document.body?.style) {
+        document.body.style.overflow = previousOverflow;
+      }
+      previousActiveElement?.focus?.();
+    };
+  }
+
+  function getSyncSummaryState(syncManager, cardName) {
+    if (!syncManager?.isEnabled || !syncManager.isEnabled()) {
+      return {
+        badge: 'Sync off',
+        detail: 'Local-only mode. Raw transactions and category rules stay on this device.',
+        variant: 'info',
+        tabLabel: 'Sync'
+      };
+    }
+
+    const config = syncManager.config || {};
+    const hasPendingConflict = typeof syncManager.hasPendingConflict === 'function' && syncManager.hasPendingConflict();
+    const pendingCardName = isObjectRecord(config.pendingConflict) && typeof config.pendingConflict.cardName === 'string'
+      ? config.pendingConflict.cardName
+      : cardName;
+    if (hasPendingConflict) {
+      return {
+        badge: 'Sync needs attention',
+        detail: `Sync is paused until you resolve the conflict for ${pendingCardName || cardName}.`,
+        variant: 'warning',
+        tabLabel: 'Sync • Resolve'
+      };
+    }
+
+    const isUnlocked = typeof syncManager.isUnlocked === 'function' && syncManager.isUnlocked();
+    const hasRememberedUnlock = typeof syncManager.hasRememberedUnlockCache === 'function' && syncManager.hasRememberedUnlockCache();
+    const lastSyncText = formatLocalDateTime(config.lastSync, 'Never');
+    if (isUnlocked) {
+      return {
+        badge: 'Sync ready',
+        detail: `Active card only. Last sync: ${lastSyncText}.`,
+        variant: 'success',
+        tabLabel: 'Sync • Ready'
+      };
+    }
+
+    return {
+      badge: hasRememberedUnlock ? 'Sync locked (auto unlock available)' : 'Sync locked',
+      detail: `Last sync: ${lastSyncText}. Open the Sync tab to unlock before pushing changes.`,
+      variant: 'info',
+      tabLabel: hasRememberedUnlock ? 'Sync • Auto unlock' : 'Sync • Locked'
+    };
+  }
+
+  function buildSyncSummaryBanner(syncManager, cardName, theme) {
+    const summary = getSyncSummaryState(syncManager, cardName);
+    const banner = document.createElement('div');
+    banner.setAttribute('id', 'cc-subcap-sync-summary');
+    banner.classList?.add(UI_CLASSES.syncSummary);
+
+    const textWrap = document.createElement('div');
+    textWrap.classList?.add(UI_CLASSES.stackTight);
+
+    const title = document.createElement('div');
+    title.classList?.add(UI_CLASSES.meta);
+    title.innerHTML = `<strong>Sync status:</strong> ${escapeHtml(summary.badge)}`;
+
+    const detail = document.createElement('p');
+    detail.classList?.add(UI_CLASSES.helperText);
+    detail.textContent = summary.detail;
+
+    const pill = document.createElement('span');
+    pill.classList?.add(UI_CLASSES.badge);
+    pill.textContent = summary.badge;
+
+    if (summary.variant === 'warning') {
+      pill.style.background = theme.warningSoft;
+      pill.style.borderColor = theme.warning;
+      pill.style.color = theme.warning;
+    } else if (summary.variant === 'success') {
+      pill.style.background = theme.successSoft;
+      pill.style.borderColor = theme.successBorder;
+      pill.style.color = theme.success;
+    }
+
+    textWrap.appendChild(title);
+    textWrap.appendChild(detail);
+    banner.appendChild(textWrap);
+    banner.appendChild(pill);
+    return banner;
   }
 
   function calculateMonthlyTotalsForSync(transactions, cardSettings) {
@@ -2421,7 +2786,7 @@
     ensureUiStyles(THEME);
     const container = document.createElement('div');
     container.id = 'cc-subcap-sync';
-    container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose, UI_CLASSES.hidden);
+    container.classList?.add(UI_CLASSES.tab, UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
     const isEnabled = syncManager.isEnabled();
     const config = syncManager.config || {};
@@ -2452,7 +2817,7 @@
 
     const isUnlocked = syncManager.isUnlocked();
     const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
-    const lastSync = config.lastSync ? new Date(config.lastSync).toLocaleString() : 'Never';
+    const lastSync = formatLocalDateTime(config.lastSync, 'Never');
     const showBootstrapStatus = typeof syncManager.shouldShowBootstrapRestoreStatus === 'function'
       ? syncManager.shouldShowBootstrapRestoreStatus()
       : true;
@@ -2460,7 +2825,7 @@
       ? syncManager.getBootstrapRestoreStatusMessage()
       : '';
     const bootstrapStatusAt = bootstrapStatus && typeof config.bootstrapRestoreAt === 'number' && Number.isFinite(config.bootstrapRestoreAt)
-      ? new Date(config.bootstrapRestoreAt).toLocaleString()
+      ? formatLocalDateTime(config.bootstrapRestoreAt, '')
       : '';
     const getLivePendingConflictState = () => {
       const liveConfig = syncManager.config || {};
@@ -2503,26 +2868,29 @@
       <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionPanel} ${UI_CLASSES.stackTight}">
         <p class="${UI_CLASSES.meta}"><strong>Status:</strong> Enabled (${lockStateText})</p>
         <p class="${UI_CLASSES.meta}"><strong>Email:</strong> ${escapeHtml(config.email || '-')}</p>
-        <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${lastSync}</p>
+        <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${escapeHtml(lastSync)}</p>
         <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${escapeHtml(config.tier || '-')}</p>
         ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${escapeHtml(bootstrapStatus)}${bootstrapStatusAt ? ` (${escapeHtml(bootstrapStatusAt)})` : ''}</p>` : ''}
-        <p class="${UI_CLASSES.small}">Sync updates only the active card and keeps other cards' remote settings.</p>
+        <p class="${UI_CLASSES.small}">Sync only pushes the active card from this page. Other remote card keys stay intact.</p>
       </div>
       ${pendingConflict ? `
       <div class="${UI_CLASSES.section} ${UI_CLASSES.sectionAccent} ${UI_CLASSES.stackTight}">
-        <p class="${UI_CLASSES.meta}"><strong>Conflict detected</strong> for ${escapeHtml(pendingConflict.cardName || cardName)}. Choose how to resolve before syncing.</p>
+        <p class="${UI_CLASSES.meta}"><strong>Sync is paused</strong> for ${escapeHtml(pendingConflict.cardName || cardName)} until you resolve ${conflictRows.length || 1} conflicting change(s).</p>
+        <p class="${UI_CLASSES.small}">Non-overlapping changes were already auto-merged. Review only the overlapping values below.</p>
         <div class="${UI_CLASSES.buttonRow}">
-          <button id="sync-conflict-keep-local" type="button" class="${UI_CLASSES.secondaryButton}">Keep Local</button>
-          <button id="sync-conflict-keep-remote" type="button" class="${UI_CLASSES.secondaryButton}">Keep Remote</button>
-          <button id="sync-conflict-merge" type="button" class="${UI_CLASSES.primaryButton}">Merge Selected</button>
+          <button id="sync-conflict-keep-local" type="button" class="${UI_CLASSES.secondaryButton}">Use Local</button>
+          <button id="sync-conflict-keep-remote" type="button" class="${UI_CLASSES.secondaryButton}">Use Remote</button>
+          <button id="sync-conflict-merge" type="button" class="${UI_CLASSES.primaryButton}">Merge Choices</button>
         </div>
         <div id="sync-conflict-list" class="${UI_CLASSES.stackTight}">
-          ${conflictRows.length === 0 ? `<p class="${UI_CLASSES.small}">No explicit conflicts. Merge Selected will apply auto-merge result.</p>` : conflictRows.map((entry, index) => {
+          ${conflictRows.length === 0 ? `<p class="${UI_CLASSES.small}">No manual picks remain. Merge Choices will apply the auto-merged result.</p>` : conflictRows.map((entry, index) => {
             const conflictLabel = entry.type === 'merchant'
-              ? `Merchant "${entry.merchantKey}" category`
-              : `Field "${entry.field}"`;
-            const localValue = escapeHtml(JSON.stringify(entry.localValue));
-            const remoteValue = escapeHtml(JSON.stringify(entry.remoteValue));
+              ? `Merchant rule: ${entry.merchantKey}`
+              : (entry.field === 'monthlyTotals' && entry.monthKey
+                  ? `${formatMonthKeyForDisplay(entry.monthKey)} totals`
+                  : `Field: ${entry.field}`);
+            const localValue = escapeHtml(summarizeConflictValue(entry.localValue, entry));
+            const remoteValue = escapeHtml(summarizeConflictValue(entry.remoteValue, entry));
             const name = entry.type === 'merchant'
               ? `sync-conflict-merchant-${index}`
               : `sync-conflict-field-${index}`;
@@ -2568,14 +2936,39 @@
   `;
 
     const statusDiv = container.querySelector('#sync-status');
+    const unlockButton = container.querySelector('#unlock-sync-btn');
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const forgetButton = container.querySelector('#forget-sync-unlock-btn');
+    const disableButton = container.querySelector('#disable-sync-btn');
+    const conflictButtons = [
+      container.querySelector('#sync-conflict-keep-local'),
+      container.querySelector('#sync-conflict-keep-remote'),
+      container.querySelector('#sync-conflict-merge')
+    ].filter(Boolean);
+    const actionButtons = [unlockButton, syncNowButton, forgetButton, disableButton, ...conflictButtons].filter(Boolean);
+
+    const setSyncBusy = (activeButton, isBusy, busyLabel = '') => {
+      actionButtons.forEach((button) => {
+        if (!button || button === activeButton) {
+          return;
+        }
+        button.disabled = isBusy;
+      });
+      if (activeButton) {
+        setButtonBusy(activeButton, isBusy, { busy: busyLabel });
+      }
+    };
+
     const getRememberPreference = () => {
       const rememberInput = container.querySelector('#sync-remember-unlock');
       return Boolean(rememberInput?.checked);
     };
 
-    const unlockButton = container.querySelector('#unlock-sync-btn');
     if (unlockButton) {
       unlockButton.addEventListener('click', async () => {
+        if (unlockButton.disabled) {
+          return;
+        }
         const passphraseInput = container.querySelector('#sync-unlock-passphrase');
         const passphrase = passphraseInput?.value || '';
         if (!passphrase) {
@@ -2583,38 +2976,54 @@
           return;
         }
 
+        setSyncBusy(unlockButton, true, 'Unlocking...');
         setStatusMessage(statusDiv, 'Unlocking sync...', 'info');
-        const unlockResult = await syncManager.unlockSync(passphrase, {
-          remember: getRememberPreference()
-        });
-        if (!unlockResult.success) {
-          setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
-          return;
-        }
+        try {
+          const unlockResult = await syncManager.unlockSync(passphrase, {
+            remember: getRememberPreference()
+          });
+          if (!unlockResult.success) {
+            setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+            return;
+          }
 
-        setStatusMessage(
-          statusDiv,
-          unlockResult.warning ? `Sync unlocked (${unlockResult.warning})` : 'Sync unlocked',
-          'success'
-        );
-        onSyncStateChanged();
+          setStatusMessage(
+            statusDiv,
+            unlockResult.warning ? `Sync unlocked (${unlockResult.warning})` : 'Sync unlocked.',
+            'success'
+          );
+          window.setTimeout(() => onSyncStateChanged(), 300);
+        } finally {
+          setSyncBusy(unlockButton, false);
+        }
       });
     }
 
-    const forgetButton = container.querySelector('#forget-sync-unlock-btn');
     if (forgetButton) {
       forgetButton.addEventListener('click', async () => {
+        if (forgetButton.disabled) {
+          return;
+        }
+        setSyncBusy(forgetButton, true, 'Forgetting...');
         setStatusMessage(statusDiv, 'Forgetting saved unlock...', 'info');
-        await syncManager.forgetRememberedUnlock();
-        setStatusMessage(statusDiv, 'Saved unlock removed for this device.', 'success');
-        onSyncStateChanged();
+        try {
+          await syncManager.forgetRememberedUnlock();
+          setStatusMessage(statusDiv, 'Saved unlock removed for this device.', 'success');
+          window.setTimeout(() => onSyncStateChanged(), 300);
+        } finally {
+          setSyncBusy(forgetButton, false);
+        }
       });
     }
 
-    const syncNowButton = container.querySelector('#sync-now-btn');
     syncNowButton.addEventListener('click', async () => {
-      setStatusMessage(statusDiv, 'Syncing...', 'info');
+      if (syncNowButton.disabled) {
+        return;
+      }
+      setSyncBusy(syncNowButton, true, 'Syncing...');
+      setStatusMessage(statusDiv, 'Syncing active card...', 'info');
 
+      try {
         const liveConflictState = getLivePendingConflictState();
         if (liveConflictState.pendingConflict) {
           setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
@@ -2624,53 +3033,58 @@
           return;
         }
 
-      if (!syncManager.isUnlocked()) {
-        const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
-        if (unlockedFromCache) {
-          onSyncStateChanged();
-        }
-
-        const passphraseInput = container.querySelector('#sync-unlock-passphrase');
-        const passphrase = passphraseInput?.value || '';
-
-        if (!syncManager.isUnlocked() && !passphrase) {
-          setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
-          return;
-        }
-
         if (!syncManager.isUnlocked()) {
-          const unlockResult = await syncManager.unlockSync(passphrase, {
-            remember: getRememberPreference()
-          });
-          if (!unlockResult.success) {
-            setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+          const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          if (unlockedFromCache) {
+            window.setTimeout(() => onSyncStateChanged(), 0);
+          }
+
+          const passphraseInput = container.querySelector('#sync-unlock-passphrase');
+          const passphrase = passphraseInput?.value || '';
+
+          if (!syncManager.isUnlocked() && !passphrase) {
+            setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
             return;
           }
-        }
-      }
 
-      const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
-      const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
-
-      if (result.success) {
-        setStatusMessage(statusDiv, 'Synced successfully.', 'success');
-        if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
-          const dismissed = syncManager.dismissBootstrapRestoreStatus();
-          if (dismissed) {
-            const bootstrapRow = container.querySelector('#sync-bootstrap-status-row');
-            if (bootstrapRow && typeof bootstrapRow.remove === 'function') {
-              bootstrapRow.remove();
+          if (!syncManager.isUnlocked()) {
+            const unlockResult = await syncManager.unlockSync(passphrase, {
+              remember: getRememberPreference()
+            });
+            if (!unlockResult.success) {
+              setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+              return;
             }
           }
         }
-        window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
-      } else {
+
+        const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+        const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
+
+        if (result.success) {
+          setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+          if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
+            const dismissed = syncManager.dismissBootstrapRestoreStatus();
+            if (dismissed) {
+              const bootstrapRow = container.querySelector('#sync-bootstrap-status-row');
+              if (bootstrapRow && typeof bootstrapRow.remove === 'function') {
+                bootstrapRow.remove();
+              }
+            }
+          }
+          window.setTimeout(() => onSyncStateChanged(), 800);
+          window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
+          return;
+        }
+
         if (result.conflict) {
           setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'warning');
           onSyncStateChanged();
           return;
         }
         setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
+      } finally {
+        setSyncBusy(syncNowButton, false);
       }
     });
 
@@ -2690,12 +3104,15 @@
       return selections;
     };
 
-    const wireConflictAction = (selector, strategy) => {
+    const wireConflictAction = (selector, strategy, busyLabel) => {
       const button = container.querySelector(selector);
       if (!button) {
         return;
       }
       button.addEventListener('click', async () => {
+        if (button.disabled) {
+          return;
+        }
         const liveConflictState = getLivePendingConflictState();
         if (!liveConflictState.pendingConflict) {
           setStatusMessage(statusDiv, 'Conflict already cleared. Refreshing sync status...', 'info');
@@ -2712,35 +3129,43 @@
           setStatusMessage(statusDiv, 'Unlock sync before resolving conflict.', 'warning');
           return;
         }
-        if (!confirm('Apply this conflict resolution and push to server?')) {
+        if (!confirm('Apply this conflict resolution and push to the sync server?')) {
           return;
         }
 
+        setSyncBusy(button, true, busyLabel);
         setStatusMessage(statusDiv, 'Resolving sync conflict...', 'info');
-        const selections = strategy === 'merge_selected' ? readConflictSelections() : {};
-        const resolveResult = await syncManager.resolvePendingConflict(strategy, selections);
-        if (!resolveResult.success) {
-          if (resolveResult.conflict) {
-            setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'warning');
-            onSyncStateChanged();
+        try {
+          const selections = strategy === 'merge_selected' ? readConflictSelections() : {};
+          const resolveResult = await syncManager.resolvePendingConflict(strategy, selections);
+          if (!resolveResult.success) {
+            if (resolveResult.conflict) {
+              setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'warning');
+              onSyncStateChanged();
+              return;
+            }
+            setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'error');
             return;
           }
-          setStatusMessage(statusDiv, `Conflict resolution failed: ${resolveResult.error}`, 'error');
-          return;
-        }
 
-        onConflictResolved(resolveResult.cardName, resolveResult.resolvedCard);
-        setStatusMessage(statusDiv, 'Conflict resolved and synced.', 'success');
-        onSyncStateChanged();
+          onConflictResolved(resolveResult.cardName, resolveResult.resolvedCard);
+          setStatusMessage(statusDiv, 'Conflict resolved and synced.', 'success');
+          onSyncStateChanged();
+        } finally {
+          setSyncBusy(button, false);
+        }
       });
     };
 
-    wireConflictAction('#sync-conflict-keep-local', 'keep_local');
-    wireConflictAction('#sync-conflict-keep-remote', 'keep_remote');
-    wireConflictAction('#sync-conflict-merge', 'merge_selected');
+    wireConflictAction('#sync-conflict-keep-local', 'keep_local', 'Using local...');
+    wireConflictAction('#sync-conflict-keep-remote', 'keep_remote', 'Using remote...');
+    wireConflictAction('#sync-conflict-merge', 'merge_selected', 'Merging...');
 
-    container.querySelector('#disable-sync-btn').addEventListener('click', () => {
-      if (confirm('Are you sure you want to disable sync? Your local data will remain intact.')) {
+    disableButton.addEventListener('click', () => {
+      if (disableButton.disabled) {
+        return;
+      }
+      if (confirm('Disable sync? Your local data stays on this device.')) {
         syncManager.disableSync();
         onSyncStateChanged();
       }
@@ -2752,45 +3177,63 @@
   function showSyncSetupDialog(syncManager, THEME, onSyncStateChanged = () => {}) {
     ensureUiStyles(THEME);
     const overlay = document.createElement('div');
-    overlay.classList.add(UI_CLASSES.dialogBackdrop);
+    overlay.classList?.add(UI_CLASSES.dialogBackdrop);
     overlay.innerHTML = `
-    <div class="${UI_CLASSES.modal} ${UI_CLASSES.stack}">
-      <h3 class="${UI_CLASSES.title}">Setup Sync</h3>
-      <div class="${UI_CLASSES.stackTight}">
-        <label class="${UI_CLASSES.fieldLabel}" for="sync-server-url">Server URL</label>
-        <input id="sync-server-url" class="${UI_CLASSES.input}" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" />
-      </div>
-      <div class="${UI_CLASSES.stackTight}">
-        <label class="${UI_CLASSES.fieldLabel}" for="sync-email">Email</label>
-        <input id="sync-email" class="${UI_CLASSES.input}" type="email" placeholder="your@email.com" />
-      </div>
-      <div class="${UI_CLASSES.stackTight}">
-        <label class="${UI_CLASSES.fieldLabel}" for="sync-passphrase">Password</label>
-        <input id="sync-passphrase" class="${UI_CLASSES.input}" type="password" placeholder="Enter sync password" />
-      </div>
-      <label class="${UI_CLASSES.checkboxLabel}">
-        <input id="sync-remember-unlock-setup" type="checkbox"/>
-        Remember sync on this device until session token expiry or logout
-      </label>
-      <div class="${UI_CLASSES.buttonRow}">
-        <button id="sync-setup-save" type="button" class="${UI_CLASSES.primaryButton}">Setup</button>
-        <button id="sync-setup-cancel" type="button" class="${UI_CLASSES.secondaryButton}">Cancel</button>
-      </div>
-      <div id="sync-setup-status" class="${UI_CLASSES.status} ${UI_CLASSES.hidden}" role="status" aria-live="polite"></div>
+    <div class="${UI_CLASSES.modal} ${UI_CLASSES.stack}" aria-labelledby="sync-setup-title">
+      <h3 id="sync-setup-title" class="${UI_CLASSES.title}">Setup Sync</h3>
+      <p class="${UI_CLASSES.helperText}">Use the same backend URL, email, and password you want to reuse on other devices.</p>
+      <form id="sync-setup-form" class="${UI_CLASSES.stack}">
+        <div class="${UI_CLASSES.stackTight}">
+          <label class="${UI_CLASSES.fieldLabel}" for="sync-server-url">Server URL</label>
+          <input id="sync-server-url" class="${UI_CLASSES.input}" type="url" placeholder="https://your-server.com" value="${SYNC_CONFIG.serverUrl}" />
+        </div>
+        <div class="${UI_CLASSES.stackTight}">
+          <label class="${UI_CLASSES.fieldLabel}" for="sync-email">Email</label>
+          <input id="sync-email" class="${UI_CLASSES.input}" type="email" placeholder="your@email.com" />
+        </div>
+        <div class="${UI_CLASSES.stackTight}">
+          <label class="${UI_CLASSES.fieldLabel}" for="sync-passphrase">Password</label>
+          <input id="sync-passphrase" class="${UI_CLASSES.input}" type="password" placeholder="Enter sync password" />
+        </div>
+        <label class="${UI_CLASSES.checkboxLabel}">
+          <input id="sync-remember-unlock-setup" type="checkbox"/>
+          Remember sync on this device until session token expiry or logout
+        </label>
+        <div class="${UI_CLASSES.buttonRow}">
+          <button id="sync-setup-save" type="submit" class="${UI_CLASSES.primaryButton}">Setup</button>
+          <button id="sync-setup-cancel" type="button" class="${UI_CLASSES.secondaryButton}">Cancel</button>
+        </div>
+        <div id="sync-setup-status" class="${UI_CLASSES.status} ${UI_CLASSES.hidden}" role="status" aria-live="polite"></div>
+      </form>
     </div>
   `;
 
-    const closeDialog = () => overlay.remove();
+    let releaseDialogA11y = () => {};
+    const closeDialog = () => {
+      releaseDialogA11y();
+      overlay.remove();
+    };
     const statusDiv = overlay.querySelector('#sync-setup-status');
+    const saveButton = overlay.querySelector('#sync-setup-save');
+    const cancelButton = overlay.querySelector('#sync-setup-cancel');
+    const dialog = overlay.querySelector(`.${UI_CLASSES.modal}`);
+    const form = overlay.querySelector('#sync-setup-form');
+
+    releaseDialogA11y = attachDialogA11y(overlay, dialog, closeDialog, '#sync-email');
 
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) {
         closeDialog();
       }
     });
-    overlay.querySelector('#sync-setup-cancel').addEventListener('click', closeDialog);
+    cancelButton.addEventListener('click', closeDialog);
 
-    overlay.querySelector('#sync-setup-save').addEventListener('click', async () => {
+    const submitSetup = async (event) => {
+      event?.preventDefault?.();
+      if (saveButton.disabled) {
+        return;
+      }
+
       const serverUrl = overlay.querySelector('#sync-server-url').value.trim();
       const email = overlay.querySelector('#sync-email').value.trim();
       const passphrase = overlay.querySelector('#sync-passphrase').value;
@@ -2808,19 +3251,29 @@
         return;
       }
 
+      setButtonBusy(saveButton, true, { busy: 'Setting up...' });
+      cancelButton.disabled = true;
       setStatusMessage(statusDiv, 'Setting up sync...', 'info');
-      const result = await syncManager.setupSync(email, passphrase, serverUrl, rememberUnlock);
-      if (result.success) {
-        setStatusMessage(statusDiv, 'Sync setup complete.', 'success');
-        window.setTimeout(() => {
-          closeDialog();
-          onSyncStateChanged();
-        }, 500);
-        return;
-      }
+      try {
+        const result = await syncManager.setupSync(email, passphrase, serverUrl, rememberUnlock);
+        if (result.success) {
+          setStatusMessage(statusDiv, 'Sync setup complete.', 'success');
+          window.setTimeout(() => {
+            closeDialog();
+            onSyncStateChanged();
+          }, 500);
+          return;
+        }
 
-      setStatusMessage(statusDiv, `Setup failed: ${result.error}`, 'error');
-    });
+        setStatusMessage(statusDiv, `Setup failed: ${result.error}`, 'error');
+      } finally {
+        setButtonBusy(saveButton, false);
+        cancelButton.disabled = false;
+      }
+    };
+
+    form?.addEventListener?.('submit', submitSetup);
+    saveButton.addEventListener('click', submitSetup);
 
     document.body.appendChild(overlay);
   }
@@ -2938,6 +3391,7 @@
       spendContent: 'cc-subcap-spend',
       summaryContent: 'cc-subcap-summary',
       syncContent: 'cc-subcap-sync',
+      syncSummary: 'cc-subcap-sync-summary',
       tabManage: 'cc-subcap-tab-manage',
       tabSpend: 'cc-subcap-tab-spend',
       tabSync: 'cc-subcap-tab-sync',
@@ -2976,7 +3430,7 @@
 
 
     const TRANSACTION_LOADING_NOTICE =
-      '💡 <strong>Totals looking wrong, or missing transactions?</strong><br>Load all transactions on the bank site first (e.g. paginate / "View More"), then reopen the panel through the button.';
+      '💡 <strong>Completeness check:</strong><br>Only rows you have loaded on the bank site are counted. Use pagination or "View More", then reopen the panel to refresh the local snapshot.';
 
     const CAP_POLICY_CACHE_KEY = 'ccSubcapCapPolicyCache';
     const CAP_POLICY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -4712,7 +5166,7 @@
       nextButton.id = UI_IDS.button;
       nextButton.type = 'button';
       nextButton.textContent = 'Subcap Tools';
-      nextButton.classList.add(UI_CLASSES.fab);
+      nextButton.classList?.add(UI_CLASSES.fab);
       nextButton.addEventListener('click', onClick);
 
       if (existingButton) {
@@ -4722,7 +5176,7 @@
       }
 
       if (shouldHide) {
-        nextButton.classList.add(UI_CLASSES.hidden);
+        nextButton.classList?.add(UI_CLASSES.hidden);
       }
       if (typeof options.enabled === 'boolean') {
         nextButton.disabled = !options.enabled;
@@ -4734,10 +5188,14 @@
       container.innerHTML = '';
 
       const title = document.createElement('div');
-      title.textContent = 'Totals in Statement Month (by category)';
+      title.textContent = 'Statement-month totals from currently loaded rows';
       title.style.fontWeight = '600';
       title.style.marginBottom = '8px';
       title.style.color = THEME.accent;
+
+      const subtitle = document.createElement('p');
+      subtitle.classList?.add(UI_CLASSES.helperText);
+      subtitle.textContent = 'This is a local page snapshot. Totals only reflect rows that are currently visible or already loaded on the bank site.';
 
       const list = document.createElement('div');
       list.style.display = 'grid';
@@ -4775,6 +5233,7 @@
       list.appendChild(totalRowValue);
 
       container.appendChild(title);
+      container.appendChild(subtitle);
       container.appendChild(list);
 
       const diagnostics = data.diagnostics || {};
@@ -4846,19 +5305,13 @@
       title.style.color = THEME.accent;
 
       const wrapper = document.createElement('div');
-      wrapper.style.display = 'grid';
-      wrapper.style.gridTemplateColumns = '1fr 1fr';
-      wrapper.style.gap = '12px';
+      wrapper.classList?.add(UI_CLASSES.responsiveGridTwo);
 
       const selected = getSelectedCategories(cardSettings);
 
       for (let i = 0; i < cardConfig.subcapSlots; i += 1) {
         const select = document.createElement('select');
-        select.style.padding = '6px 8px';
-        select.style.borderRadius = '6px';
-        select.style.border = `1px solid ${THEME.border}`;
-        select.style.background = THEME.surface;
-        select.style.color = THEME.text;
+        select.classList?.add(UI_CLASSES.input);
 
         const emptyOption = document.createElement('option');
         emptyOption.value = '';
@@ -4908,11 +5361,7 @@
       title.style.color = THEME.accent;
 
       const select = document.createElement('select');
-      select.style.padding = '6px 8px';
-      select.style.borderRadius = '6px';
-      select.style.border = `1px solid ${THEME.border}`;
-      select.style.background = THEME.surface;
-      select.style.color = THEME.text;
+      select.classList?.add(UI_CLASSES.input);
 
       const options = getDefaultCategoryOptions(cardSettings);
       options.forEach((category) => {
@@ -4934,16 +5383,14 @@
       container.appendChild(select);
     }
 
-    function renderMerchantSection(container, titleText, merchants, cardSettings, onChange) {
+    function renderMerchantSection(container, titleText, merchants, cardSettings, merchantCounts, onChange) {
       const title = document.createElement('div');
       title.textContent = titleText;
       title.style.fontWeight = '600';
       title.style.color = THEME.accent;
 
       const table = document.createElement('div');
-      table.style.display = 'grid';
-      table.style.gridTemplateColumns = '2fr 1fr';
-      table.style.gap = '8px 12px';
+      table.classList?.add(UI_CLASSES.merchantTable);
 
       if (!merchants.length) {
         const empty = document.createElement('div');
@@ -4956,15 +5403,12 @@
 
       merchants.forEach((merchant) => {
         const label = document.createElement('div');
-        label.textContent = merchant;
+        const seenCount = merchantCounts.get(merchant) || 0;
+        label.textContent = seenCount > 0 ? `${merchant} (${seenCount} loaded)` : merchant;
         label.style.wordBreak = 'break-word';
 
         const select = document.createElement('select');
-        select.style.padding = '6px 8px';
-        select.style.borderRadius = '6px';
-        select.style.border = `1px solid ${THEME.border}`;
-        select.style.background = THEME.surface;
-        select.style.color = THEME.text;
+        select.classList?.add(UI_CLASSES.input);
 
         const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
         const options = getMappingOptions(cardSettings, currentValue);
@@ -4995,24 +5439,41 @@
 
     function renderMerchantMapping(container, transactions, cardSettings, onChange) {
       const merchantCounts = new Map();
-      transactions.forEach((transaction) => {
-        const merchant = transaction.merchant_detail;
+      const rememberMerchant = (merchant) => {
         if (!merchant) {
           return;
         }
         merchantCounts.set(merchant, (merchantCounts.get(merchant) || 0) + 1);
+      };
+
+      transactions.forEach((transaction) => {
+        rememberMerchant(transaction.merchant_detail);
       });
-      const mappedMerchants = new Set(Object.keys(cardSettings.merchantMap || {}));
-      const knownMerchants = new Set(merchantCounts.keys());
       Object.values(cardSettings.transactions || {}).forEach((entry) => {
-        const merchant = entry?.merchant_detail || '';
-        if (merchant) {
-          knownMerchants.add(merchant);
-        }
+        rememberMerchant(entry?.merchant_detail || '');
       });
 
+      const merchantMap = isObjectRecord(cardSettings.merchantMap) ? cardSettings.merchantMap : {};
+      const wildcardPatterns = Object.entries(merchantMap)
+        .filter(([pattern]) => hasUnescapedWildcard(pattern));
+      const exactMappings = Object.keys(merchantMap)
+        .filter((merchant) => !hasUnescapedWildcard(merchant))
+        .sort((a, b) => {
+          const countDiff = (merchantCounts.get(b) || 0) - (merchantCounts.get(a) || 0);
+          return countDiff || a.localeCompare(b);
+        });
+
+      const coveredByWildcard = new Set();
+      for (const [pattern] of wildcardPatterns) {
+        for (const merchant of merchantCounts.keys()) {
+          if (!coveredByWildcard.has(merchant) && matchesWildcard(merchant, pattern)) {
+            coveredByWildcard.add(merchant);
+          }
+        }
+      }
+
       const uncategorized = Array.from(merchantCounts.entries())
-        .filter(([merchant]) => !mappedMerchants.has(merchant))
+        .filter(([merchant]) => !merchantMap[merchant] && !coveredByWildcard.has(merchant))
         .sort((a, b) => {
           if (a[1] !== b[1]) {
             return b[1] - a[1];
@@ -5020,45 +5481,36 @@
           return a[0].localeCompare(b[0]);
         })
         .map(([merchant]) => merchant);
-      const categorized = Array.from(mappedMerchants).sort((a, b) => a.localeCompare(b));
 
-      // Add manual wildcard pattern section
+      const summary = document.createElement('p');
+      summary.classList?.add(UI_CLASSES.helperText);
+      summary.textContent = `${uncategorized.length} merchants still need an exact rule. ${exactMappings.length} exact rules saved. ${wildcardPatterns.length} wildcard rules saved.`;
+      container.appendChild(summary);
+
       const wildcardSection = document.createElement('div');
-      wildcardSection.classList.add(UI_CLASSES.stack);
-      
+      wildcardSection.classList?.add(UI_CLASSES.stack);
+
       const wildcardTitle = document.createElement('div');
-      wildcardTitle.textContent = 'Add Wildcard Pattern';
+      wildcardTitle.textContent = 'Wildcard rules';
       wildcardTitle.style.fontWeight = '600';
       wildcardTitle.style.color = THEME.accent;
       wildcardSection.appendChild(wildcardTitle);
 
-      const wildcardHelp = document.createElement('div');
-      wildcardHelp.textContent = 'Use * to match any characters except literal *. Use \\* to match an asterisk (e.g., KrisPay\\*Paradise*).';
-      wildcardHelp.style.fontSize = '12px';
-      wildcardHelp.style.color = THEME.muted;
+      const wildcardHelp = document.createElement('p');
+      wildcardHelp.classList?.add(UI_CLASSES.helperText);
+      wildcardHelp.textContent = 'Use * to match any characters. Use \\* for a literal asterisk. Rules are checked top to bottom, and the first match wins.';
       wildcardSection.appendChild(wildcardHelp);
 
       const wildcardForm = document.createElement('div');
-      wildcardForm.style.display = 'grid';
-      wildcardForm.style.gridTemplateColumns = '2fr 1fr auto';
-      wildcardForm.style.gap = '8px';
-      wildcardForm.style.alignItems = 'center';
+      wildcardForm.classList?.add(UI_CLASSES.responsiveGridThree);
 
       const patternInput = document.createElement('input');
       patternInput.type = 'text';
-      patternInput.placeholder = 'e.g., STARBUCKS* or *GRAB*';
-      patternInput.style.padding = '6px 8px';
-      patternInput.style.borderRadius = '6px';
-      patternInput.style.border = `1px solid ${THEME.border}`;
-      patternInput.style.background = THEME.surface;
-      patternInput.style.color = THEME.text;
+      patternInput.placeholder = 'e.g. STARBUCKS* or *GRAB*';
+      patternInput.classList?.add(UI_CLASSES.input);
 
       const categorySelect = document.createElement('select');
-      categorySelect.style.padding = '6px 8px';
-      categorySelect.style.borderRadius = '6px';
-      categorySelect.style.border = `1px solid ${THEME.border}`;
-      categorySelect.style.background = THEME.surface;
-      categorySelect.style.color = THEME.text;
+      categorySelect.classList?.add(UI_CLASSES.input);
 
       const options = getMappingOptions(cardSettings, cardSettings.defaultCategory);
       options.forEach((category) => {
@@ -5070,192 +5522,178 @@
 
       const addButton = document.createElement('button');
       addButton.type = 'button';
-      addButton.textContent = 'Add';
-      addButton.style.padding = '6px 12px';
-      addButton.style.borderRadius = '6px';
-      addButton.style.border = `1px solid ${THEME.accent}`;
-      addButton.style.background = THEME.accent;
-      addButton.style.color = '#ffffff';
-      addButton.style.fontSize = '13px';
-      addButton.style.fontWeight = '600';
-      addButton.style.cursor = 'pointer';
+      addButton.textContent = 'Add rule';
+      addButton.classList?.add(UI_CLASSES.primaryButton);
 
-      // Status message element
+      const wildcardHint = document.createElement('p');
+      wildcardHint.classList?.add(UI_CLASSES.helperText);
+      wildcardHint.style.gridColumn = '1 / -1';
+      wildcardHint.textContent = 'Use exact merchant rules below when you only want to change one merchant.';
+
       const statusMessage = document.createElement('div');
+      statusMessage.classList?.add(UI_CLASSES.status, UI_CLASSES.hidden);
       statusMessage.style.gridColumn = '1 / -1';
-      statusMessage.style.fontSize = '12px';
-      statusMessage.style.padding = '6px 8px';
-      statusMessage.style.borderRadius = '6px';
-      statusMessage.style.display = 'none';
-      statusMessage.style.marginTop = '4px';
 
       const showStatus = (message, isSuccess) => {
-        statusMessage.textContent = message;
-        statusMessage.style.display = 'block';
-        statusMessage.style.background = isSuccess ? THEME.successSoft : THEME.errorSoft;
-        statusMessage.style.color = isSuccess ? THEME.success : THEME.errorText;
-        statusMessage.style.border = `1px solid ${isSuccess ? THEME.successBorder : THEME.errorBorder}`;
-        setTimeout(() => {
-          statusMessage.style.display = 'none';
-        }, 3000);
+        setStatusMessage(statusMessage, message, isSuccess ? 'success' : 'warning');
+        window.setTimeout(() => {
+          if (statusMessage.textContent === message) {
+            setStatusMessage(statusMessage, '');
+          }
+        }, 4000);
       };
+
+      const updateWildcardActionState = () => {
+        const pattern = patternInput.value.trim();
+        const existingCategory = pattern ? merchantMap[pattern] : '';
+        addButton.textContent = existingCategory ? 'Update rule' : 'Add rule';
+        if (!pattern) {
+          wildcardHint.textContent = 'Use exact merchant rules below when you only want to change one merchant.';
+          return;
+        }
+        if (!hasUnescapedWildcard(pattern)) {
+          wildcardHint.textContent = 'No wildcard detected. Use the exact merchant lists below for one specific merchant.';
+          return;
+        }
+        if (existingCategory) {
+          wildcardHint.textContent = `Existing rule currently maps to ${existingCategory}. Saving will replace it.`;
+          return;
+        }
+        wildcardHint.textContent = 'Keep wildcard rules as specific as possible so they do not swallow unrelated merchants.';
+      };
+
+      patternInput.addEventListener?.('input', updateWildcardActionState);
+      categorySelect.addEventListener('change', updateWildcardActionState);
 
       addButton.addEventListener('click', () => {
         const pattern = patternInput.value.trim();
         const category = categorySelect.value;
-        
+        const literalChars = pattern.replaceAll('\\*', '').replaceAll('*', '').trim();
+
         if (!pattern) {
-          patternInput.style.borderColor = THEME.error;
-          showStatus('Please enter a pattern', false);
+          showStatus('Enter a wildcard rule first.', false);
           return;
         }
-        
-        // Reset border color
-        patternInput.style.borderColor = THEME.border;
-        
-        // Initialize merchantMap if it doesn't exist
-        if (!cardSettings.merchantMap) {
-          cardSettings.merchantMap = {};
+        if (!hasUnescapedWildcard(pattern)) {
+          showStatus('Wildcard rules need at least one unescaped * character.', false);
+          return;
         }
-        
-        if (cardSettings.merchantMap[pattern]) {
-          if (!confirm(`Pattern "${pattern}" already exists. Overwrite?`)) {
-            return;
-          }
+        if (literalChars.length < 2) {
+          showStatus('Wildcard rule is too broad. Add at least 2 non-* characters.', false);
+          return;
         }
-        
+
+        const existingCategory = merchantMap[pattern];
         onChange((nextSettings) => {
           if (!nextSettings.merchantMap) {
             nextSettings.merchantMap = {};
           }
           nextSettings.merchantMap[pattern] = category;
         });
-        
+
         patternInput.value = '';
-        showStatus(`✓ Added: ${pattern} → ${category}`, true);
+        updateWildcardActionState();
+        showStatus(
+          existingCategory
+            ? `Updated wildcard rule: ${pattern} → ${category}`
+            : `Added wildcard rule: ${pattern} → ${category}`,
+          true
+        );
       });
 
       wildcardForm.appendChild(patternInput);
       wildcardForm.appendChild(categorySelect);
       wildcardForm.appendChild(addButton);
+      wildcardForm.appendChild(wildcardHint);
       wildcardForm.appendChild(statusMessage);
       wildcardSection.appendChild(wildcardForm);
-      
-      // Show existing wildcard patterns
-      const wildcardPatterns = Object.entries(cardSettings.merchantMap || {})
-        .filter(([pattern]) => hasUnescapedWildcard(pattern) && !knownMerchants.has(pattern))
-        .sort((a, b) => a[0].localeCompare(b[0]));
-      
+
       if (wildcardPatterns.length > 0) {
         const existingTitle = document.createElement('div');
-        existingTitle.textContent = 'Existing Wildcard Patterns';
+        existingTitle.textContent = `Saved wildcard rules (${wildcardPatterns.length})`;
         existingTitle.style.fontWeight = '600';
         existingTitle.style.color = THEME.accent;
         wildcardSection.appendChild(existingTitle);
-        
+
         const patternList = document.createElement('div');
-        patternList.style.display = 'flex';
-        patternList.style.flexDirection = 'column';
-        patternList.style.gap = '6px';
-        
-        wildcardPatterns.forEach(([pattern, category]) => {
+        patternList.classList?.add(UI_CLASSES.stackTight);
+
+        wildcardPatterns.forEach(([pattern, category], index) => {
           const patternRow = document.createElement('div');
-          patternRow.style.display = 'grid';
-          patternRow.style.gridTemplateColumns = '2fr 1fr auto';
-          patternRow.style.gap = '8px';
-          patternRow.style.alignItems = 'center';
-          patternRow.style.padding = '6px';
-          patternRow.style.background = THEME.surface;
-          patternRow.style.borderRadius = '6px';
-          patternRow.style.border = `1px solid ${THEME.border}`;
-          
+          patternRow.classList?.add(UI_CLASSES.section, UI_CLASSES.sectionPanel, UI_CLASSES.responsiveGridThree);
+
           const patternLabel = document.createElement('div');
-          patternLabel.textContent = pattern;
           patternLabel.style.wordBreak = 'break-word';
-          patternLabel.style.fontFamily = 'monospace';
-          
+          patternLabel.innerHTML = `<span class="${UI_CLASSES.badge}">Priority ${index + 1}</span> <span class="${UI_CLASSES.code}">${escapeHtml(pattern)}</span>`;
+
           const categoryLabel = document.createElement('div');
           categoryLabel.textContent = category;
           categoryLabel.style.color = THEME.muted;
-          
+
           const deleteButton = document.createElement('button');
           deleteButton.type = 'button';
           deleteButton.textContent = 'Delete';
-          deleteButton.style.padding = '4px 8px';
-          deleteButton.style.borderRadius = '4px';
-          deleteButton.style.border = `1px solid ${THEME.errorBorder}`;
-          deleteButton.style.background = THEME.errorSoft;
-          deleteButton.style.color = THEME.errorText;
-          deleteButton.style.fontSize = '12px';
-          deleteButton.style.fontWeight = '600';
-          deleteButton.style.cursor = 'pointer';
-          
+          deleteButton.classList?.add(UI_CLASSES.secondaryButton);
+
           deleteButton.addEventListener('click', () => {
-            if (!confirm(`Delete wildcard pattern "${pattern}"? This will remove the categorization rule.`)) {
+            if (!confirm(`Delete wildcard rule "${pattern}"? This removes the rule immediately.`)) {
               return;
             }
             onChange((nextSettings) => {
               delete nextSettings.merchantMap?.[pattern];
             });
           });
-          
+
           patternRow.appendChild(patternLabel);
           patternRow.appendChild(categoryLabel);
           patternRow.appendChild(deleteButton);
           patternList.appendChild(patternRow);
         });
-        
+
         wildcardSection.appendChild(patternList);
       }
-      
+
       container.appendChild(wildcardSection);
 
       const wildcardDivider = document.createElement('div');
-      wildcardDivider.classList.add(UI_CLASSES.divider);
+      wildcardDivider.classList?.add(UI_CLASSES.divider);
       container.appendChild(wildcardDivider);
 
-      // Add title and mass categorization button
       const uncategorizedHeader = document.createElement('div');
-      uncategorizedHeader.style.display = 'flex';
-      uncategorizedHeader.style.justifyContent = 'space-between';
-      uncategorizedHeader.style.alignItems = 'center';
-      
+      uncategorizedHeader.classList?.add(UI_CLASSES.toolbar);
+
       const uncategorizedTitle = document.createElement('div');
-      uncategorizedTitle.textContent = 'Transactions to categorize';
+      uncategorizedTitle.textContent = `Merchants needing review (${uncategorized.length})`;
       uncategorizedTitle.style.fontWeight = '600';
       uncategorizedTitle.style.color = THEME.accent;
-      
+
       const massActionButton = document.createElement('button');
       massActionButton.type = 'button';
-      massActionButton.textContent = `Categorize all as default (${uncategorized.length})`;
-      massActionButton.style.padding = '6px 12px';
-      massActionButton.style.borderRadius = '6px';
-      massActionButton.style.border = `1px solid ${THEME.accent}`;
-      massActionButton.style.background = THEME.accent;
-      massActionButton.style.color = '#ffffff';
-      massActionButton.style.fontSize = '12px';
-      massActionButton.style.fontWeight = '600';
-      massActionButton.style.cursor = 'pointer';
-      massActionButton.style.opacity = uncategorized.length > 0 ? '1' : '0.5';
+      massActionButton.textContent = `Set all to default (${cardSettings.defaultCategory})`;
+      massActionButton.classList?.add(UI_CLASSES.primaryButton);
       massActionButton.disabled = uncategorized.length === 0;
-      
+
       massActionButton.addEventListener('click', () => {
         if (uncategorized.length === 0) {
           return;
         }
-        
+
         onChange((nextSettings) => {
           uncategorized.forEach((merchant) => {
             nextSettings.merchantMap[merchant] = nextSettings.defaultCategory;
           });
         });
       });
-      
+
       uncategorizedHeader.appendChild(uncategorizedTitle);
       uncategorizedHeader.appendChild(massActionButton);
       container.appendChild(uncategorizedHeader);
 
-      // Render uncategorized merchants (without title since we added it above)
+      const uncategorizedHelp = document.createElement('p');
+      uncategorizedHelp.classList?.add(UI_CLASSES.helperText);
+      uncategorizedHelp.textContent = 'These merchants are not yet covered by an exact or wildcard rule in your local settings.';
+      container.appendChild(uncategorizedHelp);
+
       const uncategorizedSection = document.createElement('div');
       if (!uncategorized.length) {
         const empty = document.createElement('div');
@@ -5264,26 +5702,21 @@
         uncategorizedSection.appendChild(empty);
       } else {
         const table = document.createElement('div');
-        table.style.display = 'grid';
-        table.style.gridTemplateColumns = '2fr 1fr';
-        table.style.gap = '8px 12px';
+        table.classList?.add(UI_CLASSES.merchantTable);
 
         uncategorized.forEach((merchant) => {
           const label = document.createElement('div');
-          label.textContent = merchant;
+          const seenCount = merchantCounts.get(merchant) || 0;
+          label.textContent = `${merchant} (${seenCount} loaded)`;
           label.style.wordBreak = 'break-word';
 
           const select = document.createElement('select');
-          select.style.padding = '6px 8px';
-          select.style.borderRadius = '6px';
-          select.style.border = `1px solid ${THEME.border}`;
-          select.style.background = THEME.surface;
-          select.style.color = THEME.text;
+          select.classList?.add(UI_CLASSES.input);
 
-          const currentValue = cardSettings.merchantMap[merchant] || cardSettings.defaultCategory;
-          const options = getMappingOptions(cardSettings, currentValue);
+          const currentValue = merchantMap[merchant] || cardSettings.defaultCategory;
+          const nextOptions = getMappingOptions(cardSettings, currentValue);
 
-          options.forEach((category) => {
+          nextOptions.forEach((category) => {
             const option = document.createElement('option');
             option.value = category;
             option.textContent = category;
@@ -5291,7 +5724,6 @@
           });
 
           select.value = currentValue;
-
           select.addEventListener('change', () => {
             const value = select.value;
             onChange((nextSettings) => {
@@ -5302,46 +5734,47 @@
           table.appendChild(label);
           table.appendChild(select);
         });
-        
+
         uncategorizedSection.appendChild(table);
       }
       container.appendChild(uncategorizedSection);
 
       const divider = document.createElement('div');
-      divider.classList.add(UI_CLASSES.divider);
+      divider.classList?.add(UI_CLASSES.divider);
       container.appendChild(divider);
 
       renderMerchantSection(
         container,
-        'Categorized',
-        categorized,
+        `Exact merchant rules (${exactMappings.length})`,
+        exactMappings,
         cardSettings,
+        merchantCounts,
         onChange
       );
     }
 
     function renderManageView(container, data, storedTransactions, cardSettings, cardConfig, onChange) {
       container.innerHTML = '';
-      container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
+      container.classList?.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
 
       const notice = document.createElement('div');
-      notice.classList.add(UI_CLASSES.notice);
+      notice.classList?.add(UI_CLASSES.notice);
       notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       const selectorsSection = document.createElement('div');
-      selectorsSection.classList.add(UI_CLASSES.stack);
+      selectorsSection.classList?.add(UI_CLASSES.stack);
 
       renderCategorySelectors(selectorsSection, cardSettings, cardConfig, onChange);
       renderDefaultCategory(selectorsSection, cardSettings, onChange);
 
       const summarySection = document.createElement('div');
       summarySection.id = UI_IDS.summaryContent;
-      summarySection.classList.add(UI_CLASSES.section);
+      summarySection.classList?.add(UI_CLASSES.section);
 
       renderSummary(summarySection, data, cardSettings);
 
       const mappingSection = document.createElement('div');
-      mappingSection.classList.add(UI_CLASSES.section, UI_CLASSES.stack);
+      mappingSection.classList?.add(UI_CLASSES.section, UI_CLASSES.stack);
 
       renderMerchantMapping(
         mappingSection,
@@ -5358,10 +5791,10 @@
 
     function createSpendDetailsToggle() {
       const details = document.createElement('details');
-      details.classList.add(UI_CLASSES.section, UI_CLASSES.sectionAccent, UI_CLASSES.spendDetailsToggle);
+      details.classList?.add(UI_CLASSES.section, UI_CLASSES.sectionAccent, UI_CLASSES.spendDetailsToggle);
       const summary = document.createElement('summary');
       const chevron = document.createElement('span');
-      chevron.classList.add(UI_CLASSES.spendChevron);
+      chevron.classList?.add(UI_CLASSES.spendChevron);
       chevron.setAttribute('aria-hidden', 'true');
       const summaryText = document.createElement('span');
       summaryText.textContent = 'View transactions';
@@ -5373,20 +5806,20 @@
 
     function renderSpendingView(container, storedTransactions, cardSettings, cardName, capPolicy = activeCapPolicy) {
       container.innerHTML = '';
-      container.classList.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
+      container.classList?.add(UI_CLASSES.tab, UI_CLASSES.stackLoose);
       const normalizedPolicy = normalizeCapPolicy(capPolicy);
       const cardCapPolicy = getCardCapPolicy(cardName, normalizedPolicy);
 
       const title = document.createElement('div');
-      title.classList.add(UI_CLASSES.title);
-      title.textContent = 'Spend Totals (Last 3 Calendar Months)';
+      title.classList?.add(UI_CLASSES.title);
+      title.textContent = 'Stored posting-month totals';
 
       const subtitle = document.createElement('div');
-      subtitle.classList.add(UI_CLASSES.small);
-      subtitle.textContent = 'Grouped by posting month using local stored transactions.';
+      subtitle.classList?.add(UI_CLASSES.small);
+      subtitle.textContent = 'Shows posting months saved on this device. Completeness depends on how many rows you have loaded on the bank site over time.';
 
       const notice = document.createElement('div');
-      notice.classList.add(UI_CLASSES.notice);
+      notice.classList?.add(UI_CLASSES.notice);
       notice.innerHTML = TRANSACTION_LOADING_NOTICE;
 
       container.appendChild(title);
@@ -5409,7 +5842,7 @@
 
       if (!months.length) {
         const empty = document.createElement('div');
-        empty.classList.add(UI_CLASSES.meta);
+        empty.classList?.add(UI_CLASSES.meta);
         empty.textContent = 'No stored transactions yet.';
         container.appendChild(empty);
         return;
@@ -5438,19 +5871,19 @@
         const categoryOrder = getCategoryDisplayOrder(cardSettings, Object.keys(grouped));
 
         const card = document.createElement('div');
-        card.classList.add(UI_CLASSES.card, UI_CLASSES.stack);
+        card.classList?.add(UI_CLASSES.card, UI_CLASSES.stack);
         const monthHeader = document.createElement('div');
-        monthHeader.classList.add(UI_CLASSES.spendMonthHeader);
+        monthHeader.classList?.add(UI_CLASSES.spendMonthHeader);
 
         const monthLabel = document.createElement('div');
         monthLabel.textContent = formatMonthLabel(monthKey);
 
         const totalPill = document.createElement('div');
-        totalPill.classList.add(UI_CLASSES.spendMonthTotal);
+        totalPill.classList?.add(UI_CLASSES.spendMonthTotal);
         totalPill.textContent = `Total ${monthTotalAmount.toFixed(2)}`;
         if (cardCapPolicy.mode === 'combined' && cardCapPolicy.cap > 0) {
           const severity = getCapSeverity(monthTotalAmount, cardCapPolicy.cap, normalizedPolicy);
-          totalPill.classList.add(UI_CLASSES.spendCapBadge);
+          totalPill.classList?.add(UI_CLASSES.spendCapBadge);
           totalPill.textContent = `Total ${monthTotalAmount.toFixed(2)} / ${cardCapPolicy.cap.toFixed(0)}`;
           applyCapToneStyles(totalPill, severity, normalizedPolicy, true);
         }
@@ -5460,13 +5893,13 @@
         card.appendChild(monthHeader);
 
         const totalsList = document.createElement('div');
-        totalsList.classList.add(UI_CLASSES.spendTotalsList);
+        totalsList.classList?.add(UI_CLASSES.spendTotalsList);
         categoryOrder.forEach((category) => {
           const value = monthData.totals?.[category] || 0;
           const label = document.createElement('div');
           label.textContent = category;
           const amountWrap = document.createElement('div');
-          amountWrap.classList.add(UI_CLASSES.spendAmountWrap);
+          amountWrap.classList?.add(UI_CLASSES.spendAmountWrap);
           const amount = document.createElement('span');
           amount.textContent = value.toFixed(2);
           amountWrap.appendChild(amount);
@@ -5490,7 +5923,7 @@
             return;
           }
           const categoryHeader = document.createElement('div');
-          categoryHeader.classList.add(UI_CLASSES.spendMonthHeader);
+          categoryHeader.classList?.add(UI_CLASSES.spendMonthHeader);
           const categoryLabel = document.createElement('strong');
           categoryLabel.textContent = category;
           const categoryTotal = document.createElement('strong');
@@ -5500,7 +5933,7 @@
           details.appendChild(categoryHeader);
 
           const table = document.createElement('div');
-          table.classList.add(UI_CLASSES.spendDetailsTable);
+          table.classList?.add(UI_CLASSES.spendDetailsTable);
           ['Merchant', 'Posting Date', 'Amount'].forEach((header) => {
             const headerNode = document.createElement('strong');
             headerNode.textContent = header;
@@ -5594,6 +6027,7 @@
     ) {
       ensureUiStyles(THEME);
       let overlay = document.getElementById(UI_IDS.overlay);
+      let panel;
       let manageContent;
       let spendContent;
       let syncContent;
@@ -5603,57 +6037,56 @@
       if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = UI_IDS.overlay;
-        overlay.classList.add(UI_CLASSES.overlay, UI_CLASSES.hidden);
+        overlay.classList?.add(UI_CLASSES.overlay, UI_CLASSES.hidden);
         overlay.addEventListener('click', (event) => {
           if (event.target === overlay) {
-            overlay.classList.add(UI_CLASSES.hidden);
+            overlay.classList?.add(UI_CLASSES.hidden);
           }
         });
 
-        const panel = document.createElement('div');
-        panel.classList.add(UI_CLASSES.panel);
+        panel = document.createElement('div');
+        panel.classList?.add(UI_CLASSES.panel);
 
         const header = document.createElement('div');
-        header.classList.add(UI_CLASSES.panelHeader);
+        header.classList?.add(UI_CLASSES.panelHeader);
 
         const title = document.createElement('div');
         title.textContent = 'Subcap Tools';
-        title.classList.add(UI_CLASSES.title);
+        title.classList?.add(UI_CLASSES.title);
 
         const closeButton = document.createElement('button');
         closeButton.id = UI_IDS.close;
         closeButton.type = 'button';
         closeButton.textContent = 'Close';
-        closeButton.classList.add(UI_CLASSES.closeButton);
+        closeButton.classList?.add(UI_CLASSES.closeButton);
         closeButton.addEventListener('click', () => {
-          overlay.classList.add(UI_CLASSES.hidden);
+          overlay.classList?.add(UI_CLASSES.hidden);
         });
 
         header.appendChild(title);
         header.appendChild(closeButton);
 
         const tabs = document.createElement('div');
-        tabs.classList.add(UI_CLASSES.tabs);
+        tabs.classList?.add(UI_CLASSES.tabs);
 
         const tabManage = document.createElement('button');
         tabManage.id = UI_IDS.tabManage;
         tabManage.type = 'button';
         tabManage.textContent = 'Manage Transactions';
-        tabManage.classList.add(UI_CLASSES.tabButton);
+        tabManage.classList?.add(UI_CLASSES.tabButton);
         tabManage.addEventListener('click', () => switchTab('manage'));
 
         const tabSpend = document.createElement('button');
         tabSpend.id = UI_IDS.tabSpend;
         tabSpend.type = 'button';
         tabSpend.textContent = 'Spend Totals';
-        tabSpend.classList.add(UI_CLASSES.tabButton);
+        tabSpend.classList?.add(UI_CLASSES.tabButton);
         tabSpend.addEventListener('click', () => switchTab('spend'));
 
         const tabSync = document.createElement('button');
         tabSync.id = UI_IDS.tabSync;
         tabSync.type = 'button';
-        tabSync.textContent = 'Sync';
-        tabSync.classList.add(UI_CLASSES.tabButton);
+        tabSync.classList?.add(UI_CLASSES.tabButton);
         tabSync.addEventListener('click', () => switchTab('sync'));
 
         tabs.appendChild(tabSpend);
@@ -5664,15 +6097,17 @@
         privacyNotice.textContent =
           'Privacy: data stays in your browser (Tampermonkey storage/localStorage). ' +
           'No remote logging. Synced payload contains only settings and monthly totals.';
-        privacyNotice.classList.add(UI_CLASSES.small);
+        privacyNotice.classList?.add(UI_CLASSES.small);
+
+        const syncSummary = buildSyncSummaryBanner(syncManager, cardName, THEME);
 
         manageContent = document.createElement('div');
         manageContent.id = UI_IDS.manageContent;
-        manageContent.classList.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
+        manageContent.classList?.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
         spendContent = document.createElement('div');
         spendContent.id = UI_IDS.spendContent;
-        spendContent.classList.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
+        spendContent.classList?.add(UI_CLASSES.stackLoose, UI_CLASSES.hidden);
 
         syncContent = createSyncTab(
           syncManager,
@@ -5684,17 +6119,19 @@
           applyResolvedCardSettingsToLocalStore
         );
         syncContent.id = UI_IDS.syncContent;
-        syncContent.classList.add(UI_CLASSES.hidden);
+        syncContent.classList?.add(UI_CLASSES.hidden);
 
         panel.appendChild(header);
         panel.appendChild(tabs);
         panel.appendChild(privacyNotice);
+        panel.appendChild(syncSummary);
         panel.appendChild(manageContent);
         panel.appendChild(spendContent);
         panel.appendChild(syncContent);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
       } else {
+        panel = overlay?.children?.[0] || null;
         manageContent = document.getElementById(UI_IDS.manageContent);
         spendContent = document.getElementById(UI_IDS.spendContent);
         syncContent = document.getElementById(UI_IDS.syncContent);
@@ -5737,6 +6174,22 @@
         );
         nextSyncContent.id = UI_IDS.syncContent;
         syncContent.replaceWith(nextSyncContent);
+      }
+
+      const syncTabButton = document.getElementById(UI_IDS.tabSync);
+      const syncSummaryState = getSyncSummaryState(syncManager, cardName);
+      if (syncTabButton) {
+        syncTabButton.textContent = syncSummaryState.tabLabel;
+        syncTabButton.title = syncSummaryState.detail;
+      }
+      const existingSyncSummary = document.getElementById(UI_IDS.syncSummary);
+      const nextSyncSummary = buildSyncSummaryBanner(syncManager, cardName, THEME);
+      if (existingSyncSummary && typeof existingSyncSummary.replaceWith === 'function') {
+        existingSyncSummary.replaceWith(nextSyncSummary);
+      } else if (panel && manageContent && typeof panel.insertBefore === 'function') {
+        panel.insertBefore(nextSyncSummary, manageContent);
+      } else if (panel && typeof panel.appendChild === 'function') {
+        panel.appendChild(nextSyncSummary);
       }
 
       if (shouldShow || wasVisible) {

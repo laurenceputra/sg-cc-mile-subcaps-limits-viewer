@@ -120,6 +120,27 @@ describe('ApiClient', () => {
     );
   });
 
+  it('request falls back to backend error field when message is absent', async () => {
+    globalThis.GM_xmlhttpRequest = undefined;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      text: async () => '{"error":"Registration failed"}'
+    });
+
+    const client = new exports.ApiClient('https://example.com');
+    await assert.rejects(
+      () => client.request('/auth/register', { method: 'POST' }),
+      (error) => {
+        assert.equal(error.message, 'Registration failed');
+        assert.equal(error.status, 400);
+        assert.deepEqual(error.responseData, { error: 'Registration failed' });
+        return true;
+      }
+    );
+  });
+
   it('request returns data and sends auth header', async () => {
     globalThis.GM_xmlhttpRequest = undefined;
     let capturedHeaders = null;

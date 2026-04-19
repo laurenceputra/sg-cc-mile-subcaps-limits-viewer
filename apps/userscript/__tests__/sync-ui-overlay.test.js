@@ -49,13 +49,29 @@ function makeElement(tag, doc) {
       if (doc) doc._register(child);
       return child;
     },
+    insertBefore(child, beforeChild) {
+      const index = this.children.indexOf(beforeChild);
+      if (index === -1) {
+        this.children.push(child);
+      } else {
+        this.children.splice(index, 0, child);
+      }
+      if (doc) doc._register(child);
+      return child;
+    },
     setAttribute(name, value) {
+      this[name] = value;
       if (name === 'id') {
         this.id = value;
         if (doc) doc._register(this);
       }
     },
-    removeAttribute() {},
+    getAttribute(name) {
+      return this[name];
+    },
+    removeAttribute(name) {
+      delete this[name];
+    },
     addEventListener(event, handler) {
       this._events[event] = handler;
     },
@@ -74,7 +90,8 @@ function makeElement(tag, doc) {
     },
     querySelectorAll() {
       return [];
-    }
+    },
+    focus() {}
   };
   return element;
 }

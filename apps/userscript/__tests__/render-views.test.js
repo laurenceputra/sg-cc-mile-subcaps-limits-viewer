@@ -71,7 +71,7 @@ describe('rendered views', () => {
     const texts = [];
     container.children.forEach((child) => collectText(child, texts));
     const joined = texts.join(' ');
-    assert.match(joined, /Totals in Statement Month/, 'summary should show totals heading');
+    assert.match(joined, /Statement-month totals from currently loaded rows/, 'summary should show totals heading');
     assert.match(joined, /Dining/, 'summary should list Dining category');
     assert.match(joined, /10\.00/, 'summary should show formatted amount');
     assert.match(joined, /Total/, 'summary should show Total label');
@@ -108,7 +108,7 @@ describe('rendered views', () => {
     const filledTexts = [];
     container2.children.forEach((child) => collectText(child, filledTexts));
     const filledJoined = filledTexts.join(' ');
-    assert.match(filledJoined, /Spend Totals/, 'populated view should show spend totals heading');
+    assert.match(filledJoined, /Stored posting-month totals/, 'populated view should show spend totals heading');
     assert.match(filledJoined, /Total 15\.00/, 'populated view should show combined total');
   });
 });

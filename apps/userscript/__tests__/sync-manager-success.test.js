@@ -65,7 +65,11 @@ describe('SyncManager success paths', () => {
         this.cryptoManager = {};
         this.syncEngine = {};
       };
-      exports.SyncClient.prototype.login = async () => { throw new Error('bad login'); };
+      exports.SyncClient.prototype.login = async () => {
+        const error = new Error('invalid credentials');
+        error.status = 401;
+        throw error;
+      };
       exports.SyncClient.prototype.register = async () => {
         registerCalls += 1;
         return { token: 'tok-register', tier: 'free' };
