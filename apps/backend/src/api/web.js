@@ -105,10 +105,21 @@ const BASE_STYLES = `
     display: flex;
     gap: 12px;
     margin-top: 18px;
+    flex-wrap: wrap;
   }
   .status {
     margin-top: 12px;
     font-size: 14px;
+  }
+  .notice {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 14px;
+    line-height: 1.5;
   }
   .status.error {
     color: #b00020;
@@ -192,6 +203,26 @@ const BASE_STYLES = `
   .month-title {
     font-weight: 600;
   }
+  @media (max-width: 640px) {
+    .container {
+      margin: 16px;
+      padding: 20px 16px;
+      border-radius: 10px;
+    }
+    .actions {
+      flex-direction: column;
+    }
+    .actions > button {
+      width: 100%;
+    }
+    .totals-header,
+    .month-header,
+    .totals-row {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 6px;
+    }
+  }
 `;
 
 function createNonce() {
@@ -245,6 +276,7 @@ web.get('/login', (c) => {
     <div class="container">
       <h1>Sync Login</h1>
       <p class="muted">Use the same email and password used for userscript sync.</p>
+      <div class="notice">This dashboard only decrypts synced monthly totals in your browser. Raw transactions stay in the userscript on each device.</div>
       <form id="login-form">
         <label for="email">Email</label>
         <input id="email" name="email" type="email" autocomplete="username" required>
@@ -362,6 +394,9 @@ web.get('/login', (c) => {
       function setLoading(isLoading) {
         button.disabled = isLoading;
         button.textContent = isLoading ? 'Signing in...' : 'Login';
+        button.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+        document.getElementById('email').disabled = isLoading;
+        document.getElementById('password').disabled = isLoading;
       }
 
       function base64ToArrayBuffer(base64) {
@@ -478,12 +513,20 @@ web.get('/login', (c) => {
             body: JSON.stringify({ email, passwordHash })
           });
 
+          const data = await response.json().catch(() => null);
           if (!response.ok) {
-            setStatus('Login failed. Check your credentials and try again.', 'error');
+            const backendError = typeof data?.error === 'string' ? data.error : '';
+            if (response.status === 401) {
+              setStatus('Incorrect email or password.', 'error');
+            } else if (response.status === 429) {
+              setStatus('Too many login attempts. Wait a bit, then try again.', 'error');
+            } else if (backendError) {
+              setStatus('Login failed: ' + backendError, 'error');
+            } else {
+              setStatus('Login failed. Check your credentials and try again.', 'error');
+            }
             return;
           }
-
-          const data = await response.json();
           if (!data || !data.token) {
             setStatus('Login failed. Try again.', 'error');
             return;
@@ -502,7 +545,7 @@ web.get('/login', (c) => {
           }
           window.location.assign('/dashboard');
         } catch (error) {
-          setStatus('Login failed. Please retry.', 'error');
+          setStatus('Unable to reach the sync service. Check your connection and try again.', 'error');
         } finally {
           setLoading(false);
         }
@@ -525,6 +568,7 @@ web.get('/dashboard', (c) => {
     <div class="container">
       <h1>Dashboard</h1>
       <p class="muted">Supported cards: ${CARD_NAME}, XL Rewards Card</p>
+      <div class="notice">Data scope: synced monthly totals only. Raw transactions stay local to the userscript, and this dashboard shows the 2 most recent posting months per card.</div>
       <div class="totals">
         <div id="totals-list"></div>
         <div id="empty-state" class="muted"></div>
@@ -645,6 +689,7 @@ web.get('/dashboard', (c) => {
       function setLoading(isLoading) {
         refreshButton.disabled = isLoading;
         refreshButton.textContent = isLoading ? 'Refreshing...' : 'Refresh';
+        refreshButton.setAttribute('aria-busy', isLoading ? 'true' : 'false');
       }
 
       function base64ToArrayBuffer(base64) {
@@ -1137,7 +1182,7 @@ web.get('/dashboard', (c) => {
           renderTotals(cards, capPolicy);
           markActive(storage);
         } catch (error) {
-          setStatus('Unable to load dashboard data. Please retry.', 'error');
+          setStatus('Unable to load dashboard data. Try Refresh, or log in again if the session expired.', 'error');
         } finally {
           setLoading(false);
         }
