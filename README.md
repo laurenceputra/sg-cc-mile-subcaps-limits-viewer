@@ -27,7 +27,7 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 3. Open a supported credit card transaction page:
    - UOB PIB (`LADY'S SOLITAIRE CARD`)
    - Maybank2u SG (`XL Rewards Card`) — debit-only rows, with `... SGP` auto-categorized as `Local` (else `Forex`)
-4. Click **Subcap Tools** to view **Spend Totals** and **Sync**.
+4. Click **Subcap Tools** to view **Spend Totals**, **Sync**, and on supported UOB pages **Manage Transactions**.
 
 ## Sync privacy model
 
@@ -42,21 +42,20 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 ## Documentation
 
 **Getting Started:**
-- **User flows and capabilities**: [USER_FLOWS.md](USER_FLOWS.md) - Complete guide to all features
-- **Visual flow diagrams**: [USER_FLOW_DIAGRAMS.md](USER_FLOW_DIAGRAMS.md) - Illustrated workflows
+- Product and feature scope: [spec.md](spec.md)
+- Visual flow diagrams: [USER_FLOW_DIAGRAMS.md](USER_FLOW_DIAGRAMS.md)
+- Userscript install, supported banks/cards, privacy model: [TECHNICAL.md](TECHNICAL.md)
 
 **Technical References:**
 - Userscript technical reference: [TECHNICAL.md](TECHNICAL.md)
-- Sync integration notes: [apps/contracts/sync-api.md](apps/contracts/sync-api.md)
-- Backend deployment: [apps/backend/README.md](apps/backend/README.md)
+- Sync API contract: [apps/contracts/sync-api.md](apps/contracts/sync-api.md)
+- Backend deployment and local development: [apps/backend/README.md](apps/backend/README.md)
 
 **Security & Development:**
-- Security-first workflow: [AGENTS.md](AGENTS.md)
+- Repository workflow and policy: [AGENTS.md](AGENTS.md)
 - Workflow gates (canonical): [docs/workflow/gates.md](docs/workflow/gates.md)
 - Workflow handoff contract: [docs/workflow/handoff-format.md](docs/workflow/handoff-format.md)
 - Skill catalog: [.agents/skills/README.md](.agents/skills/README.md)
-- Crypto security analysis: [CRYPTO_SECURITY_ANALYSIS.md](CRYPTO_SECURITY_ANALYSIS.md)
-- Current status: [PHASES_4B_5_COMPLETE.md](PHASES_4B_5_COMPLETE.md)
 
 ## Testing
 

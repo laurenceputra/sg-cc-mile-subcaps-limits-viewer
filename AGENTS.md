@@ -109,6 +109,6 @@ Locked policy decisions may be overridden only when a hard contradiction cannot 
 
 - `apps/backend/SECURITY.md`
 - `TECHNICAL.md`
-- `PHASES_4B_5_COMPLETE.md`
+- `spec.md`
 
 **Last Updated:** 2026-03-02
