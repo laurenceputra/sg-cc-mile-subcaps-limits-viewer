@@ -153,6 +153,16 @@ describe('parsing and categorization helpers', () => {
       assert.equal(resolveCategory('KrisPay*Paradise', settings), 'Dining');
     });
 
+    it('escaped exact merchant rules do not wildcard-match literal star names', async () => {
+      const { resolveCategory } = await loadExports();
+      const settings = {
+        defaultCategory: 'Others',
+        merchantMap: { 'KrisPay\\*Paradise C Singapore SG': 'Dining' }
+      };
+      assert.equal(resolveCategory('KrisPay*Paradise C Singapore SG', settings), 'Dining');
+      assert.equal(resolveCategory('KrisPayXParadise C Singapore SG', settings), 'Others');
+    });
+
     it('first matching wildcard pattern wins (insertion order)', async () => {
       const { resolveCategory } = await loadExports();
       const settings = {
