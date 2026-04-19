@@ -3273,7 +3273,6 @@
     };
 
     form?.addEventListener?.('submit', submitSetup);
-    saveButton.addEventListener('click', submitSetup);
 
     document.body.appendChild(overlay);
   }

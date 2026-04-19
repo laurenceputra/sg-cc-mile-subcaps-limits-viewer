@@ -197,6 +197,10 @@ function makeTheme() {
   };
 }
 
+async function submitForm(form) {
+  return form._events.submit({ preventDefault() {} });
+}
+
 describe('sync ui + overlay', () => {
   it('showSyncSetupDialog validates fields and completes setup', async () => {
     const doc = makeDocument();

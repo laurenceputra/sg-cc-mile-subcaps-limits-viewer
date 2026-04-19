@@ -44,7 +44,11 @@ function makeElement(tag = 'div') {
     remove: () => {},
     setAttribute: function (key, value) { this.attributes[key] = String(value); },
     removeAttribute: function (key) { delete this.attributes[key]; },
-    addEventListener: function (_event, handler) { this._handler = handler; },
+    addEventListener: function (event, handler) {
+      this._handlers ||= {};
+      this._handlers[event] = handler;
+      this._handler = handler;
+    },
     querySelector: function (selector) { return this._queryMap?.[selector] || null; },
     querySelectorAll: function () { return []; }
   };
@@ -178,6 +182,7 @@ describe('sync UI flows', () => {
     const remember = { checked: true };
     const cancelButton = makeElement('button');
     const saveButton = makeElement('button');
+    const form = makeElement('form');
 
     overlay._queryMap = {
       '#sync-setup-status': statusDiv,
@@ -186,7 +191,8 @@ describe('sync UI flows', () => {
       '#sync-passphrase': passphrase,
       '#sync-remember-unlock-setup': remember,
       '#sync-setup-cancel': cancelButton,
-      '#sync-setup-save': saveButton
+      '#sync-setup-save': saveButton,
+      '#sync-setup-form': form
     };
     documentStub.createElement = () => overlay;
 
@@ -200,13 +206,13 @@ describe('sync UI flows', () => {
     serverUrl.value = '';
     email.value = '';
     passphrase.value = '';
-    await saveButton._handler();
+    await form._handlers.submit({ preventDefault() {} });
     assert.equal(statusDiv.textContent, 'All fields are required.');
 
     serverUrl.value = 'https://example.com';
     email.value = 'a@example.com';
     passphrase.value = 'secret';
-    await saveButton._handler();
+    await form._handlers.submit({ preventDefault() {} });
 
     assert.equal(setupCalled, true);
     assert.equal(overlayNodes.length, 1, 'should append exactly 1 overlay node');

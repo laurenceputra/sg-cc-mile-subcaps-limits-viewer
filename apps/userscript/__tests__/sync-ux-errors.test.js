@@ -38,7 +38,11 @@ function makeElement(tag = 'div') {
     remove: () => {},
     setAttribute: function (key, value) { this.attributes[key] = String(value); },
     removeAttribute: function (key) { delete this.attributes[key]; },
-    addEventListener: function (_event, handler) { this._handler = handler; },
+    addEventListener: function (event, handler) {
+      this._handlers ||= {};
+      this._handlers[event] = handler;
+      this._handler = handler;
+    },
     querySelector: function (selector) { return this._queryMap?.[selector] || null; },
     querySelectorAll: function () { return []; }
   };
@@ -116,6 +120,7 @@ describe('sync UI errors', () => {
     const remember = { checked: true };
     const cancelButton = makeElement('button');
     const saveButton = makeElement('button');
+    const form = makeElement('form');
 
     overlay._queryMap = {
       '#sync-setup-status': setupStatus,
@@ -124,7 +129,8 @@ describe('sync UI errors', () => {
       '#sync-passphrase': passphrase,
       '#sync-remember-unlock-setup': remember,
       '#sync-setup-cancel': cancelButton,
-      '#sync-setup-save': saveButton
+      '#sync-setup-save': saveButton,
+      '#sync-setup-form': form
     };
     documentStub.createElement = () => overlay;
 
@@ -137,12 +143,12 @@ describe('sync UI errors', () => {
     serverUrl.value = 'not-a-url';
     email.value = 'a@example.com';
     passphrase.value = 'secret';
-    await saveButton._handler();
+    await form._handlers.submit({ preventDefault() {} });
     assert.equal(setupCalled, false);
     assert.match(setupStatus.textContent, /Invalid URL|HTTP or HTTPS/, 'should show URL validation error');
 
     serverUrl.value = 'https://example.com';
-    await saveButton._handler();
+    await form._handlers.submit({ preventDefault() {} });
     assert.equal(setupCalled, true);
     assert.equal(setupStatus.textContent, 'Setup failed: nope');
     assert.equal(overlayNodes.length, 1, 'should append exactly 1 overlay node');
