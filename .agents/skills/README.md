@@ -15,6 +15,7 @@ Core skills map directly to a mandatory workflow phase or gate path.
 | security-risk | Running threat/risk analysis and security gate decisions. | [.agents/skills/security-risk/SKILL.md](security-risk/SKILL.md) |
 | documentation | Updating developer/user docs and process docs. | [.agents/skills/documentation/SKILL.md](documentation/SKILL.md) |
 | release-management | Coordinating release readiness for schema/auth/deploy risk. | [.agents/skills/release-management/SKILL.md](release-management/SKILL.md) |
+| bump-versions | Bump repository version fields in lockstep for releases. | [.agents/skills/bump-versions/SKILL.md](bump-versions/SKILL.md) |
 
 ## Situational Skills
 

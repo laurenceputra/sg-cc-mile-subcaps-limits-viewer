@@ -56,7 +56,7 @@ describe('coverage helpers extended', () => {
     assert.equal(unrecognized.reason, 'unrecognized_payload_shape');
   });
 
-  it('toSyncErrorMessage handles payload, crypto, and fallback paths', () => {
+  it('toSyncErrorMessage handles payload, crypto, mapped, and fallback paths', () => {
     const payloadError = new Error('Invalid sync payload structure');
     payloadError.name = 'SyncPayloadError';
     assert.match(exports.toSyncErrorMessage(payloadError), /Remote sync data format/, 'SyncPayloadError should mention remote data format');
@@ -64,6 +64,12 @@ describe('coverage helpers extended', () => {
     const cryptoError = new Error('Operation failed');
     cryptoError.name = 'OperationError';
     assert.match(exports.toSyncErrorMessage(cryptoError), /Unable to decrypt/, 'OperationError should mention decryption failure');
+
+    const networkError = new Error('Network connection failed');
+    assert.match(exports.toSyncErrorMessage(networkError), /Cannot reach the sync server/, 'network errors should be made actionable');
+
+    const credentialError = new Error('Invalid credentials');
+    assert.match(exports.toSyncErrorMessage(credentialError), /Incorrect email or password/, 'credential errors should be clearer');
 
     const plainError = new Error('custom');
     assert.equal(exports.toSyncErrorMessage(plainError, 'fallback'), 'custom');

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bump Versions"
+  short_description: "Bump repository version fields in lockstep"
+  default_prompt: "Bump all version fields in this repo in lockstep by running the bundled version-bump script. Keep the root package.json, workspace package.json files, package-lock.json headers and workspace entries, and userscript @version headers aligned."

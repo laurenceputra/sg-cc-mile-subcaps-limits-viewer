@@ -122,4 +122,43 @@ describe('render helpers', () => {
     assert.equal(cardSettings.merchantMap.STARBUCKS, 'Others');
     assert.equal(cardSettings.merchantMap.GRAB, 'Others');
   });
+
+  it('renderMerchantMapping escapes literal asterisks when saving exact merchant rules', () => {
+    const container = makeContainer();
+    const cardSettings = { defaultCategory: 'Others', merchantMap: {}, transactions: {} };
+    const transactions = [
+      { merchant_detail: 'KrisPay*Paradise C Singapore SG' }
+    ];
+
+    const created = { inputs: [], selects: [], buttons: [] };
+    globalThis.document.createElement = (tag) => {
+      if (tag === 'input') {
+        const input = makeInput();
+        created.inputs.push(input);
+        return input;
+      }
+      if (tag === 'select') {
+        const select = makeSelect();
+        created.selects.push(select);
+        return select;
+      }
+      if (tag === 'button') {
+        const button = makeButton();
+        created.buttons.push(button);
+        return button;
+      }
+      return { style: {}, appendChild: () => {}, classList: { add: () => {} }, textContent: '' };
+    };
+
+    exports.renderMerchantMapping(container, transactions, cardSettings, (updater) => updater(cardSettings));
+
+    assert.ok(created.selects.length >= 2, 'should render wildcard and exact-select controls');
+
+    const exactSelect = created.selects[1];
+    exactSelect.value = 'Dining';
+    exactSelect.trigger();
+
+    assert.equal(cardSettings.merchantMap['KrisPay\\*Paradise C Singapore SG'], 'Dining');
+    assert.equal(Object.prototype.hasOwnProperty.call(cardSettings.merchantMap, 'KrisPay*Paradise C Singapore SG'), false);
+  });
 });

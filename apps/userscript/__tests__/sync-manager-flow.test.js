@@ -62,7 +62,7 @@ describe('SyncManager flows', () => {
 
     const result = await manager.unlockSync('passphrase');
     assert.equal(result.success, false);
-    assert.equal(result.error, 'invalid credentials');
+    assert.equal(result.error, 'Incorrect email or password.');
     assert.equal(result.status, 401);
     assert.equal(result.code, 'invalid_credentials');
     assert.deepEqual(result.responseData, {
@@ -178,6 +178,40 @@ describe('SyncManager flows', () => {
 
     const result = await manager.setupSync('test@example.com', 'pass', 'https://example.com', false);
     assert.equal(result.success, true);
+  });
+
+  it('setupSync preserves the login error when register fallback also fails', async () => {
+    const manager = new exports.SyncManager(makeMemoryStorage());
+    manager.syncClient = null;
+    manager.config = { enabled: false };
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith('/auth/login')) {
+        return {
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          text: async () => JSON.stringify({ error: 'Invalid credentials' })
+        };
+      }
+      if (String(url).endsWith('/auth/register')) {
+        return {
+          ok: false,
+          status: 400,
+          statusText: 'Bad Request',
+          text: async () => JSON.stringify({ error: 'Registration failed' })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({})
+      };
+    };
+
+    const result = await manager.setupSync('test@example.com', 'pass', 'https://example.com', false);
+    assert.equal(result.success, false);
+    assert.match(result.error, /Incorrect email or password/i);
   });
 
   it('sync returns locked error when unlock fails', async () => {
