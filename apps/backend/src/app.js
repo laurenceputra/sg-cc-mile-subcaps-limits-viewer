@@ -62,11 +62,11 @@ export function createApp(rateLimiters) {
     })(c, next);
   });
 
-  // JSON validation middleware
-  app.use('/*', validateJsonMiddleware());
-
   // Global payload size limit
   app.use('/*', rateLimiters.payloadSizeLimitMiddleware());
+
+  // JSON validation middleware
+  app.use('/*', validateJsonMiddleware());
 
   // Health check
   app.get('/', (c) => c.json({ status: 'ok', service: 'bank-cc-sync' }));

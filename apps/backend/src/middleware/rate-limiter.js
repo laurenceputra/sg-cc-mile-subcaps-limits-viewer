@@ -1,27 +1,9 @@
-import { rateLimitConfig } from './rate-limit-config.js';
 import {
   createRateLimiter,
   progressiveDelayMiddleware
 } from './rate-limiter-worker.js';
-
-export function payloadSizeLimitMiddleware() {
-  return async (c, next) => {
-    const contentLength = c.req.header('Content-Length');
-
-    if (contentLength) {
-      const size = parseInt(contentLength, 10);
-
-      if (size > rateLimitConfig.payloadSizeLimit.maxBytes) {
-        return c.json({
-          error: rateLimitConfig.payloadSizeLimit.errorMessage,
-          maxSize: `${rateLimitConfig.payloadSizeLimit.maxBytes / 1024 / 1024}MB`
-        }, 413);
-      }
-    }
-
-    await next();
-  };
-}
+import { rateLimitConfig } from './rate-limit-config.js';
+export { payloadSizeLimitMiddleware } from './payload-size.js';
 
 export { progressiveDelayMiddleware };
 

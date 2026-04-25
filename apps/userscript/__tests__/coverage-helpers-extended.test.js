@@ -80,7 +80,13 @@ describe('coverage helpers extended', () => {
     assert.throws(() => exports.validateServerUrl(''), /required/);
     assert.throws(() => exports.validateServerUrl('not-a-url'), /Invalid URL/);
     assert.throws(() => exports.validateServerUrl('ftp://example.com'), /HTTP or HTTPS/);
+    assert.throws(() => exports.validateServerUrl('http://example.com'), /HTTPS unless/);
+    assert.throws(() => exports.validateServerUrl('http://192.168.0.1:8787'), /HTTPS unless/);
     assert.doesNotThrow(() => exports.validateServerUrl('https://example.com'));
+    assert.doesNotThrow(() => exports.validateServerUrl('https://bank-cc-sync.laurenceputra.workers.dev'));
+    assert.doesNotThrow(() => exports.validateServerUrl('http://localhost:8787'));
+    assert.doesNotThrow(() => exports.validateServerUrl('http://127.0.0.1:8787'));
+    assert.doesNotThrow(() => exports.validateServerUrl('http://[::1]:8787'));
   });
 
 

@@ -154,4 +154,25 @@ describe('Workers security basics', () => {
       await disposeTestDatabase(mf);
     }
   });
+
+  test('rejects oversized JSON before parsing invalid JSON', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv({ ENVIRONMENT: 'production', NODE_ENV: 'production' }), db };
+      const res = await app.fetch(new Request('http://localhost/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CC-Userscript': 'tampermonkey-v1'
+        },
+        body: `{"email":"${'x'.repeat(1024 * 1024)}"`
+      }), env);
+
+      assert.equal(res.status, 413);
+      const data = await res.json();
+      assert.equal(data.error, 'Request payload too large');
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
 });

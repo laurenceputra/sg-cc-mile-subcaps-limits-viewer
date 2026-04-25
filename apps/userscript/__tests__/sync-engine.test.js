@@ -1,35 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports, normalizeValue } from './helpers/load-userscript-exports.js';
-import { makeMemoryStorage } from './helpers/test-doubles.js';
+import { makeMemoryStorage, makeSyncApiClient, makeSyncCrypto } from './helpers/test-doubles.js';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function makeApiClient(overrides = {}) {
-  return {
-    token: null,
-    setToken(t) { this.token = t; },
-    async getSyncData() { return overrides.getSyncData ? overrides.getSyncData() : null; },
-    async putSyncData(data, version) {
-      return overrides.putSyncData ? overrides.putSyncData(data, version) : { version };
-    }
-  };
-}
-
-function makeCrypto(overrides = {}) {
-  return {
-    async decrypt(ciphertext, iv, salt) {
-      if (overrides.decrypt) return overrides.decrypt(ciphertext, iv, salt);
-      // Passthrough: ciphertext is a JSON-stringified object encoded as base64 → return parsed object
-      return JSON.parse(Buffer.from(ciphertext, 'base64').toString('utf8'));
-    },
-    async encrypt(payload) {
-      if (overrides.encrypt) return overrides.encrypt(payload);
-      const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
-      return { ciphertext: encoded, iv: 'test-iv', salt: 'test-salt' };
-    }
-  };
-}
+const makeApiClient = makeSyncApiClient;
+const makeCrypto = makeSyncCrypto;
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
