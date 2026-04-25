@@ -11,24 +11,23 @@
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      bank-cc-sync.laurenceputra.workers.dev
 // @connect      laurenceputra.workers.dev
 // @connect      localhost
+// @connect      127.0.0.1
+// @connect      ::1
 // ==/UserScript==
 
 (function () {
   'use strict';
 
   class StorageAdapter {
-    constructor() {
-      this.useGM = typeof GM_getValue === 'function' && typeof GM_setValue === 'function';
-    }
-
     get(key, fallback = null) {
       try {
-        if (this.useGM) {
+        if (typeof GM_getValue === 'function') {
           return GM_getValue(key, fallback);
         }
       } catch (error) {
@@ -40,7 +39,7 @@
 
     set(key, value) {
       try {
-        if (this.useGM) {
+        if (typeof GM_setValue === 'function') {
           GM_setValue(key, value);
           return;
         }
@@ -52,7 +51,7 @@
 
     remove(key) {
       try {
-        if (this.useGM && typeof GM_deleteValue === 'function') {
+        if (typeof GM_deleteValue === 'function') {
           GM_deleteValue(key);
           return;
         }
@@ -369,9 +368,17 @@
       throw new Error('Invalid URL format');
     }
 
-    const allowedProtocols = ['http:', 'https:'];
-    if (!allowedProtocols.includes(parsed.protocol)) {
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error('Server URL must use HTTP or HTTPS protocol');
+    }
+
+    const isLocalHttpHost =
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '[::1]' ||
+      parsed.hostname === '::1';
+    if (parsed.protocol === 'http:' && !isLocalHttpHost) {
+      throw new Error('Server URL must use HTTPS unless it is localhost or loopback');
     }
   }
 
@@ -2434,10 +2441,10 @@
     return Number.isFinite(date.getTime()) ? date.toLocaleString() : fallback;
   }
 
-  function formatMonthKeyForDisplay(monthKey) {
+  function formatMonthKeyForDisplay(monthKey, fallback = '-') {
     const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
     if (!match) {
-      return String(monthKey || '-');
+      return String(monthKey || fallback);
     }
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthIndex = Number(match[2]) - 1;
@@ -2655,13 +2662,7 @@
         : 'Others';
 
     (Array.isArray(transactions) ? transactions : []).forEach((transaction) => {
-      const monthKey = typeof transaction?.posting_month === 'string'
-        ? transaction.posting_month
-        : (
-            typeof transaction?.posting_date_iso === 'string' && transaction.posting_date_iso.length >= 7
-              ? transaction.posting_date_iso.slice(0, 7)
-              : ''
-          );
+      const monthKey = getTransactionMonthKey(transaction);
       if (!monthKey) {
         return;
       }
@@ -2681,6 +2682,16 @@
     });
 
     return totalsByMonth;
+  }
+
+  function getTransactionMonthKey(transaction) {
+    return typeof transaction?.posting_month === 'string' && transaction.posting_month
+      ? transaction.posting_month
+      : (
+          typeof transaction?.posting_date_iso === 'string' && transaction.posting_date_iso.length >= 7
+            ? transaction.posting_date_iso.slice(0, 7)
+            : ''
+        );
   }
 
   function buildSyncCardSnapshot(cardName, cardSettings, storedTransactions) {
@@ -3669,30 +3680,7 @@
       return fromISODate(entry.posting_date_iso) || parsePostingDate(entry.posting_date);
     }
 
-    const storage = {
-      get(key, fallback) {
-        try {
-          if (typeof GM_getValue === 'function') {
-            return GM_getValue(key, fallback);
-          }
-        } catch (error) {
-          // ignore
-        }
-        const stored = window.localStorage.getItem(key);
-        return stored ?? fallback;
-      },
-      set(key, value) {
-        try {
-          if (typeof GM_setValue === 'function') {
-            GM_setValue(key, value);
-            return;
-          }
-        } catch (error) {
-          // ignore
-        }
-        window.localStorage.setItem(key, value);
-      }
-    };
+    const storage = new StorageAdapter();
 
     // Phase 3: Initialize sync manager
     const syncManager = new SyncManager(storage);
@@ -3802,23 +3790,7 @@
       }
 
       const restoredCard = syncManager.syncClient.syncEngine.sanitizeCardForMerge(remoteCards[cardName]);
-      const nextSettings = loadSettings();
-      const targetCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
-      targetCardSettings.selectedCategories = Array.from({ length: cardConfig.subcapSlots }, (_, index) => {
-        const value = restoredCard.selectedCategories?.[index];
-        return typeof value === 'string' ? value : '';
-      });
-      targetCardSettings.defaultCategory =
-        typeof restoredCard.defaultCategory === 'string' && restoredCard.defaultCategory
-          ? restoredCard.defaultCategory
-          : 'Others';
-      targetCardSettings.merchantMap = isObjectRecord(restoredCard.merchantMap)
-        ? { ...restoredCard.merchantMap }
-        : {};
-      targetCardSettings.monthlyTotals = isObjectRecord(restoredCard.monthlyTotals)
-        ? { ...restoredCard.monthlyTotals }
-        : {};
-      saveSettings(nextSettings);
+      applyCardSettingsToLocalStore(cardName, restoredCard);
 
       syncManager.saveBootstrapRestoreOutcome('restored', {
         markDone: true,
@@ -3832,31 +3804,36 @@
       };
     }
 
-    function applyResolvedCardSettingsToLocalStore(resolvedCardName, resolvedCardSettings) {
-      if (!resolvedCardName || !isObjectRecord(resolvedCardSettings)) {
-        return;
+    function applyCardSettingsToLocalStore(cardNameToApply, cardSettingsToApply) {
+      if (!cardNameToApply || !isObjectRecord(cardSettingsToApply)) {
+        return false;
       }
       const nextSettings = loadSettings();
-      const resolvedCardConfig = CARD_CONFIGS[resolvedCardName];
-      if (!resolvedCardConfig) {
-        return;
+      const configToApply = CARD_CONFIGS[cardNameToApply];
+      if (!configToApply) {
+        return false;
       }
-      const targetCardSettings = ensureCardSettings(nextSettings, resolvedCardName, resolvedCardConfig);
-      targetCardSettings.selectedCategories = Array.from({ length: resolvedCardConfig.subcapSlots }, (_, index) => {
-        const value = resolvedCardSettings.selectedCategories?.[index];
+      const targetCardSettings = ensureCardSettings(nextSettings, cardNameToApply, configToApply);
+      targetCardSettings.selectedCategories = Array.from({ length: configToApply.subcapSlots }, (_, index) => {
+        const value = cardSettingsToApply.selectedCategories?.[index];
         return typeof value === 'string' ? value : '';
       });
       targetCardSettings.defaultCategory =
-        typeof resolvedCardSettings.defaultCategory === 'string' && resolvedCardSettings.defaultCategory
-          ? resolvedCardSettings.defaultCategory
+        typeof cardSettingsToApply.defaultCategory === 'string' && cardSettingsToApply.defaultCategory
+          ? cardSettingsToApply.defaultCategory
           : 'Others';
-      targetCardSettings.merchantMap = isObjectRecord(resolvedCardSettings.merchantMap)
-        ? { ...resolvedCardSettings.merchantMap }
+      targetCardSettings.merchantMap = isObjectRecord(cardSettingsToApply.merchantMap)
+        ? { ...cardSettingsToApply.merchantMap }
         : {};
-      targetCardSettings.monthlyTotals = isObjectRecord(resolvedCardSettings.monthlyTotals)
-        ? { ...resolvedCardSettings.monthlyTotals }
+      targetCardSettings.monthlyTotals = isObjectRecord(cardSettingsToApply.monthlyTotals)
+        ? { ...cardSettingsToApply.monthlyTotals }
         : {};
       saveSettings(nextSettings);
+      return true;
+    }
+
+    function applyResolvedCardSettingsToLocalStore(resolvedCardName, resolvedCardSettings) {
+      applyCardSettingsToLocalStore(resolvedCardName, resolvedCardSettings);
     }
 
     function removeUI(options = {}) {
@@ -5163,54 +5140,11 @@
     }
 
     function formatMonthLabel(monthKey) {
-      const match = String(monthKey).match(/^(\d{4})-(\d{2})$/);
-      if (!match) {
-        return monthKey;
-      }
-      const year = match[1];
-      const monthIndex = Number(match[2]) - 1;
-      const monthNames = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec'
-      ];
-      if (!monthNames[monthIndex]) {
-        return monthKey;
-      }
-      return `${monthNames[monthIndex]} ${year}`;
+      return formatMonthKeyForDisplay(monthKey, monthKey);
     }
 
     function calculateMonthlyTotals(transactions, cardSettings) {
-      const totalsByMonth = {};
-
-      transactions.forEach((transaction) => {
-        if (!transaction.posting_month) {
-          return;
-        }
-        if (typeof transaction.amount_value !== 'number') {
-          return;
-        }
-        const monthKey = transaction.posting_month;
-        if (!totalsByMonth[monthKey]) {
-          totalsByMonth[monthKey] = { totals: {}, total_amount: 0 };
-        }
-        const category =
-          transaction.category || cardSettings.defaultCategory || 'Others';
-        totalsByMonth[monthKey].totals[category] =
-          (totalsByMonth[monthKey].totals[category] || 0) + transaction.amount_value;
-        totalsByMonth[monthKey].total_amount += transaction.amount_value;
-      });
-
-      return totalsByMonth;
+      return calculateMonthlyTotalsForSync(transactions, cardSettings);
     }
 
     function setButtonState(options = {}) {
@@ -5943,13 +5877,14 @@
 
       const transactionsByMonth = {};
       storedTransactions.forEach((tx) => {
-        if (!tx.posting_month) {
+        const monthKey = getTransactionMonthKey(tx);
+        if (!monthKey || typeof tx.amount_value !== 'number' || !Number.isFinite(tx.amount_value)) {
           return;
         }
-        if (!transactionsByMonth[tx.posting_month]) {
-          transactionsByMonth[tx.posting_month] = [];
+        if (!transactionsByMonth[monthKey]) {
+          transactionsByMonth[monthKey] = [];
         }
-        transactionsByMonth[tx.posting_month].push(tx);
+        transactionsByMonth[monthKey].push(tx);
       });
 
       if (!months.length) {
@@ -5974,9 +5909,7 @@
           if (!grouped[category]) {
             grouped[category] = { total: 0, transactions: [] };
           }
-          if (typeof tx.amount_value === 'number') {
-            grouped[category].total += tx.amount_value;
-          }
+          grouped[category].total += tx.amount_value;
           grouped[category].transactions.push(tx);
         });
 
@@ -6688,6 +6621,7 @@
         loadSettings,
         saveSettings,
         ensureCardSettings,
+        applyCardSettingsToLocalStore,
         updateStoredTransactions,
         buildFallbackData,
         getStoredTransactions,

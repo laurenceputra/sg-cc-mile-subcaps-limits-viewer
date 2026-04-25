@@ -79,6 +79,28 @@ describe('storage flows', () => {
     assert.equal(cardSettings.defaultCategory, 'Others');
   });
 
+  it('applyCardSettingsToLocalStore persists normalized card settings', () => {
+    const store = new Map();
+    globalThis.GM_getValue = (key, fallback) => store.has(key) ? store.get(key) : fallback;
+    globalThis.GM_setValue = (key, value) => { store.set(key, value); };
+    globalThis.GM_deleteValue = (key) => { store.delete(key); };
+
+    const applied = exports.applyCardSettingsToLocalStore('XL Rewards Card', {
+      selectedCategories: ['Local', 'Forex', 'Ignored extra'],
+      defaultCategory: 'Forex',
+      merchantMap: { SHOP: 'Local' },
+      monthlyTotals: { '2026-01': { totals: { Local: 12 }, total_amount: 12 } }
+    });
+
+    assert.equal(applied, true);
+    const stored = JSON.parse(store.get('ccSubcapSettings'));
+    const card = stored.cards['XL Rewards Card'];
+    assert.deepEqual(card.selectedCategories, ['Local', 'Forex']);
+    assert.equal(card.defaultCategory, 'Forex');
+    assert.deepEqual(card.merchantMap, { SHOP: 'Local' });
+    assert.deepEqual(card.monthlyTotals, { '2026-01': { totals: { Local: 12 }, total_amount: 12 } });
+  });
+
   it('updateStoredTransactions keeps only in-cutoff entries', () => {
     const settings = { cards: {} };
     const cardConfig = { subcapSlots: 1, categories: ['Dining'] };

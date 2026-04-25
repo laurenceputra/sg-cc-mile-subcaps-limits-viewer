@@ -138,6 +138,40 @@ export class Database {
     return result?.meta?.changes ?? 0;
   }
 
+  async rotateRefreshToken(id, userId, tokenHash, familyId, expiresAt) {
+    if (typeof this.db.batch === 'function') {
+      const results = await this.db.batch([
+        this.db.prepare(`
+          UPDATE refresh_tokens
+          SET replaced_by = ?, rotated_at = strftime('%s', 'now')
+          WHERE id = ? AND replaced_by IS NULL AND revoked_at IS NULL
+        `).bind(tokenHash, id),
+        this.db.prepare(`
+          INSERT INTO refresh_tokens (
+            user_id,
+            token_hash,
+            family_id,
+            parent_id,
+            expires_at
+          )
+          SELECT ?, ?, ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM refresh_tokens
+            WHERE id = ? AND replaced_by = ? AND revoked_at IS NULL
+          )
+        `).bind(userId, tokenHash, familyId, id, expiresAt, id, tokenHash)
+      ]);
+      const inserted = results?.[1]?.meta?.changes ?? 0;
+      return inserted > 0 ? Number(results?.[1]?.meta?.last_row_id) : null;
+    }
+
+    const rotated = await this.markRefreshTokenRotated(id, tokenHash);
+    if (rotated === 0) {
+      return null;
+    }
+    return this.createRefreshToken(userId, tokenHash, familyId, expiresAt, id);
+  }
+
   async revokeRefreshToken(id, reason = 'revoked') {
     await this.run(
       `
@@ -176,7 +210,7 @@ export class Database {
 
   async getUserBlacklistTimestamp(userId) {
     const result = await this.first(
-      'SELECT MAX(blacklisted_at) as timestamp FROM token_blacklist WHERE user_id = ?',
+      "SELECT MAX(blacklisted_at) as timestamp FROM token_blacklist WHERE user_id = ? AND reason = 'logout_all'",
       userId
     );
     return result?.timestamp || 0;

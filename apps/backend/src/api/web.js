@@ -1,43 +1,8 @@
 import { Hono } from 'hono';
+import { CARD_NAME, CAP_POLICY, INACTIVITY_TTL_MS, STORAGE_KEYS, VAULT_CONFIG } from './web/constants.js';
+import { createNonce, htmlResponse, renderPage } from './web/page.js';
 
 const web = new Hono();
-
-const CARD_NAME = "LADY'S SOLITAIRE CARD";
-const CAP_POLICY = Object.freeze({
-  version: 1,
-  thresholds: {
-    warningRatio: 0.9333333333,
-    criticalRatio: 1
-  },
-  styles: {
-    normal: { background: '#f1f5f9', border: '#cbd5e1', text: '#334155' },
-    warning: { background: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-    critical: { background: '#fee2e2', border: '#ef4444', text: '#991b1b' }
-  },
-  cards: {
-    "LADY'S SOLITAIRE CARD": {
-      mode: 'per-category',
-      cap: 750
-    },
-    'XL Rewards Card': {
-      mode: 'combined',
-      cap: 1000
-    }
-  }
-});
-const INACTIVITY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const STORAGE_KEYS = {
-  token: 'ccSubcapSyncToken',
-  email: 'ccSubcapSyncEmail',
-  lastActiveAt: 'ccSubcapSyncLastActiveAt',
-  legacyPassphrase: 'ccSubcapSyncPassphrase',
-  legacyLastLoginAt: 'ccSubcapSyncLastLoginAt'
-};
-const VAULT_CONFIG = {
-  dbName: 'ccSubcapWebVault',
-  storeName: 'syncKeys',
-  recordId: 'sync-key-v1'
-};
 
 const BASE_STYLES = `
   :root {
@@ -225,49 +190,8 @@ const BASE_STYLES = `
   }
 `;
 
-function createNonce() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function buildCsp(nonce) {
-  const cspDirectives = [
-    "default-src 'none'",
-    `script-src 'nonce-${nonce}'`,
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
-    "connect-src 'self'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'none'"
-  ];
-  return cspDirectives.join('; ');
-}
-
-function renderPage({ title, body, script, nonce }) {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title}</title>
-    <style>${BASE_STYLES}</style>
-  </head>
-  <body>
-    ${body}
-    <script nonce="${nonce}">
-      ${script}
-    </script>
-  </body>
-</html>`;
-}
-
-function htmlResponse(c, html, nonce) {
-  return c.text(html, 200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': buildCsp(nonce)
-  });
+function renderWebPage(options) {
+  return renderPage({ ...options, styles: BASE_STYLES });
 }
 
 web.get('/login', (c) => {
@@ -555,7 +479,7 @@ web.get('/login', (c) => {
     })();
   `;
 
-  return htmlResponse(c, renderPage({ title: 'Sync Login', body, script, nonce }), nonce);
+  return htmlResponse(c, renderWebPage({ title: 'Sync Login', body, script, nonce }), nonce);
 });
 
 web.get('/meta/cap-policy', (c) => {
@@ -1221,7 +1145,7 @@ web.get('/dashboard', (c) => {
     })();
   `;
 
-  return htmlResponse(c, renderPage({ title: 'Sync Dashboard', body, script, nonce }), nonce);
+  return htmlResponse(c, renderWebPage({ title: 'Sync Dashboard', body, script, nonce }), nonce);
 });
 
 export default web;

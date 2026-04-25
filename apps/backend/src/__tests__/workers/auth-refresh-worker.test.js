@@ -28,6 +28,11 @@ function assertRefreshCookieSecurity(setCookieHeader, label) {
   assert.match(setCookieHeader, /SameSite=Strict/i, `${label}: cookie enforces strict same-site policy`);
 }
 
+function decodeJwtPayload(token) {
+  const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+}
+
 async function registerUser(env, email, passwordHash) {
   return fetchJson(app, env, '/auth/register', {
     method: 'POST',
@@ -103,6 +108,113 @@ describe('Workers auth refresh flow', () => {
     }
   });
 
+  test('recent rotation replay does not revoke the winning token family', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      await registerUser(env, email, passwordHash);
+      const { response: loginRes } = await loginUser(env, email, passwordHash);
+      const originalRefreshToken = extractCookieValue(loginRes.headers.get('Set-Cookie'), 'ccSubcapRefreshToken');
+      assert.ok(originalRefreshToken);
+
+      const originalHash = crypto.createHash('sha256').update(originalRefreshToken).digest('hex');
+      const originalRecord = await db.getRefreshTokenByHash(originalHash);
+      assert.ok(originalRecord);
+
+      const rotated = await db.markRefreshTokenRotated(originalRecord.id, 'already-claimed');
+      assert.equal(rotated, 1);
+      const winnerRefreshToken = 'winner-token';
+      const childId = await db.createRefreshToken(
+        originalRecord.user_id,
+        crypto.createHash('sha256').update(winnerRefreshToken).digest('hex'),
+        originalRecord.family_id,
+        Math.floor(Date.now() / 1000) + 3600,
+        originalRecord.id
+      );
+      assert.ok(childId);
+
+      const raceRes = await app.fetch(new Request('http://localhost/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${originalRefreshToken}`
+        }
+      }), env);
+      assert.equal(raceRes.status, 401);
+
+      const familyRows = await db.all('SELECT revoked_at FROM refresh_tokens WHERE family_id = ?', originalRecord.family_id);
+      assert.equal(familyRows.every((row) => row.revoked_at === null), true);
+
+      const winnerRes = await app.fetch(new Request('http://localhost/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${winnerRefreshToken}`
+        }
+      }), env);
+      assert.equal(winnerRes.status, 200);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('older rotated token reuse revokes the token family', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      await registerUser(env, email, passwordHash);
+      const { response: loginRes } = await loginUser(env, email, passwordHash);
+      const originalRefreshToken = extractCookieValue(loginRes.headers.get('Set-Cookie'), 'ccSubcapRefreshToken');
+      const originalHash = crypto.createHash('sha256').update(originalRefreshToken).digest('hex');
+      const originalRecord = await db.getRefreshTokenByHash(originalHash);
+      assert.ok(originalRecord);
+
+      await db.markRefreshTokenRotated(originalRecord.id, 'old-rotation');
+      const childRefreshToken = 'child-after-old-rotation';
+      await db.createRefreshToken(
+        originalRecord.user_id,
+        crypto.createHash('sha256').update(childRefreshToken).digest('hex'),
+        originalRecord.family_id,
+        Math.floor(Date.now() / 1000) + 3600,
+        originalRecord.id
+      );
+      await db.run(
+        'UPDATE refresh_tokens SET rotated_at = ? WHERE id = ?',
+        Math.floor(Date.now() / 1000) - 60,
+        originalRecord.id
+      );
+
+      const reuseRes = await app.fetch(new Request('http://localhost/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${originalRefreshToken}`
+        }
+      }), env);
+      assert.equal(reuseRes.status, 401);
+
+      const familyRows = await db.all('SELECT revoked_at FROM refresh_tokens WHERE family_id = ?', originalRecord.family_id);
+      assert.equal(familyRows.every((row) => row.revoked_at !== null), true);
+
+      const childRes = await app.fetch(new Request('http://localhost/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${childRefreshToken}`
+        }
+      }), env);
+      assert.equal(childRes.status, 401);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
   test('logout clears refresh cookie', async () => {
     const { mf, db } = await createTestDatabase();
     try {
@@ -129,6 +241,70 @@ describe('Workers auth refresh flow', () => {
       const logoutCookie = logoutRes.headers.get('Set-Cookie');
       assert.ok(logoutCookie);
       assert.ok(logoutCookie.includes('Max-Age=0'));
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('single logout does not revoke another active access token for the same user', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      await registerUser(env, email, passwordHash);
+      const { response: firstLoginRes, json: firstLoginData } = await loginUser(env, email, passwordHash);
+      const { json: secondLoginData } = await loginUser(env, email, passwordHash);
+      const firstRefreshToken = extractCookieValue(firstLoginRes.headers.get('Set-Cookie'), 'ccSubcapRefreshToken');
+
+      const logoutRes = await app.fetch(new Request('http://localhost/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${firstLoginData.token}`,
+          'Origin': 'https://pib.uob.com.sg',
+          'Cookie': `ccSubcapRefreshToken=${firstRefreshToken}`
+        }
+      }), env);
+      assert.equal(logoutRes.status, 200);
+
+      const loggedOutTokenRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${firstLoginData.token}` }
+      }), env);
+      assert.equal(loggedOutTokenRes.status, 401);
+
+      const secondTokenRes = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${secondLoginData.token}` }
+      }), env);
+      assert.equal(secondTokenRes.status, 200);
+    } finally {
+      await disposeTestDatabase(mf);
+    }
+  });
+
+  test('logout_all marker revokes previously issued access tokens', async () => {
+    const { mf, db } = await createTestDatabase();
+    try {
+      const env = { ...createTestEnv(), db };
+      const email = randomEmail();
+      const passwordHash = crypto.randomBytes(32).toString('hex');
+
+      await registerUser(env, email, passwordHash);
+      const { json: loginData } = await loginUser(env, email, passwordHash);
+      const payload = decodeJwtPayload(loginData.token);
+      await db.blacklistToken(payload.userId, 'logout-all-marker', Math.floor(Date.now() / 1000) + 3600, 'logout_all');
+      await db.run(
+        "UPDATE token_blacklist SET blacklisted_at = ? WHERE token_jti = 'logout-all-marker'",
+        payload.iat + 1
+      );
+
+      const res = await app.fetch(new Request('http://localhost/sync/data', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${loginData.token}` }
+      }), env);
+      assert.equal(res.status, 401);
     } finally {
       await disposeTestDatabase(mf);
     }

@@ -9,6 +9,7 @@ const ACCESS_TOKEN_TTL_SECONDS_DEFAULT = 60 * 60;
 const ACCESS_TOKEN_TTL_SECONDS_MIN = 15 * 60;
 const ACCESS_TOKEN_TTL_SECONDS_MAX = 24 * 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const REFRESH_ROTATION_RACE_GRACE_SECONDS = 5;
 const REFRESH_COOKIE_NAME = 'ccSubcapRefreshToken';
 const REFRESH_COOKIE_PATH = '/auth';
 
@@ -217,6 +218,15 @@ export default function createAuthRoutes(rateLimiters) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       if (tokenRecord.replaced_by) {
+        if (tokenRecord.rotated_at && now - tokenRecord.rotated_at <= REFRESH_ROTATION_RACE_GRACE_SECONDS) {
+          await logAuditEvent(db, {
+            eventType: AuditEventType.REFRESH_TOKEN_REUSE,
+            request: c.req.raw,
+            userId: tokenRecord.user_id,
+            details: { familyId: tokenRecord.family_id, reason: 'rotation_race' }
+          });
+          return c.json({ error: 'Unauthorized' }, 401);
+        }
         await logAuditEvent(db, {
           eventType: AuditEventType.REFRESH_TOKEN_REUSE,
           request: c.req.raw,
@@ -234,16 +244,20 @@ export default function createAuthRoutes(rateLimiters) {
       const newRefreshToken = generateOpaqueToken();
       const newRefreshTokenHash = await hashRefreshToken(newRefreshToken);
       const expiresAt = now + REFRESH_TOKEN_TTL_SECONDS;
-      await db.createRefreshToken(tokenRecord.user_id, newRefreshTokenHash, tokenRecord.family_id, expiresAt, tokenRecord.id);
-      const rotated = await db.markRefreshTokenRotated(tokenRecord.id, newRefreshTokenHash);
-      if (rotated === 0) {
+      const newRefreshTokenId = await db.rotateRefreshToken(
+        tokenRecord.id,
+        tokenRecord.user_id,
+        newRefreshTokenHash,
+        tokenRecord.family_id,
+        expiresAt
+      );
+      if (!newRefreshTokenId) {
         await logAuditEvent(db, {
           eventType: AuditEventType.REFRESH_TOKEN_REUSE,
           request: c.req.raw,
           userId: tokenRecord.user_id,
           details: { familyId: tokenRecord.family_id, reason: 'race' }
         });
-        await db.revokeRefreshTokenFamily(tokenRecord.family_id, 'reuse_detected');
         return c.json({ error: 'Unauthorized' }, 401);
       }
 

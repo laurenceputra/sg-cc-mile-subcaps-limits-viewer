@@ -71,3 +71,28 @@ export function makeCryptoManager() {
     }
   };
 }
+
+export function makeSyncApiClient(overrides = {}) {
+  return {
+    token: null,
+    setToken(token) { this.token = token; },
+    async getSyncData() { return overrides.getSyncData ? overrides.getSyncData() : null; },
+    async putSyncData(data, version) {
+      return overrides.putSyncData ? overrides.putSyncData(data, version) : { version };
+    }
+  };
+}
+
+export function makeSyncCrypto(overrides = {}) {
+  return {
+    async decrypt(ciphertext, iv, salt) {
+      if (overrides.decrypt) return overrides.decrypt(ciphertext, iv, salt);
+      return JSON.parse(Buffer.from(ciphertext, 'base64').toString('utf8'));
+    },
+    async encrypt(payload) {
+      if (overrides.encrypt) return overrides.encrypt(payload);
+      const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+      return { ciphertext: encoded, iv: 'test-iv', salt: 'test-salt' };
+    }
+  };
+}

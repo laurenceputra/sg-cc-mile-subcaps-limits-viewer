@@ -7,7 +7,6 @@
  * - Data integrity issues
  */
 
-import { rateLimitConfig } from './rate-limit-config.js';
 
 // RFC 5321 compliant email regex (simplified but practical)
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -336,18 +335,12 @@ export function validateJsonMiddleware() {
     
     // Try to parse JSON
     try {
-      const contentLength = c.req.header('Content-Length');
-      if (contentType && contentLength && parseInt(contentLength, 10) > rateLimitConfig.payloadSizeLimit.maxBytes) {
-        return c.json({ 
-          error: rateLimitConfig.payloadSizeLimit.errorMessage,
-          maxSize: `${rateLimitConfig.payloadSizeLimit.maxBytes / 1024 / 1024}MB`
-        }, 413);
-      }
       if (method === 'DELETE' && (!contentType || c.req.header('Content-Length') === '0')) {
         return next();
       }
 
-      const body = await c.req.json();
+      const rawBodyText = c.get('rawBodyText');
+      const body = typeof rawBodyText === 'string' ? JSON.parse(rawBodyText) : await c.req.json();
       
       // Check for excessive nesting (DoS prevention)
       const maxDepth = 10;
