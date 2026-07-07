@@ -2602,7 +2602,9 @@
 
     return {
       badge: hasRememberedUnlock ? 'Sync locked (auto unlock available)' : 'Sync locked',
-      detail: `Last sync: ${lastSyncText}. Open the Sync tab to unlock before pushing changes.`,
+      detail: hasRememberedUnlock
+        ? `Last sync: ${lastSyncText}. Saved unlock is available; Sync Now will try it automatically.`
+        : `Last sync: ${lastSyncText}. Password is required to unlock sync before pushing changes.`,
       variant: 'info',
       tabLabel: hasRememberedUnlock ? 'Sync • Auto unlock' : 'Sync • Locked'
     };
@@ -2870,6 +2872,11 @@
     const lockStateText = isUnlocked
       ? 'Unlocked'
       : (hasRememberedUnlock ? 'Locked (auto unlock available)' : 'Locked (password required)');
+    const lockHelperText = isUnlocked
+      ? 'Sync is unlocked for this session.'
+      : (hasRememberedUnlock
+          ? 'Saved unlock is available. Sync Now will try it automatically before asking for your password.'
+          : 'Password is required to unlock sync before syncing this card.');
     const rememberChecked = config.rememberUnlock === true || hasRememberedUnlock;
 
     container.innerHTML = `
@@ -2881,6 +2888,7 @@
         <p class="${UI_CLASSES.meta}"><strong>Last Sync:</strong> ${escapeHtml(lastSync)}</p>
         <p class="${UI_CLASSES.meta}"><strong>Tier:</strong> ${escapeHtml(config.tier || '-')}</p>
         ${bootstrapStatus ? `<p id="sync-bootstrap-status-row" class="${UI_CLASSES.meta}"><strong>Last bootstrap result:</strong> ${escapeHtml(bootstrapStatus)}${bootstrapStatusAt ? ` (${escapeHtml(bootstrapStatusAt)})` : ''}</p>` : ''}
+        <p class="${UI_CLASSES.small}">${escapeHtml(lockHelperText)}</p>
         <p class="${UI_CLASSES.small}">Sync only pushes the active card from this page. Other remote card keys stay intact.</p>
       </div>
       ${pendingConflict ? `
@@ -3047,8 +3055,15 @@
         }
 
         if (!syncManager.isUnlocked()) {
-          const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          const hasRememberedUnlockNow = typeof syncManager.hasRememberedUnlockCache === 'function'
+            && syncManager.hasRememberedUnlockCache();
+          let unlockedFromCache = false;
+          if (hasRememberedUnlockNow) {
+            setStatusMessage(statusDiv, 'Trying saved unlock...', 'info');
+            unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          }
           if (unlockedFromCache) {
+            setStatusMessage(statusDiv, 'Saved unlock restored. Syncing active card...', 'info');
             window.setTimeout(() => onSyncStateChanged(), 0);
           }
 
@@ -3056,7 +3071,13 @@
           const passphrase = passphraseInput?.value || '';
 
           if (!syncManager.isUnlocked() && !passphrase) {
-            setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
+            setStatusMessage(
+              statusDiv,
+              hasRememberedUnlockNow
+                ? "Saved unlock couldn't be used. Enter your password to unlock sync."
+                : 'Sync is locked. Password is required to unlock sync.',
+              'warning'
+            );
             return;
           }
 
