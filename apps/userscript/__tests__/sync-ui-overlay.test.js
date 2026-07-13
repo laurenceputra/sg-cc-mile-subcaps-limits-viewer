@@ -416,11 +416,14 @@ describe('sync ui + overlay', () => {
     const doc = makeDocument();
     globalThis.document = doc;
     globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
 
     let cacheUnlockResolve;
     let syncResolve;
     let unlocked = false;
     let syncCalls = 0;
+    let refreshCalls = 0;
     const manager = {
       config: { email: 'user@example.com', lastSync: 0, tier: 'free', rememberUnlock: true },
       isEnabled: () => true,
@@ -434,7 +437,7 @@ describe('sync ui + overlay', () => {
       disableSync: () => {}
     };
 
-    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => { refreshCalls += 1; });
     const syncNowButton = container.querySelector('#sync-now-btn');
     const status = container.querySelector('#sync-status');
 
@@ -448,10 +451,17 @@ describe('sync ui + overlay', () => {
     await Promise.resolve();
     assert.equal(syncCalls, 1);
     assert.equal(status.textContent, 'Saved unlock restored. Syncing active card...');
+    timers.advanceBy(0);
+    assert.equal(refreshCalls, 0, 'saved unlock should not refresh/rerender before sync completes');
 
     syncResolve({ success: true });
     await clickPromise;
     assert.equal(status.textContent, 'Synced successfully.');
+    timers.advanceBy(799);
+    assert.equal(refreshCalls, 0, 'successful sync refresh should remain delayed');
+    timers.advanceBy(1);
+    assert.equal(refreshCalls, 1, 'successful sync should refresh after the success status is visible');
+    timers.unbindFromWindow();
   });
 
   it('createSyncTab asks for password when saved unlock fails from Sync Now', async () => {

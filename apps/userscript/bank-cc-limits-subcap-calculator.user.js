@@ -3064,7 +3064,6 @@
           }
           if (unlockedFromCache) {
             setStatusMessage(statusDiv, 'Saved unlock restored. Syncing active card...', 'info');
-            window.setTimeout(() => onSyncStateChanged(), 0);
           }
 
           const passphraseInput = container.querySelector('#sync-unlock-passphrase');
