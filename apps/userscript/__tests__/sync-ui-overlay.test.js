@@ -280,7 +280,7 @@ describe('sync ui + overlay', () => {
         cardName: 'XL Rewards Card',
         expected: {
           badge: 'Sync locked',
-          detail: 'Last sync: Never. Open the Sync tab to unlock before pushing changes.',
+          detail: 'Last sync: Never. Password is required to unlock sync before pushing changes.',
           tabLabel: 'Sync • Locked'
         }
       },
@@ -296,7 +296,7 @@ describe('sync ui + overlay', () => {
         cardName: 'XL Rewards Card',
         expected: {
           badge: 'Sync locked (auto unlock available)',
-          detail: 'Last sync: Never. Open the Sync tab to unlock before pushing changes.',
+          detail: 'Last sync: Never. Saved unlock is available; Sync Now will try it automatically.',
           tabLabel: 'Sync • Auto unlock'
         }
       },
@@ -410,6 +410,110 @@ describe('sync ui + overlay', () => {
     await disableButton.click();
     assert.equal(disabled, true);
     timers.unbindFromWindow();
+  });
+
+  it('createSyncTab tries saved unlock before syncing from Sync Now', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+    const timers = createFakeTimers();
+    timers.bindToWindow(globalThis.window);
+
+    let cacheUnlockResolve;
+    let syncResolve;
+    let unlocked = false;
+    let syncCalls = 0;
+    let refreshCalls = 0;
+    const manager = {
+      config: { email: 'user@example.com', lastSync: 0, tier: 'free', rememberUnlock: true },
+      isEnabled: () => true,
+      isUnlocked: () => unlocked,
+      hasRememberedUnlockCache: () => true,
+      tryUnlockFromRememberedCache: async () => new Promise((resolve) => { cacheUnlockResolve = resolve; }),
+      sync: async () => {
+        syncCalls += 1;
+        return new Promise((resolve) => { syncResolve = resolve; });
+      },
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => { refreshCalls += 1; });
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const status = container.querySelector('#sync-status');
+
+    const clickPromise = syncNowButton.click();
+    await Promise.resolve();
+    assert.equal(status.textContent, 'Trying saved unlock...');
+
+    unlocked = true;
+    cacheUnlockResolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(syncCalls, 1);
+    assert.equal(status.textContent, 'Saved unlock restored. Syncing active card...');
+    timers.advanceBy(0);
+    assert.equal(refreshCalls, 0, 'saved unlock should not refresh/rerender before sync completes');
+
+    syncResolve({ success: true });
+    await clickPromise;
+    assert.equal(status.textContent, 'Synced successfully.');
+    timers.advanceBy(799);
+    assert.equal(refreshCalls, 0, 'successful sync refresh should remain delayed');
+    timers.advanceBy(1);
+    assert.equal(refreshCalls, 1, 'successful sync should refresh after the success status is visible');
+    timers.unbindFromWindow();
+  });
+
+  it('createSyncTab asks for password when saved unlock fails from Sync Now', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    const manager = {
+      config: { email: 'user@example.com', lastSync: 0, tier: 'free', rememberUnlock: true },
+      isEnabled: () => true,
+      isUnlocked: () => false,
+      hasRememberedUnlockCache: () => true,
+      tryUnlockFromRememberedCache: async () => false,
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const status = container.querySelector('#sync-status');
+
+    assert.match(container.innerHTML, /Saved unlock is available\. Sync Now will try it automatically/);
+    await syncNowButton.click();
+
+    assert.equal(status.textContent, "Saved unlock couldn't be used. Enter your password to unlock sync.");
+  });
+
+  it('createSyncTab says password is required when Sync Now is locked without saved unlock', async () => {
+    const doc = makeDocument();
+    globalThis.document = doc;
+    globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+
+    let cacheUnlockCalls = 0;
+    const manager = {
+      config: { email: 'user@example.com', lastSync: 0, tier: 'free', rememberUnlock: false },
+      isEnabled: () => true,
+      isUnlocked: () => false,
+      hasRememberedUnlockCache: () => false,
+      tryUnlockFromRememberedCache: async () => { cacheUnlockCalls += 1; return false; },
+      sync: async () => ({ success: true }),
+      disableSync: () => {}
+    };
+
+    const container = exports.createSyncTab(manager, 'XL Rewards Card', {}, [], makeTheme(), () => {});
+    const syncNowButton = container.querySelector('#sync-now-btn');
+    const status = container.querySelector('#sync-status');
+
+    assert.match(container.innerHTML, /Password is required to unlock sync before syncing this card/);
+    await syncNowButton.click();
+
+    assert.equal(cacheUnlockCalls, 0);
+    assert.equal(status.textContent, 'Sync is locked. Password is required to unlock sync.');
   });
 
   it('createSyncTab dismisses bootstrap status after successful sync', async () => {
