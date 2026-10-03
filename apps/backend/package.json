@@ -1,6 +1,6 @@
 {
   "name": "@bank-cc/backend",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "description": "Sync backend for bank CC calculator (Cloudflare Workers + D1)",
   "main": "src/index.js",
