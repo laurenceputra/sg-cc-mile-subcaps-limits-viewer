@@ -2577,6 +2577,12 @@
     }
 
     const config = syncManager.config || {};
+    if (syncManager.localRestorePending === cardName) {
+      return { badge: 'Sync restoring', detail: 'Optional unlock/restore is pending. Local views remain available; new transactions are preview-only until it settles.', variant: 'info', tabLabel: 'Sync • Restoring' };
+    }
+    if (syncManager.localRestoreBlocked === cardName) {
+      return { badge: 'Sync restore needs attention', detail: 'Initial restore did not complete. Local rows remain preview-only. Unlock or retry Sync Now before pushing.', variant: 'warning', tabLabel: 'Sync • Restore' };
+    }
     const hasPendingConflict = typeof syncManager.hasPendingConflict === 'function' && syncManager.hasPendingConflict();
     const pendingCardName = isObjectRecord(config.pendingConflict) && typeof config.pendingConflict.cardName === 'string'
       ? config.pendingConflict.cardName
@@ -2827,7 +2833,7 @@
       return container;
     }
 
-    const isUnlocked = syncManager.isUnlocked();
+    const isUnlocked = syncManager.isUnlocked() && syncManager.localRestoreNeedsUnlock !== true;
     const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
     const lastSync = formatLocalDateTime(config.lastSync, 'Never');
     const showBootstrapStatus = typeof syncManager.shouldShowBootstrapRestoreStatus === 'function'
@@ -2953,6 +2959,10 @@
     const statusDiv = container.querySelector('#sync-status');
     const unlockButton = container.querySelector('#unlock-sync-btn');
     const syncNowButton = container.querySelector('#sync-now-btn');
+    if (syncManager.localRestorePending === cardName) {
+      setStatusMessage(statusDiv, 'Optional unlock/restore is pending. Local views remain available; transaction storage and sync resume after it settles.', 'info');
+      syncNowButton.disabled = true;
+    }
     const forgetButton = container.querySelector('#forget-sync-unlock-btn');
     const disableButton = container.querySelector('#disable-sync-btn');
     const conflictButtons = [
@@ -2961,6 +2971,18 @@
       container.querySelector('#sync-conflict-merge')
     ].filter(Boolean);
     const actionButtons = [unlockButton, syncNowButton, forgetButton, disableButton, ...conflictButtons].filter(Boolean);
+    const syncView = { cardName, statusDiv, actionButtons, syncNowButton };
+    syncManager.localSyncView = syncView;
+    const renderSyncOperation = () => {
+      const operation = syncManager.localSyncOperation;
+      const view = syncManager.localSyncView;
+      if (!operation || !view || view.cardName !== operation.cardName ||
+          (typeof syncManager.isLocalCardCurrent === 'function' && !syncManager.isLocalCardCurrent(operation.cardName))) return;
+      view.actionButtons.forEach((button) => { button.disabled = operation.busy || syncManager.localRestorePending === operation.cardName; });
+      setButtonBusy(view.syncNowButton, operation.busy, { busy: 'Syncing...' });
+      if (!operation.cancelled) setStatusMessage(view.statusDiv, operation.message, operation.variant);
+    };
+    renderSyncOperation();
 
     const setSyncBusy = (activeButton, isBusy, busyLabel = '') => {
       actionButtons.forEach((button) => {
@@ -3002,6 +3024,7 @@
             return;
           }
 
+          syncManager.localRestoreNeedsUnlock = false;
           setStatusMessage(
             statusDiv,
             unlockResult.warning ? `Sync unlocked (${unlockResult.warning})` : 'Sync unlocked.',
@@ -3032,52 +3055,79 @@
     }
 
     syncNowButton.addEventListener('click', async () => {
+      if (syncManager.localSyncOperation?.busy) return;
+      if (syncManager.localRestorePending === cardName) return;
       if (syncNowButton.disabled) {
         return;
       }
       setSyncBusy(syncNowButton, true, 'Syncing...');
-      setStatusMessage(statusDiv, 'Syncing active card...', 'info');
+      const operation = { cardName, busy: true, message: 'Syncing active card...', variant: 'info' };
+      syncManager.localSyncOperation = operation;
+      const reportStatus = (message, variant = 'info') => {
+        if (syncManager.localSyncOperation !== operation) return;
+        operation.message = message;
+        operation.variant = variant;
+        renderSyncOperation();
+      };
+      const isCurrentOperation = () => syncManager.localSyncOperation === operation &&
+        !operation.cancelled &&
+        (typeof syncManager.isLocalCardCurrent !== 'function' || syncManager.isLocalCardCurrent(cardName));
+      reportStatus('Syncing active card...');
 
       try {
         const liveConflictState = getLivePendingConflictState();
         if (liveConflictState.pendingConflict) {
-          setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
+          reportStatus('Resolve the pending conflict before running Sync Now.', 'warning');
           if (!pendingConflict) {
             onSyncStateChanged();
           }
           return;
         }
 
-        if (!syncManager.isUnlocked()) {
+        if (!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) {
           const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          if (!isCurrentOperation()) return;
           if (unlockedFromCache) {
-            window.setTimeout(() => onSyncStateChanged(), 0);
+            window.setTimeout(() => { if (isCurrentOperation()) onSyncStateChanged(); }, 0);
           }
 
           const passphraseInput = container.querySelector('#sync-unlock-passphrase');
           const passphrase = passphraseInput?.value || '';
 
-          if (!syncManager.isUnlocked() && !passphrase) {
-            setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
+          if ((!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) && !passphrase) {
+            reportStatus('Sync is locked. Enter your password to unlock first.', 'warning');
             return;
           }
 
-          if (!syncManager.isUnlocked()) {
+          if (!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) {
             const unlockResult = await syncManager.unlockSync(passphrase, {
               remember: getRememberPreference()
             });
+            if (!isCurrentOperation()) return;
             if (!unlockResult.success) {
-              setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+              reportStatus(`Unlock failed: ${unlockResult.error}`, 'warning');
               return;
             }
+            syncManager.localRestoreNeedsUnlock = false;
           }
         }
 
-        const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+        let activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+        if (typeof syncManager.prepareLocalCardForPush === 'function') {
+          const prepared = await syncManager.prepareLocalCardForPush(cardName);
+          if (!prepared) {
+            reportStatus('Initial restore has not completed. Retry unlock/Sync Now to restore before pushing.', 'warning');
+            if (isCurrentOperation()) onSyncStateChanged();
+            return;
+          }
+          activeCardPayload = prepared;
+        }
+        if (!isCurrentOperation()) return;
         const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
+        if (!isCurrentOperation()) return;
 
         if (result.success) {
-          setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+          reportStatus('Synced successfully.', 'success');
           if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
             const dismissed = syncManager.dismissBootstrapRestoreStatus();
             if (dismissed) {
@@ -3087,19 +3137,22 @@
               }
             }
           }
-          window.setTimeout(() => onSyncStateChanged(), 800);
-          window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
+          window.setTimeout(() => { if (isCurrentOperation()) onSyncStateChanged(); }, 800);
+          window.setTimeout(() => { if (isCurrentOperation()) reportStatus(''); }, 3000);
           return;
         }
 
         if (result.conflict) {
-          setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'warning');
+          reportStatus(`Sync failed: ${result.error}`, 'warning');
           onSyncStateChanged();
           return;
         }
-        setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
+        reportStatus(`Sync failed: ${result.error}`, 'error');
+      } catch (error) {
+        if (isCurrentOperation()) reportStatus(`Sync failed: ${error.message || 'Unexpected sync failure.'}`, 'error');
       } finally {
-        setSyncBusy(syncNowButton, false);
+        operation.busy = false;
+        if (syncManager.localSyncOperation === operation) renderSyncOperation();
       }
     });
 
@@ -3765,21 +3818,29 @@
       return cardSettings;
     }
 
-    async function maybeBootstrapRestoreActiveCard(cardName, cardConfig) {
+    const localRestoreJobs = new Map();
+
+    async function maybeBootstrapRestoreActiveCard(cardName, cardConfig, isCurrent = () => true) {
       if (!syncManager.shouldRunBootstrapRestore()) {
+        if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
+          await syncManager.tryUnlockFromRememberedCache();
+        }
         return { success: true, outcome: syncManager.config.bootstrapRestoreOutcome || '' };
       }
 
       if (!syncManager.isUnlocked()) {
         const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
-        if (!unlockedFromCache && !syncManager.isUnlocked()) {
+        if (!unlockedFromCache) {
+          syncManager.localRestoreNeedsUnlock = true;
           return { success: false, pendingUnlock: true, outcome: 'failed' };
         }
+        syncManager.localRestoreNeedsUnlock = false;
       }
 
       if (!syncManager.syncClient?.syncEngine) {
         return { success: false, pendingUnlock: true, outcome: 'failed' };
       }
+      if (!isCurrent()) return { success: false, cancelled: true };
 
       const latestSettings = loadSettings();
       const localCardSettings = ensureCardSettings(latestSettings, cardName, cardConfig);
@@ -3792,6 +3853,7 @@
       }
 
       const pullResult = await syncManager.syncClient.syncEngine.pull();
+      if (!isCurrent()) return { success: false, cancelled: true };
       if (!pullResult.success) {
         syncManager.saveBootstrapRestoreOutcome('failed', { markDone: false, sourceVersion: 0 });
         return { success: false, outcome: 'failed', error: pullResult.error || 'Failed to pull remote settings for bootstrap restore.' };
@@ -3809,6 +3871,12 @@
       const restoredCard = syncManager.syncClient.syncEngine.sanitizeCardForMerge(remoteCards[cardName]);
       const nextSettings = loadSettings();
       const targetCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+      // A local selection/rule edit during the pull wins over the remote snapshot.
+      if (buildSyncCardFingerprint(cardName, targetCardSettings, getStoredTransactions(cardName, targetCardSettings)) !==
+          buildSyncCardFingerprint(cardName, localCardSettings, localTransactions)) {
+        syncManager.saveBootstrapRestoreOutcome('skipped_local_nonempty', { markDone: true, sourceVersion: pullResult.version || 0 });
+        return { success: true, outcome: 'skipped_local_nonempty' };
+      }
       targetCardSettings.selectedCategories = Array.from({ length: cardConfig.subcapSlots }, (_, index) => {
         const value = restoredCard.selectedCategories?.[index];
         return typeof value === 'string' ? value : '';
@@ -3865,6 +3933,8 @@
     }
 
     function removeUI(options = {}) {
+      syncManager.localSyncView = null;
+      if (syncManager.localSyncOperation) syncManager.localSyncOperation.cancelled = true;
       lifecycleGeneration += 1;
       const preserveCardContextObserver = options.preserveCardContextObserver === true;
       const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
@@ -6424,11 +6494,38 @@
 
       let initialSettings = loadSettings();
       let initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
-      if (syncManager.isEnabled()) {
-        await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
-        initialSettings = loadSettings();
-        initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      const isCurrentRestoreContext = () => generation === lifecycleGeneration && matchesProfile(profile) &&
+        isSameCardContextPair(buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })), buildCardContext(profile, cardContext));
+      let restoreJob = localRestoreJobs.get(cardName);
+      const startRestore = () => {
+        if (restoreJob?.pending) return restoreJob.promise;
+        restoreJob = { pending: true, decided: false, isCurrent: isCurrentRestoreContext };
+        localRestoreJobs.set(cardName, restoreJob);
+        syncManager.localRestorePending = cardName;
+        restoreJob.promise = maybeBootstrapRestoreActiveCard(cardName, cardConfig, () => restoreJob.isCurrent())
+          .catch(() => {
+            if (!restoreJob.isCurrent()) return { success: false, cancelled: true };
+            syncManager.saveBootstrapRestoreOutcome('failed', { markDone: false, sourceVersion: 0 });
+            return { success: false };
+          })
+          .then((result) => {
+            restoreJob.decided = result?.success === true;
+            restoreJob.cancelled = result?.cancelled === true;
+            return result;
+          })
+          .finally(() => {
+            restoreJob.pending = false;
+            syncManager.localRestoreBlocked = restoreJob.decided ? null : cardName;
+            if (syncManager.localRestorePending === cardName) syncManager.localRestorePending = null;
+          });
+        return restoreJob.promise;
+      };
+      if (syncManager.isEnabled() && (!restoreJob || restoreJob.cancelled)) {
+        startRestore();
+      } else if (restoreJob?.pending) {
+        restoreJob.isCurrent = isCurrentRestoreContext;
       }
+      const restorePending = () => syncManager.isEnabled() && restoreJob?.decided !== true;
       let backgroundSyncInFlight = false;
       let hasUnsyncedCardChanges = false;
       let lastKnownCardFingerprint = '';
@@ -6447,6 +6544,8 @@
       };
 
       const attemptBackgroundSyncIfDirty = () => {
+        if (syncManager.localSyncOperation?.busy) return;
+        if (restorePending()) return;
         if (generation !== lifecycleGeneration || !matchesProfile(profile)) return;
         if (!hasUnsyncedCardChanges) {
           return;
@@ -6513,11 +6612,11 @@
       const initialWriteContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
       if (!matchesProfile(profile) || !isSameCardContextPair(initialWriteContext, buildCardContext(profile, cardContext)) ||
           (profile.id === 'uob-pib' && tableBody && findUobTableBody()?.tbody !== tableBody)) return;
-      if (tableBody) {
+      if (tableBody && !restorePending()) {
         const initialData = buildData(tableBody, cardName, initialCardSettings);
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
       }
-      saveSettings(initialSettings);
+      if (!restorePending()) saveSettings(initialSettings);
       const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       lastKnownCardFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, initialStoredTransactions);
       if (tableBody && lastKnownCardFingerprint !== preUpdateFingerprint) {
@@ -6541,6 +6640,11 @@
 
       const refreshOverlay = async (reason, options = {}) => {
         if (generation !== lifecycleGeneration) return;
+        if (reason === 'overlay' && restorePending() && !restoreJob?.pending && syncManager.isUnlocked() && syncManager.localRestoreNeedsUnlock !== true) {
+          startRestore().then(() => {
+            if (isCurrentRestoreContext()) scheduleRefresh('restore');
+          }).catch(() => {});
+        }
         const refreshGeneration = lifecycleGeneration;
         const isCurrentLifecycle = () => refreshGeneration === lifecycleGeneration && matchesProfile(profile) &&
           isSameCardContextPair(buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })), buildCardContext(profile, cardContext));
@@ -6596,10 +6700,6 @@
           if (!latestTableBody && !allowOverlayWithoutRows) {
             return;
           }
-          await ensureCapPolicyLoaded();
-          if (syncManager.isEnabled()) {
-            await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
-          }
           const settledContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
           if (refreshGeneration !== lifecycleGeneration || !matchesProfile(profile) || !isSameCardContextPair(settledContext, buildCardContext(profile, cardContext))) return;
           const settings = loadSettings();
@@ -6625,20 +6725,17 @@
               runMainSafe();
               return;
             }
-            updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+            if (!restorePending()) updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           } else {
             data = buildFallbackData(cardName, cardSettings);
           }
-          saveSettings(settings);
-          const storedTransactions = getStoredTransactions(cardName, cardSettings);
+          if (!restorePending()) saveSettings(settings);
+          const storedTransactions = restorePending() ? data.transactions : getStoredTransactions(cardName, cardSettings);
           const latestFingerprint = buildSyncCardFingerprint(cardName, cardSettings, storedTransactions);
           if (latestTableBody && latestFingerprint !== lastKnownCardFingerprint) {
             hasUnsyncedCardChanges = true;
           }
           lastKnownCardFingerprint = latestFingerprint;
-          if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
-            await syncManager.tryUnlockFromRememberedCache();
-          }
           if (!isCurrentLifecycle() || (profile.id === 'uob-pib' && latestTableBody && findUobTableBody()?.tbody !== latestTableBody)) return;
           if (latestTableBody) {
             attemptBackgroundSyncIfDirty();
@@ -6738,6 +6835,21 @@
       };
 
       createButton(handleButtonClick, { enabled: isButtonActionable });
+      syncManager.prepareLocalCardForPush = async (requestedCard) => {
+        if (requestedCard !== cardName || !isCurrentRestoreContext()) return null;
+        if (restorePending()) await startRestore();
+        if (restorePending() || !isCurrentRestoreContext()) return null;
+        await refreshOverlay('restore');
+        if (!isCurrentRestoreContext()) return null;
+        const { cardSettings, storedTransactions } = getCurrentSyncState();
+        return buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+      };
+      syncManager.isLocalCardCurrent = (requestedCard) => requestedCard === cardName && isCurrentRestoreContext();
+      if (restoreJob?.pending) {
+        restoreJob.promise.then(() => {
+          if (generation === lifecycleGeneration && isCurrentRestoreContext()) scheduleRefresh('restore');
+        }).catch(() => {});
+      }
       setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
       observerCoordinator.startTableObserver(
         observedTableBodyXPaths,
@@ -6767,7 +6879,10 @@
         refreshButtonState,
         RUNTIME_LIMITS.buttonStateDebounceMs
       );
-      ensureCapPolicyLoaded().catch(() => {});
+      const initialPolicy = JSON.stringify(activeCapPolicy);
+      ensureCapPolicyLoaded().then(() => {
+        if (generation === lifecycleGeneration && isCurrentRestoreContext() && JSON.stringify(activeCapPolicy) !== initialPolicy) scheduleRefresh('cap-policy');
+      }).catch(() => {});
     }
 
     let mainInProgress = false;

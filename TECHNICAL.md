@@ -17,6 +17,16 @@
 
 ## Installation details
 
+### Nonblocking optional sync startup
+
+The local button and panel do not await remembered unlock or initial remote restore. During that work, the Sync summary/tab reports **Restoring**, new bank rows are previewed without persistence, and automatic/manual pushes are paused. After settlement, the current lifecycle rereads settings and the current table before ingesting rows. Local selection/rule edits made during a pull take precedence over the remote card snapshot (the restore is skipped rather than overwriting those edits). Leaving the supported card prevents a late restore from applying settings or recreating UI.
+
+Startup restore/unlock is deduplicated per card, including failures and locked/no-cache outcomes; DOM mutations do not retry it indefinitely. An unsuccessful attempt does not authorize transaction persistence or pushes: local rows remain preview-only until a successful restore decision. Explicit Unlock or Sync Now retries bootstrap before pushing, rereading the restored local payload rather than using a stale panel snapshot. Failed remembered authentication remains locked even if it created an engine. A cancelled restore can restart on a valid card return; returning while it remains pending adopts the same in-flight operation. A permanently pending optional operation leaves local rows preview-only, but local views and settings remain available. Existing remember-cache settings are not cleared by this lifecycle handling.
+
+Cap-policy loading is also nonblocking. Once a changed policy completes, the current lifecycle refreshes the open panel without waiting for a bank-table mutation; refresh rendering does not start another policy-load/render loop.
+
+Sync Now busy state and result messages belong to the operation, not the rendered tab. Replacement tabs retain disabled actions during a pending push and receive its result on the current panel; route teardown cancels result delivery and delayed UI callbacks. A failed push re-enables retry. Automatic dirty sync is paused while that manual operation is busy.
+
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension.
 2. Create a new userscript and paste the contents of `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
 3. Save the script and visit a supported UOB PIB or Maybank2u SG card transaction page.

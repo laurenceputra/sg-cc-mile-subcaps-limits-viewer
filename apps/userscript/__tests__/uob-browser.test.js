@@ -51,3 +51,33 @@ it('Maybank same-URL rediscovery survives preserved observer teardown', options,
 it('UOB direct detail startup and dashboard return use production route gates', options, async () => {
   await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?account=123', 'PASS: UOB SPA observer lifecycle');
 });
+
+it('UOB pending restore failure leaves local views usable', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?restoreFailure=1', 'PASS: UOB SPA observer lifecycle');
+});
+
+it('UOB clean bootstrap restores remote selections before any push', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?cleanRestore=1', 'PASS: UOB SPA observer lifecycle');
+});
+
+it('Sync Now stays busy across rerenders and routes failure to the current panel', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?cleanRestore=1&syncBusy=1', 'PASS: UOB SPA observer lifecycle');
+});
+
+for (const scenario of ['unlockFailure=1', 'restoreReturn=before', 'restoreReturn=after']) {
+  it(`UOB bootstrap recovery: ${scenario}`, options, async () => {
+    await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', `/accountDetail?${scenario}`, 'PASS: UOB SPA observer lifecycle');
+  });
+}
+
+it('UOB pending policy completion refreshes the open local panel', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?policy=1', 'PASS: UOB SPA observer lifecycle');
+});
+
+it('Maybank pending policy completion refreshes the open local panel', options, async () => {
+  await runBrowserFixture('maybank-browser.html', 'cib.maybank2u.com.sg', '/m2u/accounts/cards?policy=1', 'PASS: Maybank same-URL rediscovery');
+});
+
+it('UOB leaving during pending restore prevents stale settings and UI writes', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?restoreExit=1', 'PASS: UOB SPA observer lifecycle');
+});

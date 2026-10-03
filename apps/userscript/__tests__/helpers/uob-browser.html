@@ -13,6 +13,7 @@ globalThis.GM_setValue = (key, value) => values.set(key, value);
 <script>
 (async () => {
   const h = globalThis.__CC_SUBCAP_TEST_EXPORTS__;
+  const scenario = new URLSearchParams(location.search);
   const portal = document.getElementById('portal');
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -22,8 +23,27 @@ globalThis.GM_setValue = (key, value) => values.set(key, value);
   try {
     const directDetail = location.pathname === '/accountDetail';
     if (directDetail) detail();
+    let completePolicy;
+    if (scenario.has('policy')) {
+      portal.querySelector('tbody').innerHTML = row('80000000000000000000001');
+      values.set('ccSubcapSettings', JSON.stringify({ cards: { "LADY'S SOLITAIRE CARD": { selectedCategories: ['Dining', ''], defaultCategory: 'Dining', merchantMap: {}, transactions: {} } } }));
+      values.set('ccSubcapSyncConfig', JSON.stringify({ serverUrl: 'https://example.com' }));
+      globalThis.fetch = () => new Promise((resolve) => { completePolicy = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify({ version: 5, cards: { "LADY'S SOLITAIRE CARD": { mode: 'per_category', cap: 1234 } } }) }); });
+    }
     const runtimeTimer = h.startRuntime();
     await sleep(1100);
+    if (scenario.has('policy')) {
+      document.getElementById('cc-subcap-btn').click();
+      await sleep(1800);
+      check(!document.getElementById('cc-subcap-overlay').textContent.includes('/ 1234'), 'local panel renders before policy completes');
+      completePolicy();
+      await sleep(1800);
+      check(document.getElementById('cc-subcap-overlay').textContent.includes('/ 1234'), 'policy completion refreshes open UOB caps without bank mutation');
+      clearInterval(runtimeTimer);
+      h.removeUI();
+      document.getElementById('result').textContent = 'PASS: UOB SPA observer lifecycle';
+      return;
+    }
     if (directDetail) {
       check(document.getElementById('cc-subcap-btn'), 'direct detail startup tools');
       portal.querySelector('tbody').innerHTML = row('80000000000000000000001');
@@ -148,19 +168,125 @@ globalThis.GM_setValue = (key, value) => values.set(key, value);
     let bootstrapStarted;
     const started = new Promise((resolve) => { bootstrapStarted = resolve; });
     manager.isEnabled = () => true;
-    manager.isUnlocked = () => true;
-    manager.shouldRunBootstrapRestore = () => true;
-    manager.saveBootstrapRestoreOutcome = () => {};
-    manager.syncClient = { syncEngine: { pull: () => { bootstrapStarted(); return new Promise((resolve) => { resolveBootstrap = resolve; }); } } };
+    let unlocked = false;
+    let finishUnlock;
+    manager.isUnlocked = () => unlocked;
+    manager.hasRememberedUnlockCache = () => true;
+    manager.tryUnlockFromRememberedCache = () => new Promise((resolve) => {
+      finishUnlock = (success = true) => { unlocked = success || scenario.has('unlockFailure'); resolve(success); };
+    });
+    manager.config.bootstrapRestoreDone = false;
+    const pushes = [];
+    manager.syncClient = { sync: (payload) => { pushes.push(payload); return Promise.resolve({ success: true }); }, syncEngine: { sanitizeCardForMerge: (card) => card, pull: () => { bootstrapStarted(); return new Promise((resolve) => { resolveBootstrap = resolve; }); } } };
     const initializing = h.main();
+    await initializing;
+    check(document.getElementById('cc-subcap-btn'), 'button exists during remembered unlock');
+    document.getElementById('cc-subcap-btn').click();
+    await sleep(1800);
+    check(document.getElementById('cc-subcap-overlay') && !document.getElementById('cc-subcap-overlay').classList.contains('cc-subcap-hidden'), 'local panel opens during remembered unlock');
+    check(document.getElementById('cc-subcap-overlay').textContent.includes('Sync restoring'), 'pending restore is visible');
+    check(Object.keys(stored()).length === 0, 'preview does not persist transactions before restore decision');
+    finishUnlock(!scenario.has('unlockFailure'));
+    if (scenario.has('unlockFailure')) {
+      await sleep(1800);
+      check(pushes.length === 0 && Object.keys(stored()).length === 0 && !manager.config.bootstrapRestoreDone, 'failed unlock with existing engine cannot authorize rows or push');
+      manager.tryUnlockFromRememberedCache = () => Promise.resolve(false);
+      manager.unlockSync = () => { unlocked = true; return Promise.resolve({ success: true }); };
+      document.getElementById('sync-unlock-passphrase').value = 'fixture password';
+      document.getElementById('sync-now-btn').click();
+    }
     await started;
+    if (scenario.has('restoreExit') || scenario.has('restoreReturn')) {
+      portal.innerHTML = '<h2>Accounts dashboard</h2>';
+      history.pushState({}, '', '/auth');
+      h.removeUI();
+      const oldResolve = resolveBootstrap;
+      if (scenario.get('restoreReturn') === 'before') {
+        history.pushState({}, '', '/accountDetail');
+        detail();
+        await h.main();
+      }
+      oldResolve({ success: true, data: { cards: { "LADY'S SOLITAIRE CARD": { selectedCategories: ['Travel', ''] } } }, version: 1 });
+      await sleep(1800);
+      if (scenario.has('restoreReturn')) {
+        if (scenario.get('restoreReturn') === 'after') {
+          check(!manager.config.bootstrapRestoreDone && !values.has('ccSubcapSettings'), 'cancelled restore is not an authoritative decision');
+          history.pushState({}, '', '/accountDetail');
+          detail();
+          await h.main();
+          resolveBootstrap({ success: true, data: { cards: { "LADY'S SOLITAIRE CARD": { selectedCategories: ['Travel', ''] } } }, version: 2 });
+          await sleep(1800);
+        }
+        check(manager.config.bootstrapRestoreDone && JSON.parse(values.get('ccSubcapSettings')).cards["LADY'S SOLITAIRE CARD"].selectedCategories[0] === 'Travel', 'return restores remote authority before local persistence');
+        check(pushes.every((payload) => payload.cards["LADY'S SOLITAIRE CARD"].selectedCategories[0] === 'Travel'), 'return pushes preserve remote selections');
+        clearInterval(runtimeTimer);
+        h.removeUI();
+        document.getElementById('result').textContent = 'PASS: UOB SPA observer lifecycle';
+        return;
+      }
+      check(!document.getElementById('cc-subcap-btn') && !document.getElementById('cc-subcap-overlay'), 'late restore cannot recreate UI on exit');
+      check(!values.has('ccSubcapSettings'), 'late restore cannot write the departed card');
+      clearInterval(runtimeTimer);
+      document.getElementById('result').textContent = 'PASS: UOB SPA observer lifecycle';
+      return;
+    }
+    const failRestore = scenario.has('restoreFailure');
+    const localSelection = document.querySelector('#cc-subcap-overlay select');
+    if (!failRestore && !scenario.has('cleanRestore') && !scenario.has('unlockFailure')) {
+      localSelection.value = 'Dining';
+      localSelection.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     const freshBody = document.createElement('tbody');
     freshBody.innerHTML = row('456');
     portal.querySelector('tbody').replaceWith(freshBody);
-    manager.isEnabled = () => false;
-    resolveBootstrap({ success: true, data: { cards: {} }, version: 1 });
-    await initializing;
+    resolveBootstrap(failRestore ? { success: false, error: 'Fixture restore failure' } : { success: true, data: { cards: { "LADY'S SOLITAIRE CARD": { selectedCategories: ['Travel', ''], defaultCategory: 'Travel' } } }, version: 1 });
+    await sleep(1800);
+    if (failRestore) {
+      check(pushes.length === 0 && Object.keys(stored()).length === 0 && !manager.config.bootstrapRestoreDone, 'failed restore does not authorize persistence or pushes');
+      document.getElementById('sync-now-btn').click();
+      await sleep(100);
+      check(pushes.length === 0, 'recovery waits for remote restore before push');
+      resolveBootstrap({ success: true, data: { cards: { "LADY'S SOLITAIRE CARD": { selectedCategories: ['Travel', ''], defaultCategory: 'Travel' } } }, version: 2 });
+      await sleep(1800);
+    }
     check(stored()['456'], 'startup reacquires replacement during deferred bootstrap');
+    check(document.getElementById('cc-subcap-btn') && document.getElementById('cc-subcap-overlay'), 'local UI remains usable after restore settlement');
+    const expectedSelection = failRestore || scenario.has('cleanRestore') || scenario.has('unlockFailure') ? 'Travel' : 'Dining';
+    check(JSON.parse(values.get('ccSubcapSettings')).cards["LADY'S SOLITAIRE CARD"].selectedCategories[0] === expectedSelection, 'restore respects remote selections or pending local edit');
+    check(manager.config.bootstrapRestoreDone === true, 'real bootstrap metadata marks a completed decision');
+    check(pushes.every((payload) => payload.cards["LADY'S SOLITAIRE CARD"].selectedCategories[0] === expectedSelection), 'push payload never substitutes empty selections for remote data');
+    if (scenario.has('syncBusy')) {
+      let finishPush;
+      let requests = 0;
+      manager.sync = () => { requests += 1; return new Promise((resolve) => { finishPush = resolve; }); };
+      document.getElementById('sync-now-btn').click();
+      await sleep(1800);
+      check(requests === 1, 'real Sync Now handler starts one pending push');
+      const oldButton = document.getElementById('sync-now-btn');
+      freshBody.insertAdjacentHTML('beforeend', row('458'));
+      await sleep(1800);
+      const currentButton = document.getElementById('sync-now-btn');
+      check(currentButton !== oldButton && currentButton.disabled, 'rerender preserves operation-level busy state');
+      currentButton.click();
+      check(requests === 1, 'current rendered button cannot submit a duplicate push');
+      finishPush({ success: false, error: 'Fixture push rejected: retry required' });
+      await sleep(100);
+      check(document.getElementById('sync-status').textContent === 'Sync failed: Fixture push rejected: retry required', 'failure is visible in the current panel');
+      check(!document.getElementById('sync-now-btn').disabled, 'current button enables retry after failure');
+      document.getElementById('sync-now-btn').click();
+      await sleep(100);
+      check(requests === 2, 'enabled retry starts exactly one new request');
+      history.pushState({}, '', '/auth');
+      portal.innerHTML = '';
+      h.removeUI();
+      finishPush({ success: false, error: 'Stale logout failure' });
+      await sleep(1800);
+      check(!document.getElementById('sync-status') && !document.getElementById('cc-subcap-overlay'), 'late push result cannot recreate status after logout');
+      clearInterval(runtimeTimer);
+      document.getElementById('result').textContent = 'PASS: UOB SPA observer lifecycle';
+      return;
+    }
+    manager.isEnabled = () => false;
     freshBody.insertAdjacentHTML('beforeend', row('457'));
     await sleep(900);
     check(stored()['457'], 'startup installs observers after replacement');
@@ -168,18 +294,12 @@ globalThis.GM_setValue = (key, value) => values.set(key, value);
     manager.isEnabled = () => true;
     manager.isUnlocked = () => false;
     manager.hasRememberedUnlockCache = () => true;
-    let finishUnlock;
-    let unlockStarted;
-    const unlocking = new Promise((resolve) => { unlockStarted = resolve; });
     let syncAttempts = 0;
     manager.syncClient = { sync: () => { syncAttempts += 1; return Promise.resolve({ success: true }); } };
-    manager.tryUnlockFromRememberedCache = () => { unlockStarted(); return new Promise((resolve) => { finishUnlock = resolve; }); };
     document.getElementById('cc-subcap-btn').click();
-    await unlocking;
     portal.innerHTML = '<h2>Accounts dashboard</h2>';
     history.pushState({}, '', '/auth');
     h.removeUI();
-    finishUnlock(true);
     await sleep(1800);
     check(!document.getElementById('cc-subcap-overlay') && !document.getElementById('cc-subcap-btn') && syncAttempts === 0, 'deferred unlock cannot recreate UI or sync after teardown/auth');
     Object.assign(manager, originals);
