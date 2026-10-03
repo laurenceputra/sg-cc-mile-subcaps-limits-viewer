@@ -120,18 +120,12 @@ function makeRow(cellCount) {
   };
 }
 
-function makeTbody(rowCount, cellCount) {
-  return {
-    querySelectorAll: () => new Array(rowCount).fill(0).map(() => makeRow(cellCount))
-  };
-}
-
 async function waitForAsyncTimers(timers) {
   await timers.runAllAsync();
 }
 
 describe('main flow extended', () => {
-  it('runs main on UOB profile and builds overlay', async () => {
+  it('runs main on UOB detail without rows and creates an actionable button', async () => {
     const doc = makeDocument();
     globalThis.document = doc;
     globalThis.Element = class {};
@@ -140,8 +134,8 @@ describe('main flow extended', () => {
       location: {
         origin: 'https://pib.uob.com.sg',
         hostname: 'pib.uob.com.sg',
-        href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
-        pathname: '/PIBCust/2FA/processSubmit.do'
+        href: 'https://pib.uob.com.sg/accountsDashboard',
+        pathname: '/accountsDashboard'
       },
       localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
       setTimeout: () => 0,
@@ -157,27 +151,24 @@ describe('main flow extended', () => {
 
     const cardNode = new globalThis.Element();
     cardNode.textContent = "LADY'S SOLITAIRE CARD";
+    cardNode.childNodes = [{ nodeType: 3, textContent: "LADY'S SOLITAIRE CARD" }];
     cardNode.innerText = "LADY'S SOLITAIRE CARD";
     cardNode.isConnected = true;
     cardNode.getBoundingClientRect = () => ({ width: 10, height: 10 });
-    const tbody = makeTbody(2, 4);
-    const tbodyNode = new globalThis.Element();
-    tbodyNode.querySelectorAll = () => new Array(2).fill(0).map(() => makeRow(4));
-    doc.evaluate = (xpath) => {
-      if (String(xpath).includes('h3')) {
-        return { singleNodeValue: cardNode };
-      }
-      if (String(xpath).includes('table/tbody')) {
-        return { singleNodeValue: tbodyNode };
-      }
-      return { singleNodeValue: null };
+    doc.querySelectorAll = (selector) => {
+      if (selector === 'h2') return [cardNode];
+      if (selector === 'table') return [];
+      assert.fail(`Unexpected document selector: ${selector}`);
     };
+    cardNode.parentElement = doc.body;
 
     const mainPromise = exports.main();
     await waitForAsyncTimers(timers);
     await mainPromise;
     const button = doc.getElementById('cc-subcap-btn');
     assert.notEqual(button, null, 'cc-subcap-btn should be created after UOB main flow');
+    assert.equal(button.disabled, false, 'supported empty detail remains actionable');
+    assert.equal(doc.getElementById('cc-subcap-overlay'), null, 'initialization alone must not open a panel');
     timers.unbindFromWindow();
   });
 
@@ -207,6 +198,7 @@ describe('main flow extended', () => {
 
     const cardNode = new globalThis.Element();
     cardNode.textContent = 'XL Rewards Card';
+    cardNode.childNodes = [{ nodeType: 3, textContent: 'XL Rewards Card' }];
     cardNode.innerText = 'XL Rewards Card';
     cardNode.isConnected = true;
     cardNode.getBoundingClientRect = () => ({ width: 10, height: 10 });
@@ -257,6 +249,7 @@ describe('main flow extended', () => {
 
     const cardNode = new globalThis.Element();
     cardNode.textContent = 'XL Rewards Card';
+    cardNode.childNodes = [{ nodeType: 3, textContent: 'XL Rewards Card' }];
     cardNode.innerText = 'XL Rewards Card';
     cardNode.isConnected = true;
     cardNode.getBoundingClientRect = () => ({ width: 10, height: 10 });

@@ -1,0 +1,198 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>UOB observer integration</title>
+<script>
+globalThis.__CC_SUBCAP_TEST__ = true;
+const values = new Map();
+globalThis.GM_getValue = (key, fallback) => values.get(key) ?? fallback;
+globalThis.GM_setValue = (key, value) => values.set(key, value);
+</script>
+<script src="../../bank-cc-limits-subcap-calculator.user.js"></script>
+<main id="portal"></main>
+<pre id="result">RUNNING</pre>
+<script>
+(async () => {
+  const h = globalThis.__CC_SUBCAP_TEST_EXPORTS__;
+  const portal = document.getElementById('portal');
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const check = (condition, message) => { if (!condition) throw new Error(message); };
+  const row = (ref, amount = '-17.33 SGD') => `<tr><td><div><span>05 Aug 2026</span><span>08 Aug 2026</span></div></td><td><div><span>NTUC FairPrice App Pay SINGAPORE SG Ref No: ${ref}</span></div></td><td></td><td><div><span>${amount}</span></div></td><td>Action</td></tr>`;
+  const detail = () => { portal.innerHTML = `<section><div><h2 id="card-heading">LADY'S SOLITAIRE CARD</h2></div><div><table aria-labelledby="card-heading"><thead><tr><th>Transaction date / Posting date</th><th>Merchant</th><th>Status</th><th>Amount</th><th>Action</th></tr></thead><tbody></tbody></table></div></section>`; };
+  const stored = () => JSON.parse(values.get('ccSubcapSettings') || '{}').cards?.["LADY'S SOLITAIRE CARD"]?.transactions || {};
+  try {
+    const runtimeTimer = h.startRuntime();
+    await sleep(1100);
+    check(!document.getElementById('cc-subcap-btn'), 'auth route runtime gate');
+    history.pushState({}, '', '/accountsDashboard');
+    await sleep(1100);
+    await sleep(16000);
+    check(!document.getElementById('cc-subcap-btn'), 'dashboard must not show tools');
+    detail();
+    await sleep(900);
+    check(document.getElementById('cc-subcap-btn'), 'same URL discovery after startup timeout');
+    const tbody = portal.querySelector('tbody');
+    tbody.innerHTML = row('90000000000000000000001');
+    await sleep(900);
+    check(Object.keys(stored()).length === 1, 'delayed rows stored');
+    portal.querySelector('thead').remove();
+    check(h.findUobTableBody()?.tbody === tbody, 'supplied five-column row structure works without container/header fixture');
+    const parserFixture = document.createElement('tbody');
+    parserFixture.innerHTML = row('123', '+7.50 SGD') + row('') + row('');
+    parserFixture.children[1].children[1].textContent = 'PAYMT THRU E-BANK/HOMEB/CYBERB (EP09)';
+    parserFixture.children[1].children[3].textContent = '+1,693.52 SGD';
+    parserFixture.children[2].children[0].querySelectorAll('span')[1].remove();
+    parserFixture.children[2].children[2].textContent = 'Pending';
+    const parserTable = document.createElement('table');
+    parserTable.append(parserFixture);
+    portal.append(parserTable);
+    const parsed = h.buildTransactions(parserFixture, "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} });
+    check(parsed.transactions.length === 1 && parsed.transactions[0].amount_value === -7.5, 'real DOM credit sign / payment / pending parsing');
+    check(parsed.diagnostics.missing_ref_no === 0 && parsed.diagnostics.skipped_rows === 2, 'real DOM exclusions precede ref diagnostics');
+    parserTable.remove();
+    const visibilityFixture = document.createElement('table');
+    visibilityFixture.innerHTML = `<tbody>${row('123')}${row('124')}${row('125')}</tbody>`;
+    portal.append(visibilityFixture);
+    visibilityFixture.rows[1].hidden = true;
+    visibilityFixture.rows[2].querySelector('td:nth-child(2)').innerHTML = '<span>Merchant</span><span hidden>Ref No: 125</span>';
+    visibilityFixture.rows[0].querySelector('td').insertAdjacentHTML('afterbegin', '<div><span hidden>01 Jan 2000</span></div>');
+    const visibleParsed = h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} });
+    check(visibleParsed.transactions.length === 1 && visibleParsed.transactions[0].posting_date === '08 Aug 2026', 'hidden rows/refs/competing dates excluded');
+    visibilityFixture.style.transform = 'translateX(-10000px)';
+    check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 1, 'offscreen loaded rows remain eligible');
+    visibilityFixture.style.transform = '';
+    const postingSpan = visibilityFixture.rows[0].querySelectorAll('td:first-child span')[2];
+    postingSpan.hidden = true;
+    check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 0, 'hidden posting date is never replaced by transaction date');
+    postingSpan.hidden = false;
+    visibilityFixture.style.opacity = '0';
+    check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 0, 'ancestor opacity excludes loaded rows');
+    visibilityFixture.style.opacity = '';
+    visibilityFixture.tBodies[0].hidden = true;
+    check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 0, 'hidden body excludes rows');
+    visibilityFixture.remove();
+    tbody.insertAdjacentHTML('beforeend', row('90000000000000000000001') + row('90000000000000000000002'));
+    await sleep(900);
+    check(Object.keys(stored()).length === 2, 'append deduplicates real refs');
+    tbody.children[1].remove();
+    tbody.querySelector('td:nth-child(4) span').firstChild.data = '-19.33 SGD';
+    await sleep(900);
+    check(stored()['90000000000000000000001'].amount_value === 19.33, 'text update refreshes amount');
+    const replacement = tbody.cloneNode(false);
+    replacement.innerHTML = row('90000000000000000000003');
+    tbody.replaceWith(replacement);
+    await sleep(900);
+    check(Object.keys(stored()).length === 3, 'replacement reattaches observer');
+    document.getElementById('cc-subcap-btn').click();
+    await sleep(900);
+    check(document.getElementById('cc-subcap-overlay'), 'primary click opens panel');
+    document.getElementById('cc-subcap-btn').click();
+    portal.querySelector('h2').firstChild.data = 'UNSUPPORTED CARD';
+    replacement.innerHTML = row('90000000000000000000004');
+    await sleep(900);
+    check(!document.getElementById('cc-subcap-btn'), 'card switch removes tools');
+    check(!stored()['90000000000000000000004'], 'stale context cannot write rows');
+    portal.innerHTML = '<h2>Accounts dashboard</h2>';
+    await sleep(900);
+    detail();
+    await sleep(900);
+    check(document.getElementById('cc-subcap-btn'), 'leave and return rediscovered');
+    portal.querySelector('section').style.display = 'none';
+    await sleep(900);
+    check(!document.getElementById('cc-subcap-btn'), 'hidden detail not actionable');
+    portal.querySelector('section').style.display = '';
+    await sleep(900);
+    check(document.getElementById('cc-subcap-btn'), 'visibility return rediscovered');
+    const unrelated = document.createElement('table');
+    unrelated.innerHTML = '<tbody><tr><td>Unrelated dashboard table</td></tr></tbody>';
+    portal.prepend(unrelated);
+    check(h.findUobTableBody()?.tbody === portal.querySelector('section tbody'), 'ignore unrelated first table');
+    const ambiguous = portal.querySelector('section table').cloneNode(true);
+    portal.querySelector('section').append(ambiguous);
+    check(h.findUobTableBody() === null, 'ambiguous associated tables fail closed');
+    ambiguous.remove();
+    const associated = portal.querySelector('section table');
+    associated.removeAttribute('aria-labelledby');
+    associated.tBodies[0].innerHTML = row('999');
+    check(h.findUobTableBody() === null, 'adjacent transaction-shaped other account cannot be assigned to heading');
+    associated.setAttribute('aria-labelledby', 'card-heading');
+    h.removeUI();
+    values.delete('ccSubcapSettings');
+    detail();
+    const manager = h.syncManager;
+    const originals = { isEnabled: manager.isEnabled, isUnlocked: manager.isUnlocked, shouldRunBootstrapRestore: manager.shouldRunBootstrapRestore, saveBootstrapRestoreOutcome: manager.saveBootstrapRestoreOutcome, syncClient: manager.syncClient, hasRememberedUnlockCache: manager.hasRememberedUnlockCache, tryUnlockFromRememberedCache: manager.tryUnlockFromRememberedCache };
+    let resolveBootstrap;
+    let bootstrapStarted;
+    const started = new Promise((resolve) => { bootstrapStarted = resolve; });
+    manager.isEnabled = () => true;
+    manager.isUnlocked = () => true;
+    manager.shouldRunBootstrapRestore = () => true;
+    manager.saveBootstrapRestoreOutcome = () => {};
+    manager.syncClient = { syncEngine: { pull: () => { bootstrapStarted(); return new Promise((resolve) => { resolveBootstrap = resolve; }); } } };
+    const initializing = h.main();
+    await started;
+    const freshBody = document.createElement('tbody');
+    freshBody.innerHTML = row('456');
+    portal.querySelector('tbody').replaceWith(freshBody);
+    manager.isEnabled = () => false;
+    resolveBootstrap({ success: true, data: { cards: {} }, version: 1 });
+    await initializing;
+    check(stored()['456'], 'startup reacquires replacement during deferred bootstrap');
+    freshBody.insertAdjacentHTML('beforeend', row('457'));
+    await sleep(900);
+    check(stored()['457'], 'startup installs observers after replacement');
+    manager.shouldRunBootstrapRestore = () => false;
+    manager.isEnabled = () => true;
+    manager.isUnlocked = () => false;
+    manager.hasRememberedUnlockCache = () => true;
+    let finishUnlock;
+    let unlockStarted;
+    const unlocking = new Promise((resolve) => { unlockStarted = resolve; });
+    let syncAttempts = 0;
+    manager.syncClient = { sync: () => { syncAttempts += 1; return Promise.resolve({ success: true }); } };
+    manager.tryUnlockFromRememberedCache = () => { unlockStarted(); return new Promise((resolve) => { finishUnlock = resolve; }); };
+    document.getElementById('cc-subcap-btn').click();
+    await unlocking;
+    portal.innerHTML = '<h2>Accounts dashboard</h2>';
+    history.pushState({}, '', '/auth');
+    h.removeUI();
+    finishUnlock(true);
+    await sleep(1800);
+    check(!document.getElementById('cc-subcap-overlay') && !document.getElementById('cc-subcap-btn') && syncAttempts === 0, 'deferred unlock cannot recreate UI or sync after teardown/auth');
+    Object.assign(manager, originals);
+    clearInterval(runtimeTimer);
+    h.removeUI();
+    history.pushState({}, '', '/accountsDashboard');
+    portal.innerHTML = '';
+    const atPath = (path) => {
+      let parent = document.body;
+      for (const part of path.split('/').slice(3)) {
+        const match = part.match(/^(\w+)(?:\[(\d+)\])?$/);
+        const tag = match[1];
+        const index = Number(match[2] || 1);
+        let children = Array.from(parent.children).filter((node) => node.localName === tag);
+        while (children.length < index) {
+          parent.append(document.createElement(tag));
+          children = Array.from(parent.children).filter((node) => node.localName === tag);
+        }
+        parent = children[index - 1];
+      }
+      return parent;
+    };
+    const exactHeading = atPath('/html/body/div[1]/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/h2');
+    exactHeading.textContent = "LADY'S SOLITAIRE CARD";
+    const exactBody = atPath('/html/body/div[1]/div/div[2]/div/div[2]/div[2]/div[1]/div[2]/div/div[2]/div/div[2]/table/tbody');
+    exactBody.innerHTML = row('789');
+    check(h.findUobTableBody()?.tbody === exactBody, 'exact supplied sibling-panel structure validated without accessible label');
+    exactBody.hidden = true;
+    check(h.findUobTableBody() === null, 'exact anchor does not bypass hidden-body validation');
+    exactBody.hidden = false;
+    document.body.querySelector('div').style.opacity = '0';
+    check(h.findUobTableBody() === null, 'exact anchor does not bypass ancestor opacity');
+    document.body.querySelector('div').remove();
+    document.getElementById('result').textContent = 'PASS: UOB SPA observer lifecycle';
+  } catch (error) {
+    h.removeUI();
+    document.getElementById('result').textContent = `FAIL: ${error.message}`;
+  }
+})();
+</script>

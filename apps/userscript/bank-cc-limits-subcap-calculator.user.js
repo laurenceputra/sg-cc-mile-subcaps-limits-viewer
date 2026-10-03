@@ -6,7 +6,8 @@
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
-// @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
+// @match        https://pib.uob.com.sg/auth*
+// @match        https://pib.uob.com.sg/accountsDashboard*
 // @match        https://cib.maybank2u.com.sg/*
 // @run-at       document-idle
 // @grant        GM_getValue
@@ -3344,14 +3345,16 @@
       {
         id: 'uob-pib',
         host: 'pib.uob.com.sg',
-        pathPrefix: '/PIBCust/2FA/processSubmit.do',
-        urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
+        pathPrefix: '/accountsDashboard',
+        allowOverlayWithoutRows: true,
+        requireVisibleCardName: true,
+        observeCardContext: true,
         waitTimeoutMs: 15000,
         cardNameXPaths: [
-          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3'
+          '//h2'
         ],
         tableBodyXPaths: [
-          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
+          '//table/tbody'
         ]
       },
       {
@@ -3442,7 +3445,7 @@
 
 
     const TRANSACTION_LOADING_NOTICE =
-      '💡 <strong>Completeness check:</strong><br>Only rows you have loaded on the bank site are counted. Use pagination or "View More", then reopen the panel to refresh the local snapshot.';
+      '💡 <strong>Completeness check:</strong><br>Only posted rows you have loaded on the bank site are counted. Scroll manually to load more UOB transactions, or use pagination / "View More", then reopen the panel. The script never scrolls automatically.';
 
     const CAP_POLICY_CACHE_KEY = 'ccSubcapCapPolicyCache';
     const CAP_POLICY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -3702,6 +3705,7 @@
     let shouldShowButton = false;
     let isButtonActionable = false;
     let lastRefreshTrigger = null;
+    let lifecycleGeneration = 0;
 
     function loadSettings() {
       const raw = storage.get(STORAGE_KEY, '{}');
@@ -3860,6 +3864,7 @@
     }
 
     function removeUI(options = {}) {
+      lifecycleGeneration += 1;
       const preserveCardContextObserver = options.preserveCardContextObserver === true;
       const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
       observerCoordinator.stopAll({ preserveCardContextObserver, preserveButtonStateObserver });
@@ -3976,6 +3981,7 @@
     }
 
     async function waitForAnyTableBodyRows(xpaths, timeoutMs = 15000, settleMs = 2000) {
+      if (Array.isArray(xpaths) && xpaths.includes('//table/tbody')) return findUobTableBody();
       const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
       if (!candidates.length) {
         return null;
@@ -4011,9 +4017,11 @@
     }
 
     function observeTableBody(tableBodyXPaths, onChange, waitTimeoutMs, debounceMs = RUNTIME_LIMITS.tableRefreshDebounceMs) {
+      const isUobTable = tableBodyXPaths.includes('//table/tbody');
       let currentTbody = null;
       let tableObserver = null;
       let rootObserver = null;
+      let rootDiscoveryTimer = null;
       let refreshTimer = null;
       let ensureInProgress = false;
 
@@ -4029,12 +4037,12 @@
           tableObserver.disconnect();
         }
         tableObserver = new MutationObserver((mutations) => {
-          const hasChange = mutations.some((mutation) => mutation.type === 'childList');
+          const hasChange = mutations.some((mutation) => mutation.type === 'childList' || mutation.type === 'characterData');
           if (hasChange) {
             scheduleRefresh();
           }
         });
-        tableObserver.observe(tbody, { childList: true, subtree: true });
+        tableObserver.observe(tbody, { childList: true, characterData: true, subtree: true });
       };
 
       const attachRootObserver = () => {
@@ -4042,15 +4050,26 @@
           rootObserver.disconnect();
         }
         rootObserver = new MutationObserver((mutations) => {
-          const hasChildListChange = mutations.some((mutation) => mutation.type === 'childList');
+          const hasChildListChange = mutations.some((mutation) => mutation.type === 'childList' || (isUobTable && mutation.type === 'attributes'));
           if (!hasChildListChange) {
+            return;
+          }
+          if (isUobTable) {
+            if (!rootDiscoveryTimer) {
+              rootDiscoveryTimer = window.setTimeout(() => {
+                rootDiscoveryTimer = null;
+                if (findUobTableBody()?.tbody !== currentTbody || !currentTbody) ensureObserver();
+              }, debounceMs);
+            }
             return;
           }
           if (!currentTbody || !currentTbody.isConnected) {
             ensureObserver();
           }
         });
-        rootObserver.observe(document.documentElement, { childList: true, subtree: true });
+        rootObserver.observe(document.documentElement, isUobTable
+          ? { childList: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'], subtree: true }
+          : { childList: true, subtree: true });
       };
 
       const ensureObserver = async () => {
@@ -4060,8 +4079,15 @@
         ensureInProgress = true;
         const timeoutMs = (typeof waitTimeoutMs === 'number' ? waitTimeoutMs : 15000);
         try {
-          const match = await waitForAnyXPath(tableBodyXPaths, timeoutMs);
-          const tbody = match?.node || null;
+          const match = isUobTable
+            ? findUobTableBody()
+            : await waitForAnyXPath(tableBodyXPaths, timeoutMs);
+          const tbody = match?.tbody || match?.node || null;
+          if (isUobTable && !tbody && currentTbody) {
+            tableObserver?.disconnect();
+            currentTbody = null;
+            scheduleRefresh();
+          }
           if (!tbody || tbody === currentTbody) {
             return;
           }
@@ -4086,6 +4112,7 @@
         if (refreshTimer) {
           window.clearTimeout(refreshTimer);
         }
+        if (rootDiscoveryTimer) window.clearTimeout(rootDiscoveryTimer);
       };
     }
 
@@ -4099,7 +4126,7 @@
         if (!match) {
           return { name: '', raw: '', xpath: '' };
         }
-        return { name: match.name, raw: match.raw, xpath: match.xpath || '' };
+        return { name: match.name, raw: match.raw, xpath: match.xpath || '', tableBody: profile.id === 'uob-pib' ? findUobTableBody()?.tbody || null : null };
       };
       let lastSnapshot = resolveSnapshot();
       const scheduleRefresh = () => {
@@ -4111,7 +4138,8 @@
           const hasChanged = !(
             nextSnapshot.name === lastSnapshot.name &&
             nextSnapshot.raw === lastSnapshot.raw &&
-            nextSnapshot.xpath === lastSnapshot.xpath
+            nextSnapshot.xpath === lastSnapshot.xpath &&
+            nextSnapshot.tableBody === lastSnapshot.tableBody
           );
           if (!hasChanged) {
             return;
@@ -4123,7 +4151,9 @@
       const observer = new MutationObserver(() => {
         scheduleRefresh();
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      observer.observe(document.documentElement, profile.id === 'uob-pib'
+        ? { childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'], subtree: true }
+        : { childList: true, subtree: true });
       return () => {
         observer.disconnect();
         if (refreshTimer) {
@@ -4262,21 +4292,48 @@
     }
 
     function isElementVisible(element) {
+      if (!isEffectivelyVisible(element)) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    function isEffectivelyVisible(element) {
       if (!element || !(element instanceof Element)) {
         return false;
       }
       if (!element.isConnected) {
         return false;
       }
-      const style = window.getComputedStyle(element);
-      if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-        return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = window.getComputedStyle(node);
+        if (node.hidden || !style || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.opacity === '0') {
+          return false;
+        }
       }
-      const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
+      return true;
+    }
+
+    function visibleUobText(element) {
+      // Non-DOM test fixtures retain the existing helper API. Real portal
+      // fields must exclude hidden descendants, including duplicate labels.
+      if (!(element instanceof Element)) return normalizeText(element?.textContent);
+      if (!isElementVisible(element)) return '';
+      const text = Array.from(element.childNodes).map((node) => {
+        if (node.nodeType === 3) return node.textContent;
+        return node instanceof Element ? visibleUobText(node) : '';
+      }).join(' ');
+      return normalizeText(text);
     }
 
     function findActiveCardName(profile, options = {}) {
+      if (profile?.id === 'uob-pib') {
+        if (!matchesProfile(profile)) return null;
+        const headings = Array.from(document.querySelectorAll('h2')).filter(isElementVisible);
+        const supported = headings.filter((node) => resolveSupportedCardName(visibleUobText(node)) === "LADY'S SOLITAIRE CARD");
+        if (supported.length !== 1) return null;
+        const node = supported[0];
+        return { name: "LADY'S SOLITAIRE CARD", raw: visibleUobText(node), node, xpath: '//h2' };
+      }
       const requireVisible = options.requireVisible === true;
       const cardNameXPaths = profile?.cardNameXPaths || (profile?.cardNameXPath ? [profile.cardNameXPath] : []);
       if (!cardNameXPaths.length) {
@@ -4287,10 +4344,16 @@
         if (!node) {
           return null;
         }
+        // Broad portal fallback XPaths must not rediscover our own card title
+        // (or an ancestor containing it) after the bank heading disappears.
+        const overlay = profile.id === 'maybank2u-sg' ? document.getElementById(UI_IDS.overlay) : null;
+        if (overlay && (node.contains?.(overlay) || overlay.contains?.(node))) return null;
         if (requireVisible && !isElementVisible(node)) {
           return null;
         }
-        const raw = normalizeText(node.textContent);
+        const raw = profile.id === 'maybank2u-sg' && xpath !== cardNameXPaths[0]
+          ? visibleUobText(node)
+          : normalizeText(node.textContent);
         const name = resolveSupportedCardName(raw);
         return { name, raw, node, xpath };
       };
@@ -4350,6 +4413,9 @@
     }
 
     function findAnyTableBody(xpaths) {
+      if (Array.isArray(xpaths) && xpaths.includes('//table/tbody')) {
+        return findUobTableBody();
+      }
       const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
       for (const xpath of candidates) {
         const tbody = evalXPath(xpath);
@@ -4358,6 +4424,34 @@
         }
       }
       return null;
+    }
+
+    // Accept explicit accessible ownership, or the supplied portal structure
+    // at its exact anchors. Never climb generic ancestors to infer ownership.
+    function findUobTableBody() {
+      const profile = PORTAL_PROFILES[0];
+      const heading = findActiveCardName(profile, { requireVisible: true });
+      if (!heading) return null;
+      const headingXPath = '/html/body/div[1]/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/h2';
+      const bodyXPath = '/html/body/div[1]/div/div[2]/div/div[2]/div[2]/div[1]/div[2]/div/div[2]/div/div[2]/table/tbody';
+      const anchoredBody = evalXPath(headingXPath) === heading.node ? evalXPath(bodyXPath) : null;
+      const candidates = Array.from(document.querySelectorAll('table')).filter((table) => {
+        const labels = (table.getAttribute('aria-labelledby') || '').split(/\s+/);
+        return (heading.node.id && labels.includes(heading.node.id)) || table.querySelector('tbody') === anchoredBody;
+      }).filter(isElementVisible).filter((table) => {
+          const body = table.querySelector('tbody');
+          if (!body || !isEffectivelyVisible(body)) return false;
+          const headers = visibleUobText(table.querySelector('thead')).toLowerCase();
+          const rows = Array.from(table.querySelectorAll('tbody tr'));
+          return (/transaction/.test(headers) && /posting/.test(headers) && /amount/.test(headers)) || rows.some((row) => {
+            if (!isElementVisible(row)) return false;
+            const cells = row.querySelectorAll('td');
+            return cells.length === 5 && parsePostingDate(visibleUobText(cells[0].querySelector('div span'))) && visibleUobText(cells[1]) &&
+              /^[+-]?[\d,]+\.\d{2}\s+[A-Z]{3}$/.test(visibleUobText(cells[3]));
+          });
+        });
+      if (candidates.length !== 1) return null;
+      return { xpath: '//table/tbody', tbody: candidates[0].querySelector('tbody') };
     }
 
     /**
@@ -4408,6 +4502,11 @@
     }
 
     function getActiveCardName(profile, options = {}) {
+      // UOB discovery is persistent; a vanished detail must not leave a stale
+      // refresh waiting for a different card to appear.
+      if (profile?.id === 'uob-pib') {
+        return Promise.resolve(findActiveCardName(profile, { requireVisible: true }) || { name: '', raw: '', node: null, xpath: '' });
+      }
       const requireVisible = options.requireVisible === true;
       const waitTimeoutMs = Number.isFinite(options.waitTimeoutMs) ? options.waitTimeoutMs : 15000;
       const getVisibleMatch = () => findActiveCardName(profile, { requireVisible });
@@ -4437,24 +4536,6 @@
           resolve({ name: '', raw: '', node: null, xpath: '' });
         }, waitTimeoutMs);
       });
-    }
-
-    function extractMerchantInfo(cell) {
-      if (!cell) {
-        return { merchantName: '', refNo: '' };
-      }
-      const raw = cell.innerText || cell.textContent || '';
-      const lines = raw
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (lines.length > 0) {
-        return {
-          merchantName: lines[0],
-          refNo: normalizeRefNo(lines.length > 1 ? lines[1] : '')
-        };
-      }
-      return { merchantName: normalizeText(raw), refNo: '' };
     }
 
     function toISODate(date) {
@@ -4584,38 +4665,6 @@
       const base = `${normalizedDate}|${normalizedDesc}|${normalizedAmount}`;
       const hash = hashFNV1a(base);
       return `MB:${normalizedDate}:${normalizedAmount}:${hash}`;
-    }
-
-    function extractDollarsAndCents(amountCell) {
-      if (!amountCell) {
-        return { dollarsText: '', centsText: '', amountText: '' };
-      }
-
-      const amountSpan = amountCell.querySelector('span');
-      if (!amountSpan) {
-        const fallback = normalizeText(amountCell.textContent);
-        return { dollarsText: fallback, centsText: '', amountText: fallback };
-      }
-
-      const centsSpan = amountSpan.querySelector('span');
-      const centsText = normalizeText(centsSpan ? centsSpan.textContent : '');
-
-      let dollarsText = '';
-      const firstTextNode = Array.from(amountSpan.childNodes).find(
-        (node) => node.nodeType === Node.TEXT_NODE
-      );
-
-      if (firstTextNode) {
-        dollarsText = normalizeText(firstTextNode.textContent);
-      } else {
-        dollarsText = normalizeText(amountSpan.textContent);
-        if (centsText && dollarsText.endsWith(centsText)) {
-          dollarsText = normalizeText(dollarsText.slice(0, -centsText.length));
-        }
-      }
-
-      const amountText = `${dollarsText}${centsText}`.trim();
-      return { dollarsText, centsText, amountText };
     }
 
     function getSelectedCategories(cardSettings) {
@@ -4957,38 +5006,52 @@
       const transactions = rows
         .map((row, index) => {
           const cells = row.querySelectorAll('td');
-          if (cells.length < 4) {
+          if (cells.length !== 5) {
             diagnostics.skipped_rows += 1;
             return null;
           }
 
-          const postingDate = normalizeText(cells[0].textContent);
-          const transactionDate = normalizeText(cells[1].textContent);
-          const { merchantName, refNo } = extractMerchantInfo(cells[2]);
+          if (row instanceof Element && (!isElementVisible(row) || !isElementVisible(tbody) || [cells[0], cells[1], cells[3]].some((cell) => !isElementVisible(cell)))) {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+          const dates = Array.from(cells[0].querySelectorAll('div span')).filter((node) => !(node instanceof Element) || isElementVisible(node));
+          const transactionDate = visibleUobText(dates[0]);
+          const postingDate = dates.length === 2 ? visibleUobText(dates[1]) : '';
+          const description = visibleUobText(cells[1]);
+          if (visibleUobText(cells[2]) || !postingDate || /\bPAYMT\s+THRU\s+E-BANK\/HOMEB\/CYBERB\b/i.test(description)) {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+          const reference = description.match(/\bRef\s+No\s*:\s*(\d+)\s*$/i);
+          const refNo = reference?.[1] || '';
+          const merchantName = normalizeText(reference ? description.slice(0, reference.index) : description);
           const normalizedRefNo = normalizeKey(normalizeRefNo(refNo));
 
-          if (
-            !postingDate &&
-            !transactionDate &&
-            merchantName.toLowerCase() === 'previous balance'
-          ) {
+          if (!merchantName) {
             diagnostics.skipped_rows += 1;
             return null;
           }
+
           if (!normalizedRefNo) {
             diagnostics.missing_ref_no += 1;
             return null;
           }
 
-          const { dollarsText, centsText, amountText } = extractDollarsAndCents(cells[3]);
-          const amountValue = parseAmount(amountText);
-          if (amountText && amountValue === null) {
+          const amountText = visibleUobText(cells[3]);
+          const rawAmount = /^[+-]?[\d,]+\.\d{2}\s+SGD$/.test(amountText) ? parseAmount(amountText) : null;
+          // UOB displays debits negative and merchant credits positive. This
+          // sign inversion is inferred from the supplied fixtures, not live verified.
+          const amountValue = rawAmount === null ? null : rawAmount * -1;
+          if (amountValue === null) {
             diagnostics.invalid_amount += 1;
+            return null;
           }
 
           const postingDateParsed = parsePostingDate(postingDate);
           if (postingDate && !postingDateParsed) {
             diagnostics.invalid_posting_date += 1;
+            return null;
           }
 
           const postingDateIso = postingDateParsed ? toISODate(postingDateParsed) : '';
@@ -5001,8 +5064,8 @@
             transaction_date: transactionDate,
             merchant_detail: merchantName,
             ref_no: normalizedRefNo,
-            amount_dollars: dollarsText,
-            amount_cents: centsText,
+            amount_dollars: String(amountValue),
+            amount_cents: '',
             amount_text: amountText,
             amount_value: amountValue,
             category
@@ -6311,6 +6374,7 @@
     }
 
     async function main() {
+      const generation = ++lifecycleGeneration;
       const profile = PORTAL_PROFILES.find((entry) => matchesProfile(entry));
       if (!profile) {
         removeUI();
@@ -6320,12 +6384,16 @@
       const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
       const allowOverlayWithoutRows = profile.allowOverlayWithoutRows === true;
 
-      const cardContext = await getActiveCardName(profile, {
+      if (profile.id === 'uob-pib') {
+        observerCoordinator.startCardContextObserver(profile, { requireVisible: true }, () => runMainSafe());
+      }
+
+      const cardContext = profile.id === 'uob-pib' ? findActiveCardName(profile, { requireVisible: true }) : await getActiveCardName(profile, {
         waitTimeoutMs,
         requireVisible: profile.requireVisibleCardName === true
       });
       if (!cardContext?.name) {
-        removeUI();
+        removeUI({ preserveCardContextObserver: profile.id === 'uob-pib' });
         return;
       }
 
@@ -6345,7 +6413,7 @@
       const initialTableBodyMatch = allowOverlayWithoutRows
         ? findAnyTableBody(tableBodyXPaths)
         : await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
-      const tableBody = initialTableBodyMatch?.tbody || null;
+      let tableBody = initialTableBodyMatch?.tbody || null;
       const preferredTableBodyXPath = initialTableBodyMatch?.xpath || null;
       if (!tableBody && !allowOverlayWithoutRows) {
         removeUI();
@@ -6377,6 +6445,7 @@
       };
 
       const attemptBackgroundSyncIfDirty = () => {
+        if (generation !== lifecycleGeneration || !matchesProfile(profile)) return;
         if (!hasUnsyncedCardChanges) {
           return;
         }
@@ -6435,6 +6504,13 @@
 
       const preUpdateStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       const preUpdateFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, preUpdateStoredTransactions);
+      if (generation !== lifecycleGeneration) return;
+      // Bootstrap may replace the table without changing the product heading.
+      // Reacquire its current identity before writing or installing observers.
+      if (profile.id === 'uob-pib') tableBody = findUobTableBody()?.tbody || null;
+      const initialWriteContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
+      if (!matchesProfile(profile) || !isSameCardContextPair(initialWriteContext, buildCardContext(profile, cardContext)) ||
+          (profile.id === 'uob-pib' && tableBody && findUobTableBody()?.tbody !== tableBody)) return;
       if (tableBody) {
         const initialData = buildData(tableBody, cardName, initialCardSettings);
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
@@ -6462,6 +6538,10 @@
       };
 
       const refreshOverlay = async (reason, options = {}) => {
+        if (generation !== lifecycleGeneration) return;
+        const refreshGeneration = lifecycleGeneration;
+        const isCurrentLifecycle = () => refreshGeneration === lifecycleGeneration && matchesProfile(profile) &&
+          isSameCardContextPair(buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })), buildCardContext(profile, cardContext));
         const allowUnresolved = options.allowUnresolved === true;
         if (refreshInProgress) {
           refreshPending = true;
@@ -6476,6 +6556,7 @@
             requireVisible: profile.requireVisibleCardName === true
           });
           const nextContext = buildCardContext(profile, latestContext);
+          if (refreshGeneration !== lifecycleGeneration) return;
 
           if (!isSupportedCardContext(profile, nextContext, allowUnresolved)) {
             shouldShowButton = false;
@@ -6517,6 +6598,8 @@
           if (syncManager.isEnabled()) {
             await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
           }
+          const settledContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
+          if (refreshGeneration !== lifecycleGeneration || !matchesProfile(profile) || !isSameCardContextPair(settledContext, buildCardContext(profile, cardContext))) return;
           const settings = loadSettings();
           const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
           let data;
@@ -6526,7 +6609,8 @@
               requireVisible: profile.requireVisibleCardName === true
             });
             const nextWriteContext = buildCardContext(profile, writeTimeContext);
-            if (!isSameCardContext(nextWriteContext)) {
+            if (!matchesProfile(profile) || !isSameCardContextPair(nextWriteContext, buildCardContext(profile, cardContext)) ||
+                (profile.id === 'uob-pib' && findUobTableBody()?.tbody !== latestTableBody)) {
               shouldShowButton = Boolean(nextWriteContext.cardName);
               isButtonActionable = shouldShowButton;
               activeCardContext = { ...nextWriteContext };
@@ -6553,6 +6637,7 @@
           if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
             await syncManager.tryUnlockFromRememberedCache();
           }
+          if (!isCurrentLifecycle() || (profile.id === 'uob-pib' && latestTableBody && findUobTableBody()?.tbody !== latestTableBody)) return;
           if (latestTableBody) {
             attemptBackgroundSyncIfDirty();
           }
@@ -6581,6 +6666,7 @@
       };
 
       const handleButtonClick = async () => {
+        if (generation !== lifecycleGeneration) return;
         if (!profile) {
           return;
         }
@@ -6588,6 +6674,7 @@
           waitTimeoutMs: RUNTIME_LIMITS.clickContextTimeoutMs,
           requireVisible: profile.requireVisibleCardName === true
         });
+        if (generation !== lifecycleGeneration) return;
         const nextContext = buildCardContext(profile, quickContext);
 
         if (!nextContext.cardName) {
@@ -6613,6 +6700,12 @@
       };
 
       const refreshButtonState = () => {
+        if (generation !== lifecycleGeneration) {
+          // Preserved discovery observers outlive their render lifecycle.
+          // They may start a new one, but must not revive stale render work.
+          if (matchesProfile(profile) && findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })) runMainSafe();
+          return;
+        }
         if (!profile) {
           return;
         }
@@ -6653,7 +6746,17 @@
       observerCoordinator.startCardContextObserver(
         profile,
         { requireVisible: profile.requireVisibleCardName === true },
-        () => scheduleRefresh('card-context'),
+        () => {
+          if (profile.id === 'uob-pib') {
+            runMainSafe();
+            return;
+          }
+          if (generation !== lifecycleGeneration) {
+            if (matchesProfile(profile) && findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })) runMainSafe();
+            return;
+          }
+          scheduleRefresh('card-context');
+        },
         RUNTIME_LIMITS.cardContextDebounceMs
       );
       observerCoordinator.startButtonStateObserver(
@@ -6663,6 +6766,39 @@
         RUNTIME_LIMITS.buttonStateDebounceMs
       );
       ensureCapPolicyLoaded().catch(() => {});
+    }
+
+    let mainInProgress = false;
+    let mainRerunPending = false;
+
+    function runMainSafe() {
+      if (mainInProgress) {
+        mainRerunPending = true;
+        return;
+      }
+      mainInProgress = true;
+      main()
+        .catch((error) => {
+          console.error('[Subcap] Failed to initialize on current page:', error);
+        })
+        .finally(() => {
+          mainInProgress = false;
+          if (mainRerunPending) {
+            mainRerunPending = false;
+            runMainSafe();
+          }
+        });
+    }
+
+    function startRuntime() {
+      runMainSafe();
+      let lastObservedUrl = window.location.href;
+      return window.setInterval(() => {
+        const currentUrl = window.location.href;
+        if (currentUrl === lastObservedUrl) return;
+        lastObservedUrl = currentUrl;
+        runMainSafe();
+      }, 1000);
     }
 
     // ── Test seam (inner IIFE: pure helpers) ────────────────────────────────
@@ -6704,6 +6840,10 @@
         waitForAnyXPath,
         waitForAnyTableBodyRows,
         main,
+        runMainSafe,
+        startRuntime,
+        removeUI,
+        syncManager,
         isElementVisible,
         findActiveCardName,
         matchesProfile,
@@ -6749,7 +6889,8 @@
         fromISODate,
         normalizeRefNo,
         normalizeKey,
-        extractDollarsAndCents,
+        PORTAL_PROFILES,
+        findUobTableBody,
         moveOthersToEnd,
         getCategoryDisplayOrder,
         resolveCategory,
@@ -6761,39 +6902,7 @@
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    let mainInProgress = false;
-    let mainRerunPending = false;
-
-    const runMainSafe = () => {
-      if (mainInProgress) {
-        mainRerunPending = true;
-        return;
-      }
-      mainInProgress = true;
-      main()
-        .catch((error) => {
-          console.error('[Subcap] Failed to initialize on current page:', error);
-        })
-        .finally(() => {
-          mainInProgress = false;
-          if (mainRerunPending) {
-            mainRerunPending = false;
-            runMainSafe();
-          }
-        });
-    };
-
-    runMainSafe();
-
-    let lastObservedUrl = window.location.href;
-    window.setInterval(() => {
-      const currentUrl = window.location.href;
-      if (currentUrl === lastObservedUrl) {
-        return;
-      }
-      lastObservedUrl = currentUrl;
-      runMainSafe();
-    }, 1000);
+    startRuntime();
   })();
 
 })();

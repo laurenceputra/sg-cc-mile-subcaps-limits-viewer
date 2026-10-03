@@ -34,12 +34,6 @@ describe('formatting helpers', () => {
     assert.equal(exports.normalizeRefNo(''), '');
   });
 
-  it('extractDollarsAndCents handles missing spans', () => {
-    const cell = { textContent: '12.50', querySelector: () => null };
-    const result = exports.extractDollarsAndCents(cell);
-    assert.equal(result.amountText, '12.50');
-  });
-
   it('applyCapToneStyles uses fallback tone and background', () => {
     const element = { style: {} };
     const policy = {

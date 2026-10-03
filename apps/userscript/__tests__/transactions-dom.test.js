@@ -2,6 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
+import { uobRow } from './helpers/uob-fixtures.js';
 
 const exports = await loadExports();
 
@@ -30,8 +31,8 @@ describe('transaction DOM builders', () => {
   it('buildTransactions parses UOB rows and records diagnostics', () => {
     const cardSettings = { defaultCategory: 'Others', merchantMap: {}, transactions: {} };
     const rows = [
-      makeRow([makeCell('01 Jan 2024'), makeCell('30 Dec 2023'), makeCell('STARBUCKS\nREF001'), makeCell('12.50')]),
-      makeRow([makeCell(''), makeCell(''), makeCell('Previous Balance'), makeCell('0.00')]),
+      uobRow(),
+      uobRow({ postingDate: '', status: 'Pending', ref: '' }),
       makeRow([makeCell('01 Jan 2024')])
     ];
     const tbody = makeTbody(rows);
@@ -74,7 +75,7 @@ describe('transaction DOM builders', () => {
   it('buildData wires summary and selected categories', () => {
     const cardSettings = { defaultCategory: 'Others', selectedCategories: ['Dining', ''], merchantMap: {}, transactions: {} };
     const rows = [
-      makeRow([makeCell('01 Jan 2024'), makeCell('30 Dec 2023'), makeCell('STARBUCKS\nREF001'), makeCell('12.50')])
+      uobRow({ amount: '-12.50 SGD' })
     ];
     const tbody = makeTbody(rows);
     const data = exports.buildData(tbody, "LADY'S SOLITAIRE CARD", cardSettings);

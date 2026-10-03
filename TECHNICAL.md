@@ -9,7 +9,7 @@
 ## Supported scope
 
 - **UOB Personal Internet Banking (PIB)**
-  - **Page**: Credit card transaction listing (`https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*`)
+  - **Page**: SPA card detail on `https://pib.uob.com.sg/accountsDashboard*`; the script also loads on `/auth*` before login navigation.
   - **Card**: `LADY'S SOLITAIRE CARD`
 - **Maybank2u SG**
   - **Page**: Cards transaction listing (`https://cib.maybank2u.com.sg/m2u/accounts/cards*`)
@@ -64,10 +64,16 @@
 ## Data extraction details
 
 - **UOB PIB**
-  - **Card name XPath**:
-    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3`
-  - **Transactions table body XPath**:
-    - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
+  - Resolve a unique effectively visible supported `h2`. Table ownership requires an explicit `aria-labelledby` relationship to that heading, or both exact supplied SPA XPath anchors (heading in the first panel, table in the sibling second panel). There is **no generic ancestor climb**, generated CSS selector, or first-table fallback. Both paths still require transaction/posting/amount headers or the five-column date/amount structure and an effectively visible body. Without accessible ownership or the supplied structure, extraction fails closed; container markup remains unverified.
+  - Heading anchor: `/html/body/div[1]/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/h2`; body anchor: `/html/body/div[1]/div/div[2]/div/div[2]/div[2]/div[1]/div[2]/div/div[2]/div/div[2]/table/tbody`. These are conservative structural fallbacks, not independently sufficient evidence of a transaction table.
+  - Column 1 contains transaction then posting date spans (`D Mon YYYY`); column 2 contains merchant text and inline `Ref No: <digits>`; column 3 is status; column 4 is signed SGD amount; column 5 is ignored.
+  - Pending/status rows, missing posting dates and `PAYMT THRU E-BANK/HOMEB/CYBERB` payments are skipped before reference validation. Posted merchant rows without references are diagnosed and skipped; references remain strings and no synthetic UOB IDs are generated.
+  - Spend is the displayed signed amount multiplied by `-1`: purchases become positive, referenced merchant credits negative. Credit/refund sign policy is inferred from supplied examples and is **not live verified**.
+  - Persistent discovery includes table identity and handles same-URL entry/return, delayed rows, replacement and text updates. Startup reacquires the table after bootstrap; lifecycle generations invalidate stale asynchronous refreshes after teardown/reinitialization, with a final guard before sync/UI effects following remembered unlock. Root discovery is coalesced. Scroll manually to load more; the script never auto-scrolls and unloaded transactions are not counted.
+  - Visibility includes hidden/display/visibility/opacity state on ancestors and field descendants. Hidden bodies, rows, dates and reference labels are not imported; loaded offscreen rows remain eligible (no viewport intersection requirement).
+  - Persistence remains keyed by card **product name**, not physical card/account identity. Two physical cards with the same product heading cannot be separated by this schema; the migration does not infer account IDs or change existing storage.
+  - Fail-closed behavior: hidden/unsupported or ambiguous headings suppress tools; an unidentifiable/ambiguous table leaves the panel on stored totals until a valid table appears. Missing references increment `missing_ref_no`; malformed dates/amounts are skipped with diagnostics. Verify portal markup locally rather than weakening the first-table guard.
+  - `npm run test:userscript` includes a real Chromium DOM/observer lifecycle fixture when `/ms-playwright` is available (or `CHROMIUM_PATH` is set). DNS is forced to a local HTTP fixture server under the bank hostname: production hostname/path gates and startup URL polling exercise `/auth` → `/accountsDashboard` without bank requests or location-gate overrides. Tests also cover supplied XPath structure, ownership/visibility exclusions and deferred bootstrap/unlock races. This is not live HTTPS/Tampermonkey injection validation; otherwise that browser test is explicitly skipped.
 
 - **Maybank2u SG (XL Rewards Card)**
   - **Card name XPaths** (ordered fallback):
@@ -81,7 +87,7 @@
     - Description ending with `SGP` is categorized as `Local`; other suffixes are categorized as `Forex`.
     - Maybank rows do not expose UOB-style reference numbers, so a deterministic synthetic key is generated for storage dedupe.
 
-If the portal markup changes, update these selectors in `main()`.
+If portal markup changes, review the portal profiles and semantic table resolver before changing selectors.
 
 ## Category mapping behavior
 
