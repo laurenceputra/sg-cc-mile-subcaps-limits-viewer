@@ -47,3 +47,7 @@ it('UOB SPA lifecycle with real DOM, observers and asynchronous timers', options
 it('Maybank same-URL rediscovery survives preserved observer teardown', options, async () => {
   await runBrowserFixture('maybank-browser.html', 'cib.maybank2u.com.sg', '/m2u/accounts/cards', 'PASS: Maybank same-URL rediscovery');
 });
+
+it('UOB direct detail startup and dashboard return use production route gates', options, async () => {
+  await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/accountDetail?account=123', 'PASS: UOB SPA observer lifecycle');
+});

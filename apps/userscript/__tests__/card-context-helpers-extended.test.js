@@ -42,6 +42,18 @@ describe('card context helpers (extended)', () => {
     assert.equal(exports.matchesProfile(profile), false);
   });
 
+  it('matchesProfile scopes UOB dashboard and detail routes, including query strings', () => {
+    const profile = { host: 'pib.uob.com.sg', pathPrefixes: ['/accountsDashboard', '/accountDetail'] };
+    for (const [path, expected] of [['/accountsDashboard', true], ['/accountDetail', true], ['/accountDetail?account=123', true], ['/auth', false], ['/other', false]]) {
+      const url = new URL(`https://pib.uob.com.sg${path}`);
+      globalThis.window = { location: { hostname: url.hostname, pathname: url.pathname, href: url.href } };
+      assert.equal(exports.matchesProfile(profile), expected, path);
+    }
+    globalThis.window.location.hostname = 'example.com';
+    globalThis.window.location.pathname = '/accountDetail';
+    assert.equal(exports.matchesProfile(profile), false);
+  });
+
   it('findActiveCardName respects requireVisible option', () => {
     globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) };
     globalThis.Element = class {};

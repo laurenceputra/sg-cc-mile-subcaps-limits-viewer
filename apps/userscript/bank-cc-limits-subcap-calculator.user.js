@@ -8,6 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @match        https://pib.uob.com.sg/auth*
 // @match        https://pib.uob.com.sg/accountsDashboard*
+// @match        https://pib.uob.com.sg/accountDetail*
 // @match        https://cib.maybank2u.com.sg/*
 // @run-at       document-idle
 // @grant        GM_getValue
@@ -3345,7 +3346,7 @@
       {
         id: 'uob-pib',
         host: 'pib.uob.com.sg',
-        pathPrefix: '/accountsDashboard',
+        pathPrefixes: ['/accountsDashboard', '/accountDetail'],
         allowOverlayWithoutRows: true,
         requireVisibleCardName: true,
         observeCardContext: true,
@@ -4380,7 +4381,8 @@
       if (!hostMatches) {
         return false;
       }
-      if (profile.pathPrefix && !window.location.pathname.startsWith(profile.pathPrefix)) {
+      const pathPrefixes = profile.pathPrefixes || (profile.pathPrefix ? [profile.pathPrefix] : null);
+      if (pathPrefixes && !pathPrefixes.some((prefix) => window.location.pathname.startsWith(prefix))) {
         return false;
       }
       return true;

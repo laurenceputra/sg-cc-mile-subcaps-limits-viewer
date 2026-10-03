@@ -9,7 +9,7 @@
 ## Supported scope
 
 - **UOB Personal Internet Banking (PIB)**
-  - **Page**: SPA card detail on `https://pib.uob.com.sg/accountsDashboard*`; the script also loads on `/auth*` before login navigation.
+  - **Page**: SPA dashboard on `https://pib.uob.com.sg/accountsDashboard*` and separate card detail on `https://pib.uob.com.sg/accountDetail*`; the script also loads on `/auth*` before login navigation, but auth is not a tool route.
   - **Card**: `LADY'S SOLITAIRE CARD`
 - **Maybank2u SG**
   - **Page**: Cards transaction listing (`https://cib.maybank2u.com.sg/m2u/accounts/cards*`)
@@ -73,7 +73,7 @@
   - Visibility includes hidden/display/visibility/opacity state on ancestors and field descendants. Hidden bodies, rows, dates and reference labels are not imported; loaded offscreen rows remain eligible (no viewport intersection requirement).
   - Persistence remains keyed by card **product name**, not physical card/account identity. Two physical cards with the same product heading cannot be separated by this schema; the migration does not infer account IDs or change existing storage.
   - Fail-closed behavior: hidden/unsupported or ambiguous headings suppress tools; an unidentifiable/ambiguous table leaves the panel on stored totals until a valid table appears. Missing references increment `missing_ref_no`; malformed dates/amounts are skipped with diagnostics. Verify portal markup locally rather than weakening the first-table guard.
-  - `npm run test:userscript` includes a real Chromium DOM/observer lifecycle fixture when `/ms-playwright` is available (or `CHROMIUM_PATH` is set). DNS is forced to a local HTTP fixture server under the bank hostname: production hostname/path gates and startup URL polling exercise `/auth` → `/accountsDashboard` without bank requests or location-gate overrides. Tests also cover supplied XPath structure, ownership/visibility exclusions and deferred bootstrap/unlock races. This is not live HTTPS/Tampermonkey injection validation; otherwise that browser test is explicitly skipped.
+  - `npm run test:userscript` includes a real Chromium DOM/observer lifecycle fixture when `/ms-playwright` is available (or `CHROMIUM_PATH` is set). DNS is forced to a local HTTP fixture server under the bank hostname: production hostname/path gates and startup URL polling exercise `/auth` → `/accountsDashboard` → `/accountDetail`, direct detail startup, dashboard return/reopening and same-URL DOM changes without bank requests or location-gate overrides. Tests also cover supplied XPath structure, ownership/visibility exclusions and deferred bootstrap/unlock races. This is not live HTTPS/Tampermonkey injection validation; otherwise that browser test is explicitly skipped.
 
 - **Maybank2u SG (XL Rewards Card)**
   - **Card name XPaths** (ordered fallback):
