@@ -168,9 +168,10 @@ Use this section to understand why totals might look off.
 ## Userscript update and startup (1.1.3)
 
 After installing/saving version 1.1.3, refresh the bank tab. SPA navigation alone
-retains the previous running script. The user confirmed live UOB operation after
-refreshing; broader transaction, refund, and sync flows remain covered by local
-regression tests rather than a claim of comprehensive live validation.
+retains the previous running script. The user confirmed the updated live UOB flow
+after refreshing. Fault and race scenarios are covered separately by controlled
+local regression fixtures. Live refund examples and security approval are not
+established by that user confirmation.
 
 Production auto-start tests exercise the direct account-detail route with an
 exact card heading and no table, standalone button styles, local panel access

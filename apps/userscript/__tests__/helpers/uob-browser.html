@@ -101,8 +101,32 @@ globalThis.GM_setValue = (key, value) => values.set(key, value);
     check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 0, 'ancestor opacity excludes loaded rows');
     visibilityFixture.style.opacity = '';
     visibilityFixture.tBodies[0].hidden = true;
-    check(h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} }).transactions.length === 0, 'hidden body excludes rows');
+    visibilityFixture.tBodies[0].insertAdjacentHTML('beforeend', '<tr><td>Malformed</td></tr>');
+    const hiddenParsed = h.buildTransactions(visibilityFixture.tBodies[0], "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} });
+    check(hiddenParsed.transactions.length === 0 && JSON.stringify(hiddenParsed.diagnostics) === JSON.stringify({ skipped_rows: 4, missing_ref_no: 0, invalid_posting_date: 0, invalid_amount: 0 }), 'hidden body skips every row, including malformed columns, without field diagnostics');
     visibilityFixture.remove();
+    const boundedTable = document.createElement('table');
+    boundedTable.innerHTML = `<tbody>${row('123')}</tbody>`;
+    portal.append(boundedTable);
+    const boundedBody = boundedTable.tBodies[0];
+    const originalRect = boundedBody.getBoundingClientRect;
+    let bodyMeasurements = 0;
+    boundedBody.getBoundingClientRect = function () {
+      bodyMeasurements += 1;
+      return originalRect.call(this);
+    };
+    try {
+      for (const count of [1, 12]) {
+        boundedBody.innerHTML = Array.from({ length: count }, (_, index) => row(String(123 + index))).join('');
+        bodyMeasurements = 0;
+        const result = h.buildTransactions(boundedBody, "LADY'S SOLITAIRE CARD", { defaultCategory: 'Others', merchantMap: {} });
+        check(result.transactions.length === count && result.diagnostics.skipped_rows === 0, 'visible body parses all loaded rows');
+        check(bodyMeasurements === 1, 'body layout measurements stay bounded independently of row count');
+      }
+    } finally {
+      boundedBody.getBoundingClientRect = originalRect;
+      boundedTable.remove();
+    }
     tbody.insertAdjacentHTML('beforeend', row('90000000000000000000001') + row('90000000000000000000002'));
     await sleep(900);
     check(Object.keys(stored()).length === 2, 'append deduplicates real refs');

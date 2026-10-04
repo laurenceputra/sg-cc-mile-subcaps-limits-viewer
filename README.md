@@ -87,6 +87,6 @@ Disable older duplicate copies, then reload the bank tab and open the card detai
 page. Refresh is required after installation: SPA navigation retains the previous
 running script. No breakpoints or sync-setting changes are needed.
 
-The user confirmed that the updated script works on the live UOB portal after
-refreshing. This does not imply that every transaction, refund, or sync flow has
-been live-tested.
+The user confirmed the updated live UOB flow works after refreshing. Fault and
+race scenarios are validated separately with controlled local fixtures; this
+confirmation does not establish live refund-example validation or security approval.

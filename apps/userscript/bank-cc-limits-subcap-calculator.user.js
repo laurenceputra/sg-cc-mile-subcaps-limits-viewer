@@ -5068,6 +5068,7 @@
         return buildMaybankTransactions(tbody, cardName, cardSettings);
       }
       const rows = Array.from(tbody.querySelectorAll('tr'));
+      const tbodyVisible = isElementVisible(tbody);
       const diagnostics = {
         skipped_rows: 0,
         missing_ref_no: 0,
@@ -5083,7 +5084,7 @@
             return null;
           }
 
-          if (row instanceof Element && (!isElementVisible(row) || !isElementVisible(tbody) || [cells[0], cells[1], cells[3]].some((cell) => !isElementVisible(cell)))) {
+          if (row instanceof Element && (!isElementVisible(row) || !tbodyVisible || [cells[0], cells[1], cells[3]].some((cell) => !isElementVisible(cell)))) {
             diagnostics.skipped_rows += 1;
             return null;
           }
