@@ -3388,64 +3388,9 @@
 
   (() => {
 
-    // Local, bounded diagnostics: never serialize page content, settings or errors.
-    const testMode = typeof globalThis !== 'undefined' && globalThis.__CC_SUBCAP_TEST__ === true;
-    const markerId = 'cc-subcap-startup-report';
-    const previousMarker = !testMode && document.getElementById(markerId);
-    const startup = {
-      build: '1.1.3', attempt: Math.min(999999, (Number(previousMarker?.dataset?.attempt) || 0) + 1),
-      route: ['/accountDetail', '/accountsDashboard', '/m2u/accounts/cards'].find((path) => window.location.pathname === path) || 'other',
-      stage: 'entered', entered: 1, guard: 0, testMode: Number(testMode), runtime: 0,
-      routeMatch: 0, cardMatch: 0, headings: 0, visibleHeadings: 0, created: 0, removed: 0,
-      reason: 'pending', error: 'none', deadlineMs: 20000
-    };
-    let diagnosticTimer = null;
-    let diagnosticReports = 0;
-    let lastConsoleReason = null;
-    let diagnosticStopped = false;
-    function armStartupDeadline() {
-      if (diagnosticTimer !== null) clearTimeout(diagnosticTimer);
-      diagnosticTimer = null;
-      if (!testMode && !diagnosticStopped) diagnosticTimer = setTimeout(() => reportStartup(startup.runtime ? 'deadline' : 'startup-not-reached'), startup.deadlineMs);
-    }
-    function reportStartup(reason) {
-      if (diagnosticTimer !== null) clearTimeout(diagnosticTimer);
-      diagnosticTimer = null;
-      const safeReasons = ['ready', 'deadline', 'startup-not-reached', 'initialization-failure', 'duplicate-blocked', 'context-invalidated', 'unsupported-route', 'card-not-found', 'unsupported-card', 'table-not-found', 'refresh-unsupported-context', 'refresh-context-changed', 'write-context-changed', 'click-card-not-found', 'click-context-changed', 'observer-card-not-found', 'observer-context-changed'];
-      reason = safeReasons.includes(reason) ? reason : 'context-invalidated';
-      startup.reason = reason;
-      startup.route = ['/accountDetail', '/accountsDashboard', '/m2u/accounts/cards'].find((path) => window.location.pathname === path) || 'other';
-      if (testMode) return;
-      if (Number(document.getElementById(markerId)?.dataset?.attempt) > startup.attempt) return;
-      const text = '[Subcap startup] ' + JSON.stringify(startup);
-      const marker = document.getElementById(markerId) || document.createElement('script');
-      marker.id = markerId;
-      marker.type = 'application/json';
-      if (marker.dataset.attempt !== String(startup.attempt)) marker.dataset.attempt = String(startup.attempt);
-      if (marker.textContent !== text) marker.textContent = text;
-      if (!marker.parentNode) (document.head || document.documentElement).appendChild(marker);
-      if (diagnosticReports < 3 && lastConsoleReason !== reason) {
-        diagnosticReports += 1;
-        lastConsoleReason = reason;
-        console.info(text);
-      }
-    }
-    function startupFailure(error) {
-      startup.error = ['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'SecurityError', 'QuotaExceededError'].includes(error?.name) ? error.name : 'UnknownError';
-      reportStartup('initialization-failure');
-    }
-    armStartupDeadline();
-    if (!testMode) window.addEventListener('pagehide', () => {
-      if (diagnosticTimer !== null) clearTimeout(diagnosticTimer);
-      diagnosticTimer = null;
-      diagnosticStopped = true;
-    }, { once: true });
+    if (window.__ccSubcapInjected) return;
+    let runtimeStarted = false;
     function initializeRuntime() {
-    if (window.__ccSubcapInjected) {
-      startup.guard = 1;
-      reportStartup('duplicate-blocked');
-      return;
-    }
     window.__ccSubcapInjected = true;
 
     const STORAGE_KEY = 'ccSubcapSettings';
@@ -3807,9 +3752,7 @@
     };
 
     // Phase 3: Initialize sync manager
-    startup.stage = 'sync-manager';
     const syncManager = new SyncManager(storage);
-    startup.stage = 'runtime-setup';
     const observerCoordinator = createObserverCoordinator();
     let activeCardContext = buildEmptyCardContext();
     let mainCardContext = null;
@@ -3990,10 +3933,6 @@
     }
 
     function removeUI(options = {}) {
-      startup.removed = Math.min(999, startup.removed + 1);
-      startup.cardMatch = 0;
-      startup.stage = 'ui-removed';
-      reportStartup(options.reason || 'context-invalidated');
       syncManager.localSyncView = null;
       if (syncManager.localSyncOperation) syncManager.localSyncOperation.cancelled = true;
       lifecycleGeneration += 1;
@@ -5447,8 +5386,6 @@
         nextButton.disabled = !options.enabled;
         nextButton.setAttribute('aria-disabled', String(!options.enabled));
       }
-      startup.created = Math.min(999, startup.created + 1);
-      startup.stage = 'button-created';
     }
 
     function renderSummary(container, data, cardSettings) {
@@ -6510,18 +6447,10 @@
     }
 
     async function main() {
-      armStartupDeadline();
-      startup.reason = 'pending';
-      startup.error = 'none';
-      startup.cardMatch = 0;
-      startup.headings = 0;
-      startup.visibleHeadings = 0;
-      startup.stage = 'route-check';
       const generation = ++lifecycleGeneration;
       const profile = PORTAL_PROFILES.find((entry) => matchesProfile(entry));
-      startup.routeMatch = Number(Boolean(profile));
       if (!profile) {
-        removeUI({ reason: 'unsupported-route' });
+        removeUI();
         return;
       }
 
@@ -6532,27 +6461,19 @@
         observerCoordinator.startCardContextObserver(profile, { requireVisible: true }, () => runMainSafe());
       }
 
-      startup.stage = 'card-check';
-      if (!testMode) {
-        const headings = Array.from(document.querySelectorAll('h2')).slice(0, 999);
-        startup.headings = headings.length;
-        startup.visibleHeadings = headings.filter((heading) => isElementVisible(heading)).length;
-      }
       const cardContext = profile.id === 'uob-pib' ? findActiveCardName(profile, { requireVisible: true }) : await getActiveCardName(profile, {
         waitTimeoutMs,
         requireVisible: profile.requireVisibleCardName === true
       });
       if (!cardContext?.name) {
-        startup.cardMatch = 0;
-        removeUI({ preserveCardContextObserver: profile.id === 'uob-pib', reason: 'card-not-found' });
+        removeUI({ preserveCardContextObserver: profile.id === 'uob-pib' });
         return;
       }
 
       const cardName = cardContext.name;
       const cardConfig = CARD_CONFIGS[cardName];
-      startup.cardMatch = Number(Boolean(cardConfig));
       if (!cardConfig) {
-        removeUI({ reason: 'unsupported-card' });
+        removeUI();
         return;
       }
 
@@ -6562,18 +6483,16 @@
       isButtonActionable = true;
 
       const tableBodyXPaths = profile.tableBodyXPaths || [profile.tableBodyXPath];
-      startup.stage = 'table-check';
       const initialTableBodyMatch = allowOverlayWithoutRows
         ? findAnyTableBody(tableBodyXPaths)
         : await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
       let tableBody = initialTableBodyMatch?.tbody || null;
       const preferredTableBodyXPath = initialTableBodyMatch?.xpath || null;
       if (!tableBody && !allowOverlayWithoutRows) {
-        removeUI({ reason: 'table-not-found' });
+        removeUI();
         return;
       }
 
-      startup.stage = 'settings';
       let initialSettings = loadSettings();
       let initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
       const isCurrentRestoreContext = () => generation === lifecycleGeneration && matchesProfile(profile) &&
@@ -6603,7 +6522,6 @@
         return restoreJob.promise;
       };
       if (syncManager.isEnabled() && (!restoreJob || restoreJob.cancelled)) {
-        startup.stage = 'restore-start';
         startRestore();
       } else if (restoreJob?.pending) {
         restoreJob.isCurrent = isCurrentRestoreContext;
@@ -6751,7 +6669,7 @@
             shouldShowButton = false;
             isButtonActionable = false;
             setButtonState({ visible: false, enabled: false });
-            removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'refresh-unsupported-context' });
+            removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
             return;
           }
 
@@ -6765,7 +6683,7 @@
               return;
             }
             refreshPending = false;
-            removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'refresh-context-changed' });
+            removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
             runMainSafe();
             return;
           }
@@ -6804,7 +6722,7 @@
                 return;
               }
               refreshPending = false;
-              removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'write-context-changed' });
+              removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
               runMainSafe();
               return;
             }
@@ -6863,7 +6781,7 @@
           shouldShowButton = false;
           isButtonActionable = false;
           setButtonState({ visible: false, enabled: false });
-          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'click-card-not-found' });
+          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
           return;
         }
 
@@ -6873,7 +6791,7 @@
           shouldShowButton = true;
           isButtonActionable = true;
           setButtonState({ visible: true, enabled: true });
-          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'click-context-changed' });
+          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
           runMainSafe();
           return;
         }
@@ -6899,7 +6817,7 @@
           shouldShowButton = false;
           isButtonActionable = false;
           setButtonState({ visible: false, enabled: false });
-          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: matchesProfile(profile) ? 'observer-card-not-found' : 'unsupported-route' });
+          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
           return;
         }
         if (!isSameCardContextPair(mainCardContext, resolvedContext)) {
@@ -6908,7 +6826,7 @@
           shouldShowButton = true;
           isButtonActionable = true;
           setButtonState({ visible: true, enabled: true });
-          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true, reason: 'observer-context-changed' });
+          removeUI({ preserveCardContextObserver: true, preserveButtonStateObserver: true });
           runMainSafe();
           return;
         }
@@ -6917,7 +6835,6 @@
         setButtonState({ visible: true, enabled: true });
       };
 
-      startup.stage = 'button-create';
       createButton(handleButtonClick, { enabled: isButtonActionable });
       syncManager.prepareLocalCardForPush = async (requestedCard) => {
         if (requestedCard !== cardName || !isCurrentRestoreContext()) return null;
@@ -6980,12 +6897,10 @@
       mainInProgress = true;
       main()
         .catch((error) => {
-          startupFailure(error);
+          console.error('[Subcap] Failed to initialize on current page:', error);
         })
         .finally(() => {
           mainInProgress = false;
-          if (startup.stage === 'button-created') reportStartup('ready');
-          else if (startup.reason === 'pending') reportStartup('context-invalidated');
           if (mainRerunPending) {
             mainRerunPending = false;
             runMainSafe();
@@ -6994,8 +6909,7 @@
     }
 
     function startRuntime() {
-      startup.runtime = 1;
-      startup.stage = 'main';
+      runtimeStarted = true;
       runMainSafe();
       let lastObservedUrl = window.location.href;
       return window.setInterval(() => {
@@ -7113,8 +7027,8 @@
       initializeRuntime();
     } catch (error) {
       // Allow retry after synchronous setup failure; a live runtime keeps its guard.
-      if (!startup.runtime && !startup.guard) window.__ccSubcapInjected = false;
-      startupFailure(error);
+      if (!runtimeStarted) window.__ccSubcapInjected = false;
+      console.error('[Subcap] Failed to initialize on current page:', error);
     }
   })();
 
