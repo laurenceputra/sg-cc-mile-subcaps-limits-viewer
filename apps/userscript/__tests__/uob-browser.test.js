@@ -40,6 +40,17 @@ async function runBrowserFixture(fixtureName, host, path, success) {
 }
 
 const options = { skip: browser ? false : 'Set CHROMIUM_PATH or provide /ms-playwright browser cache' };
+for (const scenario of ['disabled', 'held', 'duplicate', 'failure', 'style-failure', 'wrong-card', 'ready-query', 'repeated-failure', 'failure-retry']) {
+  it(`Production automatic startup diagnostics: ${scenario}`, options, async () => {
+    await runBrowserFixture('startup-browser.html', 'pib.uob.com.sg', `/accountDetail?scenario=${scenario}&SECRET-QUERY`, 'PASS: production startup');
+  });
+}
+it('Production startup has a bounded deadline while card discovery is pending', options, async () => {
+  await runBrowserFixture('startup-browser.html', 'cib.maybank2u.com.sg', '/m2u/accounts/cards?scenario=deadline&SECRET-QUERY', 'PASS: production startup');
+});
+it('Production route entry rearms diagnostic deadline after a terminal outcome', options, async () => {
+  await runBrowserFixture('startup-browser.html', 'cib.maybank2u.com.sg', '/auth?scenario=deadline-entry&SECRET-QUERY', 'PASS: production startup');
+});
 it('UOB SPA lifecycle with real DOM, observers and asynchronous timers', options, async () => {
   await runBrowserFixture('uob-browser.html', 'pib.uob.com.sg', '/auth', 'PASS: UOB SPA observer lifecycle');
 });

@@ -164,3 +164,33 @@ Use this section to understand why totals might look off.
 - Validate XPath selectors after portal UI updates.
 - Verify calculations against a known statement snapshot.
 - Re-test in at least one desktop browser.
+## Local startup diagnostics (1.1.3)
+
+Install/save the userscript with metadata version 1.1.3 and reload the bank tab.
+Production auto-start records a local `[Subcap startup]` summary before duplicate
+guard exit or synchronous setup failure, after main settles, or at a 20-second
+deadline. Test-seam mode does not emit diagnostics or start diagnostic timers.
+The script uses its sandbox's document/console; no page-global runtime exports
+are needed. Retrieve the latest report without breakpoints:
+
+```js
+document.getElementById('cc-subcap-startup-report')?.textContent || 'No startup marker'
+```
+
+One script-owned inert marker retains the latest attempt. The marker refreshes
+whenever the sanitized summary changes, even when the
+terminal reason repeats. Identical marker text is not rewritten. Console reason
+deduplication is independent of marker freshness. Each main lifecycle rearms the
+20-second deadline and clears stale error/match flags; settled outcomes and
+pagehide clear the deadline, and pagehide prevents further timer rearming.
+Attempts are numbered
+and console output is capped at three summaries per injection; mutation callbacks
+do not produce per-mutation logs. Stage, route/card match flags, heading count,
+creation/removal counters and fixed removal reasons locate startup failures.
+Errors expose only allowlisted names, never messages/stacks. Paths are fixed
+labels; queries and raw DOM/settings are excluded. Timers clear on terminal
+report, removal or pagehide. Synchronous setup failure releases the guard for a
+retry unless runtime startup already began. Existing live instances remain
+protected against duplicate injection. A missing marker cannot diagnose code
+which never ran: check extension enablement, installed version, matching frame
+and reload. This is local troubleshooting, not remote telemetry.

@@ -78,3 +78,25 @@ Not affiliated with UOB. Use only on your own accounts and comply with the bankâ
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+## Startup troubleshooting (userscript 1.1.3)
+
+Install the updated `apps/userscript/bank-cc-limits-subcap-calculator.user.js` into
+Tampermonkey, save it, and verify the installed metadata says `@version 1.1.3`.
+Disable older duplicate copies, then reload the bank tab and open the card detail
+page. No breakpoints or sync-setting changes are needed. Wait up to 20 seconds.
+Copy the `[Subcap startup]` line from the browser Console (enable Info messages).
+If console output is suppressed, run this once in the bank tab's Console:
+
+```js
+document.getElementById('cc-subcap-startup-report')?.textContent || 'No startup marker: check installation, enabled script, matching tab/frame and reload'
+```
+
+The report must say `"build":"1.1.3"`. It contains only local startup stages,
+bounded numeric counters, route labels, and sanitized failure namesâ€”not card
+headings, account identifiers, transactions, settings, tokens, or URL queries.
+Share only this report, not a full console dump. `duplicate-blocked` means another
+copy already owns the injection guard; `initialization-failure` identifies the
+failing stage; `deadline` means startup is still pending. No marker after the wait
+means this instrumented startup was not reached (for example, the extension did
+not run); it is not proof of a card-selector failure. Reload to collect a fresh
+attempt. Diagnostics never send data anywhere.
