@@ -18,8 +18,8 @@ function createWindowStub() {
     location: {
       origin: 'https://pib.uob.com.sg',
       hostname: 'pib.uob.com.sg',
-      href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
-      pathname: '/PIBCust/2FA/processSubmit.do'
+      href: 'https://pib.uob.com.sg/accountsDashboard',
+      pathname: '/accountsDashboard'
     },
     setTimeout: (...args) => setTimeout(...args),
     clearTimeout: (...args) => clearTimeout(...args),

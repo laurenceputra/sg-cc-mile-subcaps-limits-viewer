@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Maybank discovery lifecycle regression</title>
+<script>
+globalThis.__CC_SUBCAP_TEST__ = true;
+const values = new Map();
+let settingsWrites = 0;
+globalThis.GM_getValue = (key, fallback) => values.get(key) ?? fallback;
+globalThis.GM_setValue = (key, value) => {
+  if (key === 'ccSubcapSettings') settingsWrites += 1;
+  values.set(key, value);
+};
+</script>
+<script src="/bank-cc-limits-subcap-calculator.user.js"></script>
+<pre id="result">RUNNING</pre>
+<script>
+(async () => {
+  const h = globalThis.__CC_SUBCAP_TEST_EXPORTS__;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const check = (condition, message) => { if (!condition) throw new Error(message); };
+  const atPath = (path) => {
+    let parent = document.body;
+    for (const part of path.split('/').slice(3)) {
+      const match = part.match(/^(\w+)(?:\[(\d+)\])?$/);
+      const tag = match[1];
+      const index = Number(match[2] || 1);
+      let children = Array.from(parent.children).filter((node) => node.localName === tag);
+      while (children.length < index) {
+        parent.append(document.createElement(tag));
+        children = Array.from(parent.children).filter((node) => node.localName === tag);
+      }
+      parent = children[index - 1];
+    }
+    return parent;
+  };
+  let runtimeTimer;
+  try {
+    const heading = atPath(h.PORTAL_PROFILES[1].cardNameXPaths[0]);
+    heading.textContent = 'XL Rewards Card';
+    const body = atPath(h.PORTAL_PROFILES[1].tableBodyXPaths[0]);
+    body.innerHTML = '<tr><td>08 Aug 2026</td><td>Ignored</td><td>MERCHANT SGP</td><td>-SGD 17.33</td></tr>';
+    const initialUrl = location.href;
+    let completePolicy;
+    if (new URLSearchParams(location.search).has('policy')) {
+      values.set('ccSubcapSyncConfig', JSON.stringify({ serverUrl: 'https://example.com' }));
+      globalThis.fetch = () => new Promise((resolve) => { completePolicy = () => resolve({ ok: true, status: 200, text: async () => JSON.stringify({ version: 5, cards: { 'XL Rewards Card': { mode: 'combined', cap: 1234 } } }) }); });
+    }
+    runtimeTimer = h.startRuntime();
+    await sleep(1200);
+    check(document.getElementById('cc-subcap-btn'), 'initial XL detail tools');
+    document.getElementById('cc-subcap-btn').click();
+    await sleep(900);
+    check(document.getElementById('cc-subcap-overlay'), 'initial XL panel click');
+    if (completePolicy) {
+      check(!document.getElementById('cc-subcap-overlay').textContent.includes('/ 1234'), 'local Maybank panel opens before policy completion');
+      completePolicy();
+      await sleep(1800);
+      check(document.getElementById('cc-subcap-overlay').textContent.includes('/ 1234'), 'policy completion refreshes open Maybank caps without bank mutation');
+    }
+    heading.textContent = 'Unsupported card';
+    await sleep(900);
+    check(!document.getElementById('cc-subcap-btn') && !document.getElementById('cc-subcap-overlay'), 'unsupported context tears down tools');
+    heading.textContent = 'XL Rewards Card';
+    await sleep(1200);
+    check(document.getElementById('cc-subcap-btn'), 'preserved discovery starts fresh XL lifecycle');
+    document.getElementById('cc-subcap-btn').click();
+    await sleep(900);
+    check(document.getElementById('cc-subcap-overlay'), 'fresh XL button opens panel');
+    const parent = heading.parentElement;
+    heading.remove();
+    await sleep(900);
+    check(!document.getElementById('cc-subcap-btn') && !document.getElementById('cc-subcap-overlay'), 'temporarily absent context tears down tools');
+    parent.append(heading);
+    await sleep(1200);
+    check(document.getElementById('cc-subcap-btn'), 'absent-to-supported rediscovery');
+    check(location.href === initialUrl, 'all transitions remain on the same URL');
+    const stored = JSON.parse(values.get('ccSubcapSettings')).cards['XL Rewards Card'].transactions;
+    check(Object.keys(stored).length === 1 && Object.values(stored)[0].amount_value === 17.33, 'Maybank debit parsing and dedup preserved across lifecycles');
+    const idleWrites = settingsWrites;
+    await sleep(1800);
+    check(settingsWrites === idleWrites, 'discovery/UI mutations do not cause refresh loops');
+    h.removeUI();
+    await sleep(900);
+    check(!document.getElementById('cc-subcap-btn') && !document.getElementById('cc-subcap-overlay'), 'stopped observers/timers cannot recreate UI');
+    document.getElementById('result').textContent = 'PASS: Maybank same-URL rediscovery';
+  } catch (error) {
+    h.removeUI();
+    document.getElementById('result').textContent = `FAIL: ${error.message}`;
+  } finally {
+    clearInterval(runtimeTimer);
+  }
+})();
+</script>

@@ -1,20 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
-
-function makeAmountCell({ dollarsText = '12', centsText = '34', useSpan = true, includeTextNode = true } = {}) {
-  const textNode = { nodeType: 3, textContent: dollarsText };
-  const centsSpan = { textContent: centsText };
-  const amountSpan = {
-    textContent: `${dollarsText}${centsText}`,
-    childNodes: includeTextNode ? [textNode, centsSpan] : [centsSpan],
-    querySelector: () => centsSpan
-  };
-  return {
-    textContent: `${dollarsText}${centsText}`,
-    querySelector: () => (useSpan ? amountSpan : null)
-  };
-}
+import { uobRow } from './helpers/uob-fixtures.js';
 
 function makeRow(cells) {
   return { querySelectorAll: () => cells };
@@ -28,14 +15,6 @@ describe('branch coverage helpers', () => {
     assert.equal(exports.parseAmount('SGD 12.34'), 12.34);
     assert.equal(exports.parseAmount(''), null);
     assert.equal(exports.parseAmount('abc'), null);
-    assert.deepEqual(exports.extractDollarsAndCents(null), { dollarsText: '', centsText: '', amountText: '' });
-
-    const withSpan = exports.extractDollarsAndCents(makeAmountCell({ useSpan: true, includeTextNode: true }));
-    assert.equal(withSpan.amountText, '1234');
-    const noSpan = exports.extractDollarsAndCents(makeAmountCell({ useSpan: false }));
-    assert.equal(noSpan.amountText, '1234');
-    const noTextNode = exports.extractDollarsAndCents(makeAmountCell({ useSpan: true, includeTextNode: false }));
-    assert.equal(noTextNode.amountText, '1234');
   });
 
   it('covers category option branches', async () => {
@@ -51,32 +30,15 @@ describe('branch coverage helpers', () => {
     const cardSettings = { defaultCategory: 'Others', merchantMap: {} };
 
     const rowTooShort = makeRow([{ textContent: '' }]);
-    const prevBalanceRow = makeRow([
-      { textContent: '' },
-      { textContent: '' },
-      { innerText: 'Previous Balance', textContent: 'Previous Balance' },
-      makeAmountCell()
-    ]);
-    const missingRefRow = makeRow([
-      { textContent: '01 Jan 2024' },
-      { textContent: '02 Jan 2024' },
-      { innerText: 'Merchant Only', textContent: 'Merchant Only' },
-      makeAmountCell()
-    ]);
-    const invalidAmountRow = makeRow([
-      { textContent: '01 Jan 2024' },
-      { textContent: '02 Jan 2024' },
-      { innerText: 'Merchant\nRef No: 123', textContent: 'Merchant\nRef No: 123' },
-      { querySelector: () => null, textContent: 'SGD BAD' }
-    ]);
+    const pendingRow = uobRow({ postingDate: '', status: 'Pending', ref: '' });
 
     const tbody = {
-      querySelectorAll: () => [rowTooShort, prevBalanceRow, missingRefRow, invalidAmountRow]
+      querySelectorAll: () => [rowTooShort, pendingRow, uobRow({ ref: '' }), uobRow({ amount: 'SGD BAD' })]
     };
 
     const result = exports.buildTransactions(tbody, 'UOB', cardSettings);
-    assert.equal(result.transactions.length, 1, 'should produce exactly 1 valid transaction');
-    assert.equal(result.diagnostics.skipped_rows, 2, 'should skip 2 rows (too short + Previous Balance)');
+    assert.equal(result.transactions.length, 0, 'invalid rows must not become transactions');
+    assert.equal(result.diagnostics.skipped_rows, 2, 'should skip short and pending rows');
     assert.equal(result.diagnostics.missing_ref_no, 1, 'should flag 1 row with missing ref_no');
     assert.equal(result.diagnostics.invalid_amount, 1, 'should flag 1 row with invalid amount');
   });

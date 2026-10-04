@@ -25,9 +25,10 @@ Monorepo for the UOB credit-card userscript and the optional sync backend. Every
 1. Install [Tampermonkey](https://www.tampermonkey.net/).
 2. Add the script from `apps/userscript/bank-cc-limits-subcap-calculator.user.js`.
 3. Open a supported credit card transaction page:
-   - UOB PIB (`LADY'S SOLITAIRE CARD`)
+   - UOB PIB (`LADY'S SOLITAIRE CARD`): log in via `https://pib.uob.com.sg/auth`, navigate to `/accountsDashboard`, then open card details on `/accountDetail`. Tools appear only for a visible supported detail heading; same-URL DOM lifecycle changes are also supported.
    - Maybank2u SG (`XL Rewards Card`) â€” debit-only rows, with `... SGP` auto-categorized as `Local` (else `Forex`)
 4. Click **Subcap Tools** to view **Spend Totals**, **Sync**, and on supported UOB pages **Manage Transactions**.
+   Scroll manually to load more UOB transactions before checking completeness. Only loaded posted rows count; pending rows and payments are excluded. Referenced merchant credits reduce spend using an inferred sign policy that has not been verified on the live portal.
 
 ## Sync privacy model
 
@@ -77,3 +78,15 @@ Not affiliated with UOB. Use only on your own accounts and comply with the bankâ
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+## Updating the userscript (1.1.3)
+
+Install the updated `apps/userscript/bank-cc-limits-subcap-calculator.user.js` into
+Tampermonkey, save it, and verify the installed metadata says `@version 1.1.3`.
+Disable older duplicate copies, then reload the bank tab and open the card detail
+page. Refresh is required after installation: SPA navigation retains the previous
+running script. No breakpoints or sync-setting changes are needed.
+
+The user confirmed the updated live UOB flow works after refreshing. Fault and
+race scenarios are validated separately with controlled local fixtures; this
+confirmation does not establish live refund-example validation or security approval.
