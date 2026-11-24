@@ -86,10 +86,10 @@ Sync Now busy state and result messages belong to the operation, not the rendere
   - `npm run test:userscript` includes a real Chromium DOM/observer lifecycle fixture when `/ms-playwright` is available (or `CHROMIUM_PATH` is set). DNS is forced to a local HTTP fixture server under the bank hostname: production hostname/path gates and startup URL polling exercise `/auth` → `/accountsDashboard` → `/accountDetail`, direct detail startup, dashboard return/reopening and same-URL DOM changes without bank requests or location-gate overrides. Tests also cover supplied XPath structure, ownership/visibility exclusions and deferred bootstrap/unlock races. This is not live HTTPS/Tampermonkey injection validation; otherwise that browser test is explicitly skipped.
 
 - **Maybank2u SG (XL Rewards Card)**
-   - **Active card name XPath** (class-token scoped):
-     - `//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]`
-     - Reads only the visible active label (`.nameDetails.cards > span.selected-accountname`), not inactive dropdown entries or whole-page text. Missing, hidden, or unsupported active labels fail closed, even if XL appears in the menu.
-     - Context identity still compares profile, supported name, normalized label text, and XPath. Unrelated page changes cannot change the scoped label text.
+  - **Active card name XPath** (class-token scoped):
+    - `//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]`
+    - Reads only the visible active label (`.nameDetails.cards > span.selected-accountname`), not inactive dropdown entries or whole-page text. Missing, hidden, or unsupported active labels fail closed, even if XL appears in the menu.
+    - Context identity still compares profile, supported name, normalized label text, and XPath. Unrelated page changes cannot change the scoped label text.
   - **Transactions table body XPaths** (ordered fallback):
     - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody`
     - `(//table//tbody)[1]`
