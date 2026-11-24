@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      1.1.3
+// @version      1.1.4
 // @description  Extract credit card transactions and manage subcap categories with optional sync
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
@@ -7009,7 +7009,6 @@
         fromISODate,
         normalizeRefNo,
         normalizeKey,
-        PORTAL_PROFILES,
         findUobTableBody,
         moveOthersToEnd,
         getCategoryDisplayOrder,
