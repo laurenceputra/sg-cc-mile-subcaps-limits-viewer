@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { loadExports } from './helpers/load-userscript-exports.js';
 
 const exports = await loadExports();
+const maybankBonusNote = 'Bonus points require S$500 in eligible spend per calendar month.';
 
 function makeElement(tag = 'div') {
   return {
@@ -46,7 +47,7 @@ function collectText(node, sink = []) {
 }
 
 describe('renderSpendingView branches', () => {
-  it('renders combined cap badge with total/cap text', () => {
+  it('renders the Maybank bonus note and combined cap badge with total/cap text', () => {
     globalThis.document.createElement = (tag) => makeElement(tag);
 
     const container = makeContainer();
@@ -68,12 +69,24 @@ describe('renderSpendingView branches', () => {
 
     exports.renderSpendingView(container, stored, cardSettings, 'XL Rewards Card', policy);
     const texts = collectText(container);
+    assert.ok(texts.includes(maybankBonusNote));
     const combinedCapText = texts.find((text) => text.includes('Total') && text.includes('1000'));
     assert.notEqual(combinedCapText, undefined, 'should render combined cap badge with total/cap text');
     assert.match(combinedCapText, /1050\.00 \/ 1000/, 'cap badge should show 1050.00 / 1000');
   });
 
-  it('renders per-category cap text and details table headers', () => {
+  it('renders the Maybank bonus note even without stored transactions', () => {
+    globalThis.document.createElement = (tag) => makeElement(tag);
+
+    const container = makeContainer();
+    exports.renderSpendingView(container, [], { defaultCategory: 'Others' }, 'XL Rewards Card');
+
+    const texts = collectText(container);
+    assert.ok(texts.includes(maybankBonusNote));
+    assert.ok(texts.includes('No stored transactions yet.'));
+  });
+
+  it('renders UOB per-category cap text and details table headers without the Maybank bonus note', () => {
     globalThis.document.createElement = (tag) => makeElement(tag);
 
     const container = makeContainer();
@@ -95,6 +108,7 @@ describe('renderSpendingView branches', () => {
 
     exports.renderSpendingView(container, stored, cardSettings, "LADY'S SOLITAIRE CARD", policy);
     const texts = collectText(container);
+    assert.ok(!texts.some((text) => text.includes('Bonus points require')));
     const capText = texts.find((text) => text.includes('500.00') && text.includes('750'));
     assert.notEqual(capText, undefined, 'should render per-category cap text');
     assert.equal(texts.includes('Merchant'), true, 'details table should have Merchant header');

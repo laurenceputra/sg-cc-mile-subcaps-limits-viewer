@@ -3448,7 +3448,8 @@
       'XL Rewards Card': {
         categories: ['Local', 'Forex'],
         subcapSlots: 2,
-        showManageTab: false
+        showManageTab: false,
+        monthlyBonusSpendMinimum: 500
       }
     };
 
@@ -6073,6 +6074,14 @@
       container.appendChild(title);
       container.appendChild(subtitle);
       container.appendChild(notice);
+
+      const monthlyBonusSpendMinimum = CARD_CONFIGS[cardName]?.monthlyBonusSpendMinimum;
+      if (monthlyBonusSpendMinimum) {
+        const bonusNote = document.createElement('div');
+        bonusNote.classList?.add(UI_CLASSES.small);
+        bonusNote.textContent = `Bonus points require S$${monthlyBonusSpendMinimum} in eligible spend per calendar month.`;
+        container.appendChild(bonusNote);
+      }
 
       const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
       const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));
