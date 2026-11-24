@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      1.1.1
+// @version      1.1.3
 // @description  Extract credit card transactions and manage subcap categories with optional sync
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
 // @updateURL    https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
-// @match        https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do*
+// @match        https://pib.uob.com.sg/auth*
+// @match        https://pib.uob.com.sg/accountsDashboard*
+// @match        https://pib.uob.com.sg/accountDetail*
 // @match        https://cib.maybank2u.com.sg/*
 // @run-at       document-idle
 // @grant        GM_getValue
@@ -2575,6 +2577,12 @@
     }
 
     const config = syncManager.config || {};
+    if (syncManager.localRestorePending === cardName) {
+      return { badge: 'Sync restoring', detail: 'Optional unlock/restore is pending. Local views remain available; new transactions are preview-only until it settles.', variant: 'info', tabLabel: 'Sync • Restoring' };
+    }
+    if (syncManager.localRestoreBlocked === cardName) {
+      return { badge: 'Sync restore needs attention', detail: 'Initial restore did not complete. Local rows remain preview-only. Unlock or retry Sync Now before pushing.', variant: 'warning', tabLabel: 'Sync • Restore' };
+    }
     const hasPendingConflict = typeof syncManager.hasPendingConflict === 'function' && syncManager.hasPendingConflict();
     const pendingCardName = isObjectRecord(config.pendingConflict) && typeof config.pendingConflict.cardName === 'string'
       ? config.pendingConflict.cardName
@@ -2825,7 +2833,7 @@
       return container;
     }
 
-    const isUnlocked = syncManager.isUnlocked();
+    const isUnlocked = syncManager.isUnlocked() && syncManager.localRestoreNeedsUnlock !== true;
     const hasRememberedUnlock = syncManager.hasRememberedUnlockCache();
     const lastSync = formatLocalDateTime(config.lastSync, 'Never');
     const showBootstrapStatus = typeof syncManager.shouldShowBootstrapRestoreStatus === 'function'
@@ -2951,6 +2959,10 @@
     const statusDiv = container.querySelector('#sync-status');
     const unlockButton = container.querySelector('#unlock-sync-btn');
     const syncNowButton = container.querySelector('#sync-now-btn');
+    if (syncManager.localRestorePending === cardName) {
+      setStatusMessage(statusDiv, 'Optional unlock/restore is pending. Local views remain available; transaction storage and sync resume after it settles.', 'info');
+      syncNowButton.disabled = true;
+    }
     const forgetButton = container.querySelector('#forget-sync-unlock-btn');
     const disableButton = container.querySelector('#disable-sync-btn');
     const conflictButtons = [
@@ -2959,6 +2971,18 @@
       container.querySelector('#sync-conflict-merge')
     ].filter(Boolean);
     const actionButtons = [unlockButton, syncNowButton, forgetButton, disableButton, ...conflictButtons].filter(Boolean);
+    const syncView = { cardName, statusDiv, actionButtons, syncNowButton };
+    syncManager.localSyncView = syncView;
+    const renderSyncOperation = () => {
+      const operation = syncManager.localSyncOperation;
+      const view = syncManager.localSyncView;
+      if (!operation || !view || view.cardName !== operation.cardName ||
+          (typeof syncManager.isLocalCardCurrent === 'function' && !syncManager.isLocalCardCurrent(operation.cardName))) return;
+      view.actionButtons.forEach((button) => { button.disabled = operation.busy || syncManager.localRestorePending === operation.cardName; });
+      setButtonBusy(view.syncNowButton, operation.busy, { busy: 'Syncing...' });
+      if (!operation.cancelled) setStatusMessage(view.statusDiv, operation.message, operation.variant);
+    };
+    renderSyncOperation();
 
     const setSyncBusy = (activeButton, isBusy, busyLabel = '') => {
       actionButtons.forEach((button) => {
@@ -3000,6 +3024,7 @@
             return;
           }
 
+          syncManager.localRestoreNeedsUnlock = false;
           setStatusMessage(
             statusDiv,
             unlockResult.warning ? `Sync unlocked (${unlockResult.warning})` : 'Sync unlocked.',
@@ -3030,52 +3055,79 @@
     }
 
     syncNowButton.addEventListener('click', async () => {
+      if (syncManager.localSyncOperation?.busy) return;
+      if (syncManager.localRestorePending === cardName) return;
       if (syncNowButton.disabled) {
         return;
       }
       setSyncBusy(syncNowButton, true, 'Syncing...');
-      setStatusMessage(statusDiv, 'Syncing active card...', 'info');
+      const operation = { cardName, busy: true, message: 'Syncing active card...', variant: 'info' };
+      syncManager.localSyncOperation = operation;
+      const reportStatus = (message, variant = 'info') => {
+        if (syncManager.localSyncOperation !== operation) return;
+        operation.message = message;
+        operation.variant = variant;
+        renderSyncOperation();
+      };
+      const isCurrentOperation = () => syncManager.localSyncOperation === operation &&
+        !operation.cancelled &&
+        (typeof syncManager.isLocalCardCurrent !== 'function' || syncManager.isLocalCardCurrent(cardName));
+      reportStatus('Syncing active card...');
 
       try {
         const liveConflictState = getLivePendingConflictState();
         if (liveConflictState.pendingConflict) {
-          setStatusMessage(statusDiv, 'Resolve the pending conflict before running Sync Now.', 'warning');
+          reportStatus('Resolve the pending conflict before running Sync Now.', 'warning');
           if (!pendingConflict) {
             onSyncStateChanged();
           }
           return;
         }
 
-        if (!syncManager.isUnlocked()) {
+        if (!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) {
           const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
+          if (!isCurrentOperation()) return;
           if (unlockedFromCache) {
-            window.setTimeout(() => onSyncStateChanged(), 0);
+            window.setTimeout(() => { if (isCurrentOperation()) onSyncStateChanged(); }, 0);
           }
 
           const passphraseInput = container.querySelector('#sync-unlock-passphrase');
           const passphrase = passphraseInput?.value || '';
 
-          if (!syncManager.isUnlocked() && !passphrase) {
-            setStatusMessage(statusDiv, 'Sync is locked. Enter your password to unlock first.', 'warning');
+          if ((!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) && !passphrase) {
+            reportStatus('Sync is locked. Enter your password to unlock first.', 'warning');
             return;
           }
 
-          if (!syncManager.isUnlocked()) {
+          if (!syncManager.isUnlocked() || syncManager.localRestoreNeedsUnlock === true) {
             const unlockResult = await syncManager.unlockSync(passphrase, {
               remember: getRememberPreference()
             });
+            if (!isCurrentOperation()) return;
             if (!unlockResult.success) {
-              setStatusMessage(statusDiv, `Unlock failed: ${unlockResult.error}`, 'warning');
+              reportStatus(`Unlock failed: ${unlockResult.error}`, 'warning');
               return;
             }
+            syncManager.localRestoreNeedsUnlock = false;
           }
         }
 
-        const activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+        let activeCardPayload = buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+        if (typeof syncManager.prepareLocalCardForPush === 'function') {
+          const prepared = await syncManager.prepareLocalCardForPush(cardName);
+          if (!prepared) {
+            reportStatus('Initial restore has not completed. Retry unlock/Sync Now to restore before pushing.', 'warning');
+            if (isCurrentOperation()) onSyncStateChanged();
+            return;
+          }
+          activeCardPayload = prepared;
+        }
+        if (!isCurrentOperation()) return;
         const result = await syncManager.sync({ cards: { [cardName]: activeCardPayload } });
+        if (!isCurrentOperation()) return;
 
         if (result.success) {
-          setStatusMessage(statusDiv, 'Synced successfully.', 'success');
+          reportStatus('Synced successfully.', 'success');
           if (bootstrapStatus && typeof syncManager.dismissBootstrapRestoreStatus === 'function') {
             const dismissed = syncManager.dismissBootstrapRestoreStatus();
             if (dismissed) {
@@ -3085,19 +3137,22 @@
               }
             }
           }
-          window.setTimeout(() => onSyncStateChanged(), 800);
-          window.setTimeout(() => setStatusMessage(statusDiv, ''), 3000);
+          window.setTimeout(() => { if (isCurrentOperation()) onSyncStateChanged(); }, 800);
+          window.setTimeout(() => { if (isCurrentOperation()) reportStatus(''); }, 3000);
           return;
         }
 
         if (result.conflict) {
-          setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'warning');
+          reportStatus(`Sync failed: ${result.error}`, 'warning');
           onSyncStateChanged();
           return;
         }
-        setStatusMessage(statusDiv, `Sync failed: ${result.error}`, 'error');
+        reportStatus(`Sync failed: ${result.error}`, 'error');
+      } catch (error) {
+        if (isCurrentOperation()) reportStatus(`Sync failed: ${error.message || 'Unexpected sync failure.'}`, 'error');
       } finally {
-        setSyncBusy(syncNowButton, false);
+        operation.busy = false;
+        if (syncManager.localSyncOperation === operation) renderSyncOperation();
       }
     });
 
@@ -3333,9 +3388,9 @@
 
   (() => {
 
-    if (window.__ccSubcapInjected) {
-      return;
-    }
+    if (window.__ccSubcapInjected) return;
+    let runtimeStarted = false;
+    function initializeRuntime() {
     window.__ccSubcapInjected = true;
 
     const STORAGE_KEY = 'ccSubcapSettings';
@@ -3344,14 +3399,16 @@
       {
         id: 'uob-pib',
         host: 'pib.uob.com.sg',
-        pathPrefix: '/PIBCust/2FA/processSubmit.do',
-        urlPrefix: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
+        pathPrefixes: ['/accountsDashboard', '/accountDetail'],
+        allowOverlayWithoutRows: true,
+        requireVisibleCardName: true,
+        observeCardContext: true,
         waitTimeoutMs: 15000,
         cardNameXPaths: [
-          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[1]/div/div[1]/div/div[2]/h3'
+          '//h2'
         ],
         tableBodyXPaths: [
-          '/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody'
+          '//table/tbody'
         ]
       },
       {
@@ -3442,7 +3499,7 @@
 
 
     const TRANSACTION_LOADING_NOTICE =
-      '💡 <strong>Completeness check:</strong><br>Only rows you have loaded on the bank site are counted. Use pagination or "View More", then reopen the panel to refresh the local snapshot.';
+      '💡 <strong>Completeness check:</strong><br>Only posted rows you have loaded on the bank site are counted. Scroll manually to load more UOB transactions, or use pagination / "View More", then reopen the panel. The script never scrolls automatically.';
 
     const CAP_POLICY_CACHE_KEY = 'ccSubcapCapPolicyCache';
     const CAP_POLICY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -3702,6 +3759,7 @@
     let shouldShowButton = false;
     let isButtonActionable = false;
     let lastRefreshTrigger = null;
+    let lifecycleGeneration = 0;
 
     function loadSettings() {
       const raw = storage.get(STORAGE_KEY, '{}');
@@ -3760,21 +3818,29 @@
       return cardSettings;
     }
 
-    async function maybeBootstrapRestoreActiveCard(cardName, cardConfig) {
+    const localRestoreJobs = new Map();
+
+    async function maybeBootstrapRestoreActiveCard(cardName, cardConfig, isCurrent = () => true) {
       if (!syncManager.shouldRunBootstrapRestore()) {
+        if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
+          await syncManager.tryUnlockFromRememberedCache();
+        }
         return { success: true, outcome: syncManager.config.bootstrapRestoreOutcome || '' };
       }
 
       if (!syncManager.isUnlocked()) {
         const unlockedFromCache = await syncManager.tryUnlockFromRememberedCache();
-        if (!unlockedFromCache && !syncManager.isUnlocked()) {
+        if (!unlockedFromCache) {
+          syncManager.localRestoreNeedsUnlock = true;
           return { success: false, pendingUnlock: true, outcome: 'failed' };
         }
+        syncManager.localRestoreNeedsUnlock = false;
       }
 
       if (!syncManager.syncClient?.syncEngine) {
         return { success: false, pendingUnlock: true, outcome: 'failed' };
       }
+      if (!isCurrent()) return { success: false, cancelled: true };
 
       const latestSettings = loadSettings();
       const localCardSettings = ensureCardSettings(latestSettings, cardName, cardConfig);
@@ -3787,6 +3853,7 @@
       }
 
       const pullResult = await syncManager.syncClient.syncEngine.pull();
+      if (!isCurrent()) return { success: false, cancelled: true };
       if (!pullResult.success) {
         syncManager.saveBootstrapRestoreOutcome('failed', { markDone: false, sourceVersion: 0 });
         return { success: false, outcome: 'failed', error: pullResult.error || 'Failed to pull remote settings for bootstrap restore.' };
@@ -3804,6 +3871,12 @@
       const restoredCard = syncManager.syncClient.syncEngine.sanitizeCardForMerge(remoteCards[cardName]);
       const nextSettings = loadSettings();
       const targetCardSettings = ensureCardSettings(nextSettings, cardName, cardConfig);
+      // A local selection/rule edit during the pull wins over the remote snapshot.
+      if (buildSyncCardFingerprint(cardName, targetCardSettings, getStoredTransactions(cardName, targetCardSettings)) !==
+          buildSyncCardFingerprint(cardName, localCardSettings, localTransactions)) {
+        syncManager.saveBootstrapRestoreOutcome('skipped_local_nonempty', { markDone: true, sourceVersion: pullResult.version || 0 });
+        return { success: true, outcome: 'skipped_local_nonempty' };
+      }
       targetCardSettings.selectedCategories = Array.from({ length: cardConfig.subcapSlots }, (_, index) => {
         const value = restoredCard.selectedCategories?.[index];
         return typeof value === 'string' ? value : '';
@@ -3860,6 +3933,9 @@
     }
 
     function removeUI(options = {}) {
+      syncManager.localSyncView = null;
+      if (syncManager.localSyncOperation) syncManager.localSyncOperation.cancelled = true;
+      lifecycleGeneration += 1;
       const preserveCardContextObserver = options.preserveCardContextObserver === true;
       const preserveButtonStateObserver = options.preserveButtonStateObserver === true;
       observerCoordinator.stopAll({ preserveCardContextObserver, preserveButtonStateObserver });
@@ -3976,6 +4052,7 @@
     }
 
     async function waitForAnyTableBodyRows(xpaths, timeoutMs = 15000, settleMs = 2000) {
+      if (Array.isArray(xpaths) && xpaths.includes('//table/tbody')) return findUobTableBody();
       const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
       if (!candidates.length) {
         return null;
@@ -4011,9 +4088,11 @@
     }
 
     function observeTableBody(tableBodyXPaths, onChange, waitTimeoutMs, debounceMs = RUNTIME_LIMITS.tableRefreshDebounceMs) {
+      const isUobTable = tableBodyXPaths.includes('//table/tbody');
       let currentTbody = null;
       let tableObserver = null;
       let rootObserver = null;
+      let rootDiscoveryTimer = null;
       let refreshTimer = null;
       let ensureInProgress = false;
 
@@ -4029,12 +4108,12 @@
           tableObserver.disconnect();
         }
         tableObserver = new MutationObserver((mutations) => {
-          const hasChange = mutations.some((mutation) => mutation.type === 'childList');
+          const hasChange = mutations.some((mutation) => mutation.type === 'childList' || mutation.type === 'characterData');
           if (hasChange) {
             scheduleRefresh();
           }
         });
-        tableObserver.observe(tbody, { childList: true, subtree: true });
+        tableObserver.observe(tbody, { childList: true, characterData: true, subtree: true });
       };
 
       const attachRootObserver = () => {
@@ -4042,15 +4121,26 @@
           rootObserver.disconnect();
         }
         rootObserver = new MutationObserver((mutations) => {
-          const hasChildListChange = mutations.some((mutation) => mutation.type === 'childList');
+          const hasChildListChange = mutations.some((mutation) => mutation.type === 'childList' || (isUobTable && mutation.type === 'attributes'));
           if (!hasChildListChange) {
+            return;
+          }
+          if (isUobTable) {
+            if (!rootDiscoveryTimer) {
+              rootDiscoveryTimer = window.setTimeout(() => {
+                rootDiscoveryTimer = null;
+                if (findUobTableBody()?.tbody !== currentTbody || !currentTbody) ensureObserver();
+              }, debounceMs);
+            }
             return;
           }
           if (!currentTbody || !currentTbody.isConnected) {
             ensureObserver();
           }
         });
-        rootObserver.observe(document.documentElement, { childList: true, subtree: true });
+        rootObserver.observe(document.documentElement, isUobTable
+          ? { childList: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'], subtree: true }
+          : { childList: true, subtree: true });
       };
 
       const ensureObserver = async () => {
@@ -4060,8 +4150,15 @@
         ensureInProgress = true;
         const timeoutMs = (typeof waitTimeoutMs === 'number' ? waitTimeoutMs : 15000);
         try {
-          const match = await waitForAnyXPath(tableBodyXPaths, timeoutMs);
-          const tbody = match?.node || null;
+          const match = isUobTable
+            ? findUobTableBody()
+            : await waitForAnyXPath(tableBodyXPaths, timeoutMs);
+          const tbody = match?.tbody || match?.node || null;
+          if (isUobTable && !tbody && currentTbody) {
+            tableObserver?.disconnect();
+            currentTbody = null;
+            scheduleRefresh();
+          }
           if (!tbody || tbody === currentTbody) {
             return;
           }
@@ -4086,6 +4183,7 @@
         if (refreshTimer) {
           window.clearTimeout(refreshTimer);
         }
+        if (rootDiscoveryTimer) window.clearTimeout(rootDiscoveryTimer);
       };
     }
 
@@ -4099,7 +4197,7 @@
         if (!match) {
           return { name: '', raw: '', xpath: '' };
         }
-        return { name: match.name, raw: match.raw, xpath: match.xpath || '' };
+        return { name: match.name, raw: match.raw, xpath: match.xpath || '', tableBody: profile.id === 'uob-pib' ? findUobTableBody()?.tbody || null : null };
       };
       let lastSnapshot = resolveSnapshot();
       const scheduleRefresh = () => {
@@ -4111,7 +4209,8 @@
           const hasChanged = !(
             nextSnapshot.name === lastSnapshot.name &&
             nextSnapshot.raw === lastSnapshot.raw &&
-            nextSnapshot.xpath === lastSnapshot.xpath
+            nextSnapshot.xpath === lastSnapshot.xpath &&
+            nextSnapshot.tableBody === lastSnapshot.tableBody
           );
           if (!hasChanged) {
             return;
@@ -4123,7 +4222,9 @@
       const observer = new MutationObserver(() => {
         scheduleRefresh();
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      observer.observe(document.documentElement, profile.id === 'uob-pib'
+        ? { childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'], subtree: true }
+        : { childList: true, subtree: true });
       return () => {
         observer.disconnect();
         if (refreshTimer) {
@@ -4262,21 +4363,48 @@
     }
 
     function isElementVisible(element) {
+      if (!isEffectivelyVisible(element)) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    function isEffectivelyVisible(element) {
       if (!element || !(element instanceof Element)) {
         return false;
       }
       if (!element.isConnected) {
         return false;
       }
-      const style = window.getComputedStyle(element);
-      if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-        return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = window.getComputedStyle(node);
+        if (node.hidden || !style || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.opacity === '0') {
+          return false;
+        }
       }
-      const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
+      return true;
+    }
+
+    function visibleUobText(element) {
+      // Non-DOM test fixtures retain the existing helper API. Real portal
+      // fields must exclude hidden descendants, including duplicate labels.
+      if (!(element instanceof Element)) return normalizeText(element?.textContent);
+      if (!isElementVisible(element)) return '';
+      const text = Array.from(element.childNodes).map((node) => {
+        if (node.nodeType === 3) return node.textContent;
+        return node instanceof Element ? visibleUobText(node) : '';
+      }).join(' ');
+      return normalizeText(text);
     }
 
     function findActiveCardName(profile, options = {}) {
+      if (profile?.id === 'uob-pib') {
+        if (!matchesProfile(profile)) return null;
+        const headings = Array.from(document.querySelectorAll('h2')).filter(isElementVisible);
+        const supported = headings.filter((node) => resolveSupportedCardName(visibleUobText(node)) === "LADY'S SOLITAIRE CARD");
+        if (supported.length !== 1) return null;
+        const node = supported[0];
+        return { name: "LADY'S SOLITAIRE CARD", raw: visibleUobText(node), node, xpath: '//h2' };
+      }
       const requireVisible = options.requireVisible === true;
       const cardNameXPaths = profile?.cardNameXPaths || (profile?.cardNameXPath ? [profile.cardNameXPath] : []);
       if (!cardNameXPaths.length) {
@@ -4287,10 +4415,16 @@
         if (!node) {
           return null;
         }
+        // Broad portal fallback XPaths must not rediscover our own card title
+        // (or an ancestor containing it) after the bank heading disappears.
+        const overlay = profile.id === 'maybank2u-sg' ? document.getElementById(UI_IDS.overlay) : null;
+        if (overlay && (node.contains?.(overlay) || overlay.contains?.(node))) return null;
         if (requireVisible && !isElementVisible(node)) {
           return null;
         }
-        const raw = normalizeText(node.textContent);
+        const raw = profile.id === 'maybank2u-sg' && xpath !== cardNameXPaths[0]
+          ? visibleUobText(node)
+          : normalizeText(node.textContent);
         const name = resolveSupportedCardName(raw);
         return { name, raw, node, xpath };
       };
@@ -4317,7 +4451,8 @@
       if (!hostMatches) {
         return false;
       }
-      if (profile.pathPrefix && !window.location.pathname.startsWith(profile.pathPrefix)) {
+      const pathPrefixes = profile.pathPrefixes || (profile.pathPrefix ? [profile.pathPrefix] : null);
+      if (pathPrefixes && !pathPrefixes.some((prefix) => window.location.pathname.startsWith(prefix))) {
         return false;
       }
       return true;
@@ -4350,6 +4485,9 @@
     }
 
     function findAnyTableBody(xpaths) {
+      if (Array.isArray(xpaths) && xpaths.includes('//table/tbody')) {
+        return findUobTableBody();
+      }
       const candidates = Array.isArray(xpaths) ? xpaths.filter(Boolean) : [xpaths];
       for (const xpath of candidates) {
         const tbody = evalXPath(xpath);
@@ -4358,6 +4496,34 @@
         }
       }
       return null;
+    }
+
+    // Accept explicit accessible ownership, or the supplied portal structure
+    // at its exact anchors. Never climb generic ancestors to infer ownership.
+    function findUobTableBody() {
+      const profile = PORTAL_PROFILES[0];
+      const heading = findActiveCardName(profile, { requireVisible: true });
+      if (!heading) return null;
+      const headingXPath = '/html/body/div[1]/div/div[2]/div/div[2]/div[1]/div/div[2]/div/div[2]/div[1]/h2';
+      const bodyXPath = '/html/body/div[1]/div/div[2]/div/div[2]/div[2]/div[1]/div[2]/div/div[2]/div/div[2]/table/tbody';
+      const anchoredBody = evalXPath(headingXPath) === heading.node ? evalXPath(bodyXPath) : null;
+      const candidates = Array.from(document.querySelectorAll('table')).filter((table) => {
+        const labels = (table.getAttribute('aria-labelledby') || '').split(/\s+/);
+        return (heading.node.id && labels.includes(heading.node.id)) || table.querySelector('tbody') === anchoredBody;
+      }).filter(isElementVisible).filter((table) => {
+          const body = table.querySelector('tbody');
+          if (!body || !isEffectivelyVisible(body)) return false;
+          const headers = visibleUobText(table.querySelector('thead')).toLowerCase();
+          const rows = Array.from(table.querySelectorAll('tbody tr'));
+          return (/transaction/.test(headers) && /posting/.test(headers) && /amount/.test(headers)) || rows.some((row) => {
+            if (!isElementVisible(row)) return false;
+            const cells = row.querySelectorAll('td');
+            return cells.length === 5 && parsePostingDate(visibleUobText(cells[0].querySelector('div span'))) && visibleUobText(cells[1]) &&
+              /^[+-]?[\d,]+\.\d{2}\s+[A-Z]{3}$/.test(visibleUobText(cells[3]));
+          });
+        });
+      if (candidates.length !== 1) return null;
+      return { xpath: '//table/tbody', tbody: candidates[0].querySelector('tbody') };
     }
 
     /**
@@ -4408,6 +4574,11 @@
     }
 
     function getActiveCardName(profile, options = {}) {
+      // UOB discovery is persistent; a vanished detail must not leave a stale
+      // refresh waiting for a different card to appear.
+      if (profile?.id === 'uob-pib') {
+        return Promise.resolve(findActiveCardName(profile, { requireVisible: true }) || { name: '', raw: '', node: null, xpath: '' });
+      }
       const requireVisible = options.requireVisible === true;
       const waitTimeoutMs = Number.isFinite(options.waitTimeoutMs) ? options.waitTimeoutMs : 15000;
       const getVisibleMatch = () => findActiveCardName(profile, { requireVisible });
@@ -4437,24 +4608,6 @@
           resolve({ name: '', raw: '', node: null, xpath: '' });
         }, waitTimeoutMs);
       });
-    }
-
-    function extractMerchantInfo(cell) {
-      if (!cell) {
-        return { merchantName: '', refNo: '' };
-      }
-      const raw = cell.innerText || cell.textContent || '';
-      const lines = raw
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (lines.length > 0) {
-        return {
-          merchantName: lines[0],
-          refNo: normalizeRefNo(lines.length > 1 ? lines[1] : '')
-        };
-      }
-      return { merchantName: normalizeText(raw), refNo: '' };
     }
 
     function toISODate(date) {
@@ -4584,38 +4737,6 @@
       const base = `${normalizedDate}|${normalizedDesc}|${normalizedAmount}`;
       const hash = hashFNV1a(base);
       return `MB:${normalizedDate}:${normalizedAmount}:${hash}`;
-    }
-
-    function extractDollarsAndCents(amountCell) {
-      if (!amountCell) {
-        return { dollarsText: '', centsText: '', amountText: '' };
-      }
-
-      const amountSpan = amountCell.querySelector('span');
-      if (!amountSpan) {
-        const fallback = normalizeText(amountCell.textContent);
-        return { dollarsText: fallback, centsText: '', amountText: fallback };
-      }
-
-      const centsSpan = amountSpan.querySelector('span');
-      const centsText = normalizeText(centsSpan ? centsSpan.textContent : '');
-
-      let dollarsText = '';
-      const firstTextNode = Array.from(amountSpan.childNodes).find(
-        (node) => node.nodeType === Node.TEXT_NODE
-      );
-
-      if (firstTextNode) {
-        dollarsText = normalizeText(firstTextNode.textContent);
-      } else {
-        dollarsText = normalizeText(amountSpan.textContent);
-        if (centsText && dollarsText.endsWith(centsText)) {
-          dollarsText = normalizeText(dollarsText.slice(0, -centsText.length));
-        }
-      }
-
-      const amountText = `${dollarsText}${centsText}`.trim();
-      return { dollarsText, centsText, amountText };
     }
 
     function getSelectedCategories(cardSettings) {
@@ -4947,6 +5068,7 @@
         return buildMaybankTransactions(tbody, cardName, cardSettings);
       }
       const rows = Array.from(tbody.querySelectorAll('tr'));
+      const tbodyVisible = isElementVisible(tbody);
       const diagnostics = {
         skipped_rows: 0,
         missing_ref_no: 0,
@@ -4957,38 +5079,52 @@
       const transactions = rows
         .map((row, index) => {
           const cells = row.querySelectorAll('td');
-          if (cells.length < 4) {
+          if (cells.length !== 5) {
             diagnostics.skipped_rows += 1;
             return null;
           }
 
-          const postingDate = normalizeText(cells[0].textContent);
-          const transactionDate = normalizeText(cells[1].textContent);
-          const { merchantName, refNo } = extractMerchantInfo(cells[2]);
+          if (row instanceof Element && (!isElementVisible(row) || !tbodyVisible || [cells[0], cells[1], cells[3]].some((cell) => !isElementVisible(cell)))) {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+          const dates = Array.from(cells[0].querySelectorAll('div span')).filter((node) => !(node instanceof Element) || isElementVisible(node));
+          const transactionDate = visibleUobText(dates[0]);
+          const postingDate = dates.length === 2 ? visibleUobText(dates[1]) : '';
+          const description = visibleUobText(cells[1]);
+          if (visibleUobText(cells[2]) || !postingDate || /\bPAYMT\s+THRU\s+E-BANK\/HOMEB\/CYBERB\b/i.test(description)) {
+            diagnostics.skipped_rows += 1;
+            return null;
+          }
+          const reference = description.match(/\bRef\s+No\s*:\s*(\d+)\s*$/i);
+          const refNo = reference?.[1] || '';
+          const merchantName = normalizeText(reference ? description.slice(0, reference.index) : description);
           const normalizedRefNo = normalizeKey(normalizeRefNo(refNo));
 
-          if (
-            !postingDate &&
-            !transactionDate &&
-            merchantName.toLowerCase() === 'previous balance'
-          ) {
+          if (!merchantName) {
             diagnostics.skipped_rows += 1;
             return null;
           }
+
           if (!normalizedRefNo) {
             diagnostics.missing_ref_no += 1;
             return null;
           }
 
-          const { dollarsText, centsText, amountText } = extractDollarsAndCents(cells[3]);
-          const amountValue = parseAmount(amountText);
-          if (amountText && amountValue === null) {
+          const amountText = visibleUobText(cells[3]);
+          const rawAmount = /^[+-]?[\d,]+\.\d{2}\s+SGD$/.test(amountText) ? parseAmount(amountText) : null;
+          // UOB displays debits negative and merchant credits positive. This
+          // sign inversion is inferred from the supplied fixtures, not live verified.
+          const amountValue = rawAmount === null ? null : rawAmount * -1;
+          if (amountValue === null) {
             diagnostics.invalid_amount += 1;
+            return null;
           }
 
           const postingDateParsed = parsePostingDate(postingDate);
           if (postingDate && !postingDateParsed) {
             diagnostics.invalid_posting_date += 1;
+            return null;
           }
 
           const postingDateIso = postingDateParsed ? toISODate(postingDateParsed) : '';
@@ -5001,8 +5137,8 @@
             transaction_date: transactionDate,
             merchant_detail: merchantName,
             ref_no: normalizedRefNo,
-            amount_dollars: dollarsText,
-            amount_cents: centsText,
+            amount_dollars: String(amountValue),
+            amount_cents: '',
             amount_text: amountText,
             amount_value: amountValue,
             category
@@ -5228,6 +5364,7 @@
     }
 
     function createButton(onClick, options = {}) {
+      ensureUiStyles(THEME);
       const existingButton = document.getElementById(UI_IDS.button);
       const shouldHide = existingButton?.classList.contains(UI_CLASSES.hidden) === true;
       const nextButton = document.createElement('button');
@@ -6311,6 +6448,7 @@
     }
 
     async function main() {
+      const generation = ++lifecycleGeneration;
       const profile = PORTAL_PROFILES.find((entry) => matchesProfile(entry));
       if (!profile) {
         removeUI();
@@ -6320,12 +6458,16 @@
       const waitTimeoutMs = Number.isFinite(profile.waitTimeoutMs) ? profile.waitTimeoutMs : 15000;
       const allowOverlayWithoutRows = profile.allowOverlayWithoutRows === true;
 
-      const cardContext = await getActiveCardName(profile, {
+      if (profile.id === 'uob-pib') {
+        observerCoordinator.startCardContextObserver(profile, { requireVisible: true }, () => runMainSafe());
+      }
+
+      const cardContext = profile.id === 'uob-pib' ? findActiveCardName(profile, { requireVisible: true }) : await getActiveCardName(profile, {
         waitTimeoutMs,
         requireVisible: profile.requireVisibleCardName === true
       });
       if (!cardContext?.name) {
-        removeUI();
+        removeUI({ preserveCardContextObserver: profile.id === 'uob-pib' });
         return;
       }
 
@@ -6345,7 +6487,7 @@
       const initialTableBodyMatch = allowOverlayWithoutRows
         ? findAnyTableBody(tableBodyXPaths)
         : await waitForAnyTableBodyRows(tableBodyXPaths, waitTimeoutMs);
-      const tableBody = initialTableBodyMatch?.tbody || null;
+      let tableBody = initialTableBodyMatch?.tbody || null;
       const preferredTableBodyXPath = initialTableBodyMatch?.xpath || null;
       if (!tableBody && !allowOverlayWithoutRows) {
         removeUI();
@@ -6354,11 +6496,38 @@
 
       let initialSettings = loadSettings();
       let initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
-      if (syncManager.isEnabled()) {
-        await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
-        initialSettings = loadSettings();
-        initialCardSettings = ensureCardSettings(initialSettings, cardName, cardConfig);
+      const isCurrentRestoreContext = () => generation === lifecycleGeneration && matchesProfile(profile) &&
+        isSameCardContextPair(buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })), buildCardContext(profile, cardContext));
+      let restoreJob = localRestoreJobs.get(cardName);
+      const startRestore = () => {
+        if (restoreJob?.pending) return restoreJob.promise;
+        restoreJob = { pending: true, decided: false, isCurrent: isCurrentRestoreContext };
+        localRestoreJobs.set(cardName, restoreJob);
+        syncManager.localRestorePending = cardName;
+        restoreJob.promise = maybeBootstrapRestoreActiveCard(cardName, cardConfig, () => restoreJob.isCurrent())
+          .catch(() => {
+            if (!restoreJob.isCurrent()) return { success: false, cancelled: true };
+            syncManager.saveBootstrapRestoreOutcome('failed', { markDone: false, sourceVersion: 0 });
+            return { success: false };
+          })
+          .then((result) => {
+            restoreJob.decided = result?.success === true;
+            restoreJob.cancelled = result?.cancelled === true;
+            return result;
+          })
+          .finally(() => {
+            restoreJob.pending = false;
+            syncManager.localRestoreBlocked = restoreJob.decided ? null : cardName;
+            if (syncManager.localRestorePending === cardName) syncManager.localRestorePending = null;
+          });
+        return restoreJob.promise;
+      };
+      if (syncManager.isEnabled() && (!restoreJob || restoreJob.cancelled)) {
+        startRestore();
+      } else if (restoreJob?.pending) {
+        restoreJob.isCurrent = isCurrentRestoreContext;
       }
+      const restorePending = () => syncManager.isEnabled() && restoreJob?.decided !== true;
       let backgroundSyncInFlight = false;
       let hasUnsyncedCardChanges = false;
       let lastKnownCardFingerprint = '';
@@ -6377,6 +6546,9 @@
       };
 
       const attemptBackgroundSyncIfDirty = () => {
+        if (syncManager.localSyncOperation?.busy) return;
+        if (restorePending()) return;
+        if (generation !== lifecycleGeneration || !matchesProfile(profile)) return;
         if (!hasUnsyncedCardChanges) {
           return;
         }
@@ -6435,11 +6607,18 @@
 
       const preUpdateStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       const preUpdateFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, preUpdateStoredTransactions);
-      if (tableBody) {
+      if (generation !== lifecycleGeneration) return;
+      // Bootstrap may replace the table without changing the product heading.
+      // Reacquire its current identity before writing or installing observers.
+      if (profile.id === 'uob-pib') tableBody = findUobTableBody()?.tbody || null;
+      const initialWriteContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
+      if (!matchesProfile(profile) || !isSameCardContextPair(initialWriteContext, buildCardContext(profile, cardContext)) ||
+          (profile.id === 'uob-pib' && tableBody && findUobTableBody()?.tbody !== tableBody)) return;
+      if (tableBody && !restorePending()) {
         const initialData = buildData(tableBody, cardName, initialCardSettings);
         updateStoredTransactions(initialSettings, cardName, cardConfig, initialData.transactions);
       }
-      saveSettings(initialSettings);
+      if (!restorePending()) saveSettings(initialSettings);
       const initialStoredTransactions = getStoredTransactions(cardName, initialCardSettings);
       lastKnownCardFingerprint = buildSyncCardFingerprint(cardName, initialCardSettings, initialStoredTransactions);
       if (tableBody && lastKnownCardFingerprint !== preUpdateFingerprint) {
@@ -6462,6 +6641,15 @@
       };
 
       const refreshOverlay = async (reason, options = {}) => {
+        if (generation !== lifecycleGeneration) return;
+        if (reason === 'overlay' && restorePending() && !restoreJob?.pending && syncManager.isUnlocked() && syncManager.localRestoreNeedsUnlock !== true) {
+          startRestore().then(() => {
+            if (isCurrentRestoreContext()) scheduleRefresh('restore');
+          }).catch(() => {});
+        }
+        const refreshGeneration = lifecycleGeneration;
+        const isCurrentLifecycle = () => refreshGeneration === lifecycleGeneration && matchesProfile(profile) &&
+          isSameCardContextPair(buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })), buildCardContext(profile, cardContext));
         const allowUnresolved = options.allowUnresolved === true;
         if (refreshInProgress) {
           refreshPending = true;
@@ -6476,6 +6664,7 @@
             requireVisible: profile.requireVisibleCardName === true
           });
           const nextContext = buildCardContext(profile, latestContext);
+          if (refreshGeneration !== lifecycleGeneration) return;
 
           if (!isSupportedCardContext(profile, nextContext, allowUnresolved)) {
             shouldShowButton = false;
@@ -6513,10 +6702,8 @@
           if (!latestTableBody && !allowOverlayWithoutRows) {
             return;
           }
-          await ensureCapPolicyLoaded();
-          if (syncManager.isEnabled()) {
-            await maybeBootstrapRestoreActiveCard(cardName, cardConfig);
-          }
+          const settledContext = buildCardContext(profile, findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true }));
+          if (refreshGeneration !== lifecycleGeneration || !matchesProfile(profile) || !isSameCardContextPair(settledContext, buildCardContext(profile, cardContext))) return;
           const settings = loadSettings();
           const cardSettings = ensureCardSettings(settings, cardName, cardConfig);
           let data;
@@ -6526,7 +6713,8 @@
               requireVisible: profile.requireVisibleCardName === true
             });
             const nextWriteContext = buildCardContext(profile, writeTimeContext);
-            if (!isSameCardContext(nextWriteContext)) {
+            if (!matchesProfile(profile) || !isSameCardContextPair(nextWriteContext, buildCardContext(profile, cardContext)) ||
+                (profile.id === 'uob-pib' && findUobTableBody()?.tbody !== latestTableBody)) {
               shouldShowButton = Boolean(nextWriteContext.cardName);
               isButtonActionable = shouldShowButton;
               activeCardContext = { ...nextWriteContext };
@@ -6539,20 +6727,18 @@
               runMainSafe();
               return;
             }
-            updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
+            if (!restorePending()) updateStoredTransactions(settings, cardName, cardConfig, data.transactions);
           } else {
             data = buildFallbackData(cardName, cardSettings);
           }
-          saveSettings(settings);
-          const storedTransactions = getStoredTransactions(cardName, cardSettings);
+          if (!restorePending()) saveSettings(settings);
+          const storedTransactions = restorePending() ? data.transactions : getStoredTransactions(cardName, cardSettings);
           const latestFingerprint = buildSyncCardFingerprint(cardName, cardSettings, storedTransactions);
           if (latestTableBody && latestFingerprint !== lastKnownCardFingerprint) {
             hasUnsyncedCardChanges = true;
           }
           lastKnownCardFingerprint = latestFingerprint;
-          if (syncManager.isEnabled() && !syncManager.isUnlocked() && syncManager.hasRememberedUnlockCache()) {
-            await syncManager.tryUnlockFromRememberedCache();
-          }
+          if (!isCurrentLifecycle() || (profile.id === 'uob-pib' && latestTableBody && findUobTableBody()?.tbody !== latestTableBody)) return;
           if (latestTableBody) {
             attemptBackgroundSyncIfDirty();
           }
@@ -6581,6 +6767,7 @@
       };
 
       const handleButtonClick = async () => {
+        if (generation !== lifecycleGeneration) return;
         if (!profile) {
           return;
         }
@@ -6588,6 +6775,7 @@
           waitTimeoutMs: RUNTIME_LIMITS.clickContextTimeoutMs,
           requireVisible: profile.requireVisibleCardName === true
         });
+        if (generation !== lifecycleGeneration) return;
         const nextContext = buildCardContext(profile, quickContext);
 
         if (!nextContext.cardName) {
@@ -6613,6 +6801,12 @@
       };
 
       const refreshButtonState = () => {
+        if (generation !== lifecycleGeneration) {
+          // Preserved discovery observers outlive their render lifecycle.
+          // They may start a new one, but must not revive stale render work.
+          if (matchesProfile(profile) && findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })) runMainSafe();
+          return;
+        }
         if (!profile) {
           return;
         }
@@ -6643,6 +6837,21 @@
       };
 
       createButton(handleButtonClick, { enabled: isButtonActionable });
+      syncManager.prepareLocalCardForPush = async (requestedCard) => {
+        if (requestedCard !== cardName || !isCurrentRestoreContext()) return null;
+        if (restorePending()) await startRestore();
+        if (restorePending() || !isCurrentRestoreContext()) return null;
+        await refreshOverlay('restore');
+        if (!isCurrentRestoreContext()) return null;
+        const { cardSettings, storedTransactions } = getCurrentSyncState();
+        return buildSyncCardSnapshot(cardName, cardSettings, storedTransactions);
+      };
+      syncManager.isLocalCardCurrent = (requestedCard) => requestedCard === cardName && isCurrentRestoreContext();
+      if (restoreJob?.pending) {
+        restoreJob.promise.then(() => {
+          if (generation === lifecycleGeneration && isCurrentRestoreContext()) scheduleRefresh('restore');
+        }).catch(() => {});
+      }
       setButtonState({ visible: shouldShowButton, enabled: isButtonActionable });
       observerCoordinator.startTableObserver(
         observedTableBodyXPaths,
@@ -6653,7 +6862,17 @@
       observerCoordinator.startCardContextObserver(
         profile,
         { requireVisible: profile.requireVisibleCardName === true },
-        () => scheduleRefresh('card-context'),
+        () => {
+          if (profile.id === 'uob-pib') {
+            runMainSafe();
+            return;
+          }
+          if (generation !== lifecycleGeneration) {
+            if (matchesProfile(profile) && findActiveCardName(profile, { requireVisible: profile.requireVisibleCardName === true })) runMainSafe();
+            return;
+          }
+          scheduleRefresh('card-context');
+        },
         RUNTIME_LIMITS.cardContextDebounceMs
       );
       observerCoordinator.startButtonStateObserver(
@@ -6662,7 +6881,44 @@
         refreshButtonState,
         RUNTIME_LIMITS.buttonStateDebounceMs
       );
-      ensureCapPolicyLoaded().catch(() => {});
+      const initialPolicy = JSON.stringify(activeCapPolicy);
+      ensureCapPolicyLoaded().then(() => {
+        if (generation === lifecycleGeneration && isCurrentRestoreContext() && JSON.stringify(activeCapPolicy) !== initialPolicy) scheduleRefresh('cap-policy');
+      }).catch(() => {});
+    }
+
+    let mainInProgress = false;
+    let mainRerunPending = false;
+
+    function runMainSafe() {
+      if (mainInProgress) {
+        mainRerunPending = true;
+        return;
+      }
+      mainInProgress = true;
+      main()
+        .catch((error) => {
+          console.error('[Subcap] Failed to initialize on current page:', error);
+        })
+        .finally(() => {
+          mainInProgress = false;
+          if (mainRerunPending) {
+            mainRerunPending = false;
+            runMainSafe();
+          }
+        });
+    }
+
+    function startRuntime() {
+      runtimeStarted = true;
+      runMainSafe();
+      let lastObservedUrl = window.location.href;
+      return window.setInterval(() => {
+        const currentUrl = window.location.href;
+        if (currentUrl === lastObservedUrl) return;
+        lastObservedUrl = currentUrl;
+        runMainSafe();
+      }, 1000);
     }
 
     // ── Test seam (inner IIFE: pure helpers) ────────────────────────────────
@@ -6704,6 +6960,10 @@
         waitForAnyXPath,
         waitForAnyTableBodyRows,
         main,
+        runMainSafe,
+        startRuntime,
+        removeUI,
+        syncManager,
         isElementVisible,
         findActiveCardName,
         matchesProfile,
@@ -6749,7 +7009,8 @@
         fromISODate,
         normalizeRefNo,
         normalizeKey,
-        extractDollarsAndCents,
+        PORTAL_PROFILES,
+        findUobTableBody,
         moveOthersToEnd,
         getCategoryDisplayOrder,
         resolveCategory,
@@ -6761,39 +7022,15 @@
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    let mainInProgress = false;
-    let mainRerunPending = false;
-
-    const runMainSafe = () => {
-      if (mainInProgress) {
-        mainRerunPending = true;
-        return;
-      }
-      mainInProgress = true;
-      main()
-        .catch((error) => {
-          console.error('[Subcap] Failed to initialize on current page:', error);
-        })
-        .finally(() => {
-          mainInProgress = false;
-          if (mainRerunPending) {
-            mainRerunPending = false;
-            runMainSafe();
-          }
-        });
-    };
-
-    runMainSafe();
-
-    let lastObservedUrl = window.location.href;
-    window.setInterval(() => {
-      const currentUrl = window.location.href;
-      if (currentUrl === lastObservedUrl) {
-        return;
-      }
-      lastObservedUrl = currentUrl;
-      runMainSafe();
-    }, 1000);
+    startRuntime();
+    }
+    try {
+      initializeRuntime();
+    } catch (error) {
+      // Allow retry after synchronous setup failure; a live runtime keeps its guard.
+      if (!runtimeStarted) window.__ccSubcapInjected = false;
+      console.error('[Subcap] Failed to initialize on current page:', error);
+    }
   })();
 
 })();

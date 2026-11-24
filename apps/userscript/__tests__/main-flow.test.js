@@ -29,7 +29,8 @@ function buildDocument() {
       style: {}
     }),
     getElementById: () => null,
-    evaluate: () => ({ singleNodeValue: null })
+    evaluate: () => ({ singleNodeValue: null }),
+    querySelectorAll: () => []
   };
 }
 
@@ -52,8 +53,8 @@ describe('main flow', () => {
         location: {
           origin: 'https://pib.uob.com.sg',
           hostname: 'pib.uob.com.sg',
-          href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do',
-          pathname: '/PIBCust/2FA/processSubmit.do'
+          href: 'https://pib.uob.com.sg/accountsDashboard',
+          pathname: '/accountsDashboard'
         }
       }
     ];
@@ -119,6 +120,7 @@ describe('main flow', () => {
       if (xpath.includes('xl rewards card')) {
         const node = new globalThis.Element();
         node.textContent = 'XL Rewards Card';
+        node.childNodes = [{ nodeType: 3, textContent: 'XL Rewards Card' }];
         node.innerText = 'XL Rewards Card';
         node.isConnected = true;
         node.getBoundingClientRect = () => ({ width: 10, height: 10 });

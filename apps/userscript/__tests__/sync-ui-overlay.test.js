@@ -658,7 +658,7 @@ describe('sync ui + overlay', () => {
     const doc = makeDocument();
     globalThis.document = doc;
     globalThis.window = {
-      location: { href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do' },
+      location: { href: 'https://pib.uob.com.sg/accountsDashboard' },
       setTimeout: () => 0,
       clearTimeout: () => {},
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' })

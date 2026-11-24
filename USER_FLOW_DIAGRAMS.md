@@ -13,7 +13,7 @@ This document provides visual representations of the main user flows in the Bank
          ↓
 2. User adds userscript
          ↓
-3. User navigates to UOB PIB transaction page
+3. User logs in on UOB PIB `/auth`, navigates to `/accountsDashboard`, then opens supported card details on `/accountDetail` (same-URL DOM lifecycle changes are also supported)
          ↓
 4. Script detects page → Adds "Subcap Tools" button
          ↓
@@ -49,7 +49,7 @@ This document provides visual representations of the main user flows in the Bank
 │                    DAILY SPENDING CHECK                          │
 └─────────────────────────────────────────────────────────────────┘
 
-1. User opens UOB PIB transactions
+1. User opens UOB PIB card details on `/accountDetail` from `/accountsDashboard` or directly; persistent discovery waits for the visible supported heading and associated transaction table
          ↓
 2. Clicks "Subcap Tools" button
          ↓
@@ -413,10 +413,10 @@ User Problem: "Script not appearing"
          ↓
     Check page URL
          ↓
-    ┌────────────────────────────────┐
-    │  URL matches pattern?          │
-    │  pib.uob.com.sg/.../processSubmit.do* │
-    └────────────────────────────────┘
+    ┌──────────────────────────────────────┐
+    │  URL matches pattern?                │
+    │  pib.uob.com.sg/accountDetail*        │
+    └──────────────────────────────────────┘
          ↓
     ┌────┴────┐
     │         │

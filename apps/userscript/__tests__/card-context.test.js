@@ -72,11 +72,11 @@ describe('card context helpers', () => {
 
   it('matchesProfile checks host and path', () => {
     globalThis.window = {
-      location: { hostname: 'pib.uob.com.sg', href: 'https://pib.uob.com.sg/PIBCust/2FA/processSubmit.do', pathname: '/PIBCust/2FA/processSubmit.do' }
+      location: { hostname: 'pib.uob.com.sg', href: 'https://pib.uob.com.sg/accountsDashboard', pathname: '/accountsDashboard' }
     };
-    const profile = { host: 'pib.uob.com.sg', pathPrefix: '/PIBCust' };
+    const profile = { host: 'pib.uob.com.sg', pathPrefix: '/accountsDashboard' };
     assert.equal(exports.matchesProfile(profile), true);
-    const bad = { host: 'example.com', pathPrefix: '/PIBCust' };
+    const bad = { host: 'example.com', pathPrefix: '/accountsDashboard' };
     assert.equal(exports.matchesProfile(bad), false);
   });
 
