@@ -35,7 +35,12 @@ globalThis.GM_setValue = (key, value) => {
   };
   let runtimeTimer;
   try {
-    const heading = atPath(h.PORTAL_PROFILES[1].cardNameXPaths[0]);
+    const cardDetails = document.createElement('div');
+    cardDetails.className = 'nameDetails cards';
+    const heading = document.createElement('span');
+    heading.className = 'selected-accountname';
+    cardDetails.append(heading);
+    document.body.append(cardDetails);
     heading.textContent = 'XL Rewards Card';
     const body = atPath(h.PORTAL_PROFILES[1].tableBodyXPaths[0]);
     body.innerHTML = '<tr><td>08 Aug 2026</td><td>Ignored</td><td>MERCHANT SGP</td><td>-SGD 17.33</td></tr>';

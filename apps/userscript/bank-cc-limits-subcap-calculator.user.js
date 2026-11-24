@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bank CC Limits Subcap Calculator
 // @namespace    local
-// @version      1.1.3
+// @version      1.1.4
 // @description  Extract credit card transactions and manage subcap categories with optional sync
 // @author       laurenceputra
 // @downloadURL  https://raw.githubusercontent.com/laurenceputra/sg-cc-mile-subcaps-limits-viewer/main/apps/userscript/bank-cc-limits-subcap-calculator.user.js
@@ -3419,8 +3419,7 @@
         allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
-          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
+          '//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]'
         ],
         strictPrimaryCardNameXPath: true,
         requireVisibleCardName: true,
@@ -3449,7 +3448,8 @@
       'XL Rewards Card': {
         categories: ['Local', 'Forex'],
         subcapSlots: 2,
-        showManageTab: false
+        showManageTab: false,
+        monthlyBonusSpendMinimum: 500
       }
     };
 
@@ -6075,6 +6075,14 @@
       container.appendChild(subtitle);
       container.appendChild(notice);
 
+      const monthlyBonusSpendMinimum = CARD_CONFIGS[cardName]?.monthlyBonusSpendMinimum;
+      if (monthlyBonusSpendMinimum) {
+        const bonusNote = document.createElement('div');
+        bonusNote.classList?.add(UI_CLASSES.small);
+        bonusNote.textContent = `Bonus points require S$${monthlyBonusSpendMinimum} in eligible spend per calendar month.`;
+        container.appendChild(bonusNote);
+      }
+
       const monthlyTotals = calculateMonthlyTotals(storedTransactions, cardSettings);
       const months = Object.keys(monthlyTotals).sort((a, b) => b.localeCompare(a));
 
@@ -6929,6 +6937,7 @@
       Object.assign(globalThis.__CC_SUBCAP_TEST_EXPORTS__, {
         CARD_CONFIGS,
         EMBEDDED_CAP_POLICY,
+        PORTAL_PROFILES,
         normalizeCapPolicy,
         getCapSeverity,
         getCardCapPolicy,
@@ -7009,7 +7018,6 @@
         fromISODate,
         normalizeRefNo,
         normalizeKey,
-        PORTAL_PROFILES,
         findUobTableBody,
         moveOthersToEnd,
         getCategoryDisplayOrder,

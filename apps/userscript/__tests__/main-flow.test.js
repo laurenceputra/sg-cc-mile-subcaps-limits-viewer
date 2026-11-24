@@ -117,7 +117,7 @@ describe('main flow', () => {
     const doc = buildDocument();
     doc.body.appendChild = (node) => { overlayNodes.push(node); return node; };
     doc.evaluate = (xpath) => {
-      if (xpath.includes('xl rewards card')) {
+      if (xpath.includes('selected-accountname')) {
         const node = new globalThis.Element();
         node.textContent = 'XL Rewards Card';
         node.childNodes = [{ nodeType: 3, textContent: 'XL Rewards Card' }];

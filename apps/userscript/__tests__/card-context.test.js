@@ -14,6 +14,24 @@ function makeElement(text) {
   };
 }
 
+// Synthetic portal fixture: the selected label and inactive menu are separate.
+const MAYBANK_ACTIVE_LABEL_XPATH = '//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]';
+
+function setupMaybankCardFixture(activeName) {
+  const profile = exports.PORTAL_PROFILES.find(({ id }) => id === 'maybank2u-sg');
+  const label = Object.assign(new Element(), makeElement(activeName));
+  const menu = makeElement('XL Rewards Card');
+  const page = makeElement(`${activeName} ${menu.textContent} Status: ready`);
+  // Model the current scoped selector and the old ancestor-text fallback.
+  // Positional paths have no match in this synthetic layout.
+  globalThis.document.evaluate = (xpath) => ({
+    singleNodeValue: xpath === MAYBANK_ACTIVE_LABEL_XPATH
+      ? label
+      : (xpath.startsWith('//*[contains(translate(') ? page : null)
+  });
+  return { profile, label, menu, page };
+}
+
 describe('card context helpers', () => {
   let snapshot;
   beforeEach(() => {
@@ -68,6 +86,45 @@ describe('card context helpers', () => {
     globalThis.document.evaluate = (xpath) => ({ singleNodeValue: nodes[xpath] || null });
     const match = exports.findActiveCardName(profile, { requireVisible: false });
     assert.equal(match, null);
+  });
+
+  it('Maybank keeps the same click context when unrelated page and menu text changes', async () => {
+    const { profile, page, menu } = setupMaybankCardFixture('XL Rewards Card');
+    const options = { requireVisible: profile.requireVisibleCardName === true };
+    const initialContext = exports.resolveActiveCardContext(profile, options);
+    assert.equal(initialContext.cardName, 'XL Rewards Card');
+    assert.equal(initialContext.rawCardName, 'XL Rewards Card');
+    assert.equal(initialContext.cardNameXPath, MAYBANK_ACTIVE_LABEL_XPATH);
+
+    menu.textContent = 'XL Rewards Card Another Card';
+    page.textContent = `XL Rewards Card ${menu.textContent} Status: updated Spend Totals`;
+    // The button click resolves through getActiveCardName before comparing contexts.
+    const clickMatch = await exports.getActiveCardName(profile, options);
+    const clickContext = exports.buildCardContext(profile, clickMatch);
+    assert.equal(exports.isSameCardContextPair(initialContext, clickContext), true);
+    assert.equal(clickContext.rawCardName, 'XL Rewards Card');
+  });
+
+  it('Maybank rejects an unsupported active card even with XL in the menu and page', () => {
+    const { profile, menu } = setupMaybankCardFixture('Unsupported Card');
+    const options = { requireVisible: profile.requireVisibleCardName === true };
+    assert.equal(menu.textContent, 'XL Rewards Card');
+    assert.equal(exports.findActiveCardName(profile, options), null);
+    const context = exports.resolveActiveCardContext(profile, options);
+    assert.equal(context.cardName, '');
+    assert.equal(exports.isSupportedCardContext(profile, context), false);
+  });
+
+  it('Maybank does not use menu text when the active label is hidden or missing', () => {
+    const { profile, label } = setupMaybankCardFixture('XL Rewards Card');
+    const options = { requireVisible: profile.requireVisibleCardName === true };
+    label.getBoundingClientRect = () => ({ width: 0, height: 0 });
+    assert.equal(exports.findActiveCardName(profile, options), null);
+    label.getBoundingClientRect = () => ({ width: 10, height: 10 });
+    label.isConnected = false;
+    assert.equal(exports.findActiveCardName(profile, options), null);
+    globalThis.document.evaluate = () => ({ singleNodeValue: null });
+    assert.equal(exports.findActiveCardName(profile, options), null);
   });
 
   it('matchesProfile checks host and path', () => {
