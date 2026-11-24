@@ -3362,8 +3362,7 @@
         allowOverlayWithoutRows: true,
         waitTimeoutMs: 30000,
         cardNameXPaths: [
-          '/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span',
-          '//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]'
+          '//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]'
         ],
         strictPrimaryCardNameXPath: true,
         requireVisibleCardName: true,
@@ -6673,6 +6672,7 @@
       Object.assign(globalThis.__CC_SUBCAP_TEST_EXPORTS__, {
         CARD_CONFIGS,
         EMBEDDED_CAP_POLICY,
+        PORTAL_PROFILES,
         normalizeCapPolicy,
         getCapSeverity,
         getCardCapPolicy,

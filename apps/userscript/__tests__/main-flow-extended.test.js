@@ -214,7 +214,7 @@ describe('main flow extended', () => {
     tbodyNode.querySelectorAll = () => new Array(1).fill(0).map(() => makeRow(3));
     doc.evaluate = (xpath) => {
       const lower = String(xpath).toLowerCase();
-      if (lower.includes('xl rewards card')) {
+      if (lower.includes('selected-accountname')) {
         return { singleNodeValue: cardNode };
       }
       if (lower.includes('tbody')) {
@@ -264,7 +264,7 @@ describe('main flow extended', () => {
     tbodyNode.querySelectorAll = () => [];
     doc.evaluate = (xpath) => {
       const lower = String(xpath).toLowerCase();
-      if (lower.includes('xl rewards card')) {
+      if (lower.includes('selected-accountname')) {
         return { singleNodeValue: cardNode };
       }
       if (lower.includes('tbody')) {

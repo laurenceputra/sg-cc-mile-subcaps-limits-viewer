@@ -70,9 +70,10 @@
     - `/html/body/section/section/section/section/section/section/section/section/div[1]/div/form[1]/div[9]/div[2]/table/tbody`
 
 - **Maybank2u SG (XL Rewards Card)**
-  - **Card name XPaths** (ordered fallback):
-    - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[1]/div[1]/div[2]/div[2]/span`
-    - `//*[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "xl rewards card")][1]`
+   - **Active card name XPath** (class-token scoped):
+     - `//*[contains(concat(" ", normalize-space(@class), " "), " nameDetails ") and contains(concat(" ", normalize-space(@class), " "), " cards ")]/span[contains(concat(" ", normalize-space(@class), " "), " selected-accountname ")]`
+     - Reads only the visible active label (`.nameDetails.cards > span.selected-accountname`), not inactive dropdown entries or whole-page text. Missing, hidden, or unsupported active labels fail closed, even if XL appears in the menu.
+     - Context identity still compares profile, supported name, normalized label text, and XPath. Unrelated page changes cannot change the scoped label text.
   - **Transactions table body XPaths** (ordered fallback):
     - `/html/body/div/div/div[1]/div[1]/div[3]/div[2]/div[1]/div/div[2]/div/div[2]/div/div/table/tbody`
     - `(//table//tbody)[1]`
@@ -81,7 +82,7 @@
     - Description ending with `SGP` is categorized as `Local`; other suffixes are categorized as `Forex`.
     - Maybank rows do not expose UOB-style reference numbers, so a deterministic synthetic key is generated for storage dedupe.
 
-If the portal markup changes, update these selectors in `main()`.
+If the portal markup changes, update these selectors in `PORTAL_PROFILES`.
 
 ## Category mapping behavior
 
